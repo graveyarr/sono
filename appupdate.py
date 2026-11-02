@@ -89,7 +89,13 @@ def check() -> None:
     import requests
     _set(state="checking", error=None)
     try:
-        rel = requests.get(API, timeout=20, headers={"Accept": "application/vnd.github+json"}).json()
+        try:
+            resp = requests.get(API, timeout=20, headers={"Accept": "application/vnd.github+json"})
+            rel = resp.json() if resp.ok else {}
+        except (requests.RequestException, ValueError):
+            rel = {}
+        if not rel.get("tag_name") and REPO:
+            rel = _latest_from_web(requests)
         latest = str(rel.get("tag_name") or "").lstrip("vV")
         if not latest:
             raise ValueError(rel.get("message") or "GitHub не ответил, какая версия последняя")
@@ -105,6 +111,8 @@ def check() -> None:
         if target.is_file() and (not want or _sha256(target) == want):
             _set(state="ready", file=str(target))   # уже скачан раньше
             return
+        if not want:
+            print("[app-update] контрольной суммы нет — проверю только, что файл скачался целиком")
         _set(state="downloading", progress=0)
         _dir().mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".part")
@@ -132,6 +140,28 @@ def check() -> None:
     except Exception as e:
         _set(state="error", error=str(e))
         print(f"[app-update] не получилось проверить обновление: {e}")
+
+
+def _latest_from_web(requests) -> dict:
+    """Запасной путь, если API GitHub отказал. Без входа он отвечает одному адресу 60 раз в час,
+    а у VPN адрес общий на многих — лимит бывает исчерпан (так было при проверке). Обычная страница
+    /releases/latest лимита не имеет: она перенаправляет на /releases/tag/v<версия>. Установщик лежит
+    по предсказуемому адресу, контрольная сумма — в файле .sha256 рядом с ним (кладёт build.py)."""
+    resp = requests.get(f"https://github.com/{REPO}/releases/latest", allow_redirects=False, timeout=20)
+    tag = (resp.headers.get("Location") or "").rstrip("/").rsplit("/tag/", 1)[-1]
+    if not re.fullmatch(r"v?\d+(\.\d+)*", tag):
+        raise ValueError("GitHub не ответил, какая версия последняя")
+    name = f"SonoSetup-{tag.lstrip('vV')}.exe"
+    url = f"https://github.com/{REPO}/releases/download/{tag}/{name}"
+    digest = ""
+    try:
+        sha = requests.get(url + ".sha256", timeout=20)
+        if sha.ok and re.match(r"[0-9a-fA-F]{64}", sha.text.strip()):
+            digest = "sha256:" + sha.text.strip()[:64].lower()
+    except requests.RequestException:
+        pass
+    return {"tag_name": tag, "html_url": f"https://github.com/{REPO}/releases/tag/{tag}", "body": "",
+            "assets": [{"name": name, "browser_download_url": url, "digest": digest}]}
 
 
 def _sha256(path: Path) -> str:

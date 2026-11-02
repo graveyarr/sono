@@ -20,7 +20,7 @@ from pathlib import Path
 
 import PyInstaller.__main__
 
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 ROOT = Path(__file__).parent
 DIST = ROOT / "dist"
 # Файл программы — НЕ Sono.exe: в списке игр Discord есть игра «Sono» с правилом «sono/sono.exe»,
@@ -89,4 +89,9 @@ iscc = next((p for p in iscc_places if p.exists()), None)
 if not iscc:
     raise SystemExit("Не нашёл Inno Setup — поставь его: winget install JRSoftware.InnoSetup")
 subprocess.run([str(iscc), f"/DMyAppVersion={VERSION}", f"/DMyAppExeName={EXE}", str(ROOT / "installer.iss")], check=True)
-print(f"[build] готово: {DIST / f'SonoSetup-{VERSION}.exe'}")
+setup = DIST / f"SonoSetup-{VERSION}.exe"
+# Контрольная сумма рядом — её тоже выкладываем в выпуск на GitHub: по ней автообновление
+# проверяет скачанное, даже когда API GitHub недоступен (appupdate.py → _latest_from_web)
+import hashlib   # noqa: E402
+(DIST / f"{setup.name}.sha256").write_text(f"{hashlib.sha256(setup.read_bytes()).hexdigest()}  {setup.name}\n", encoding="utf-8")
+print(f"[build] готово: {setup} (+ .sha256 — выложить в выпуск вместе с ним)")
