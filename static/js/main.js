@@ -1,0 +1,87 @@
+// Точка входа: загружаем медиатеку, подключаем все части и горячие клавиши.
+
+import { openAddToPlaylist, toggleDislike, toggleLike } from "./actions.js";
+import { initDownloads, onDownloadsChange } from "./downloads.js";
+import { initFlow } from "./flow.js";
+import { initPresence } from "./presence.js";
+import { initViz } from "./viz.js";
+import { initAudio } from "./audio.js";
+import { initFxButton } from "./fx.js";
+import { initFlowView } from "./flowview.js";
+import { initStats } from "./stats.js";
+import { maybeWelcome } from "./welcome.js";
+import { watchAppUpdate } from "./settings.js";
+import { initTitlebar } from "./titlebar.js";
+import { flush, loadLibrary, onChange, onSaveError } from "./library.js";
+import { initLyrics } from "./lyrics.js";
+import { initPlayer, onPlayState, onTrackChange, seekBy, state, syncLikeButtons, togglePlay } from "./player.js";
+import { focusSearch, initSearch, refreshHistory } from "./search.js";
+import { syncAllRows, toast } from "./ui.js";
+import { initViews, refreshDownloads, refreshPlaying, refreshViews, syncPlayButtons } from "./views.js";
+
+try {
+  await loadLibrary();
+} catch (err) {
+  toast("Не удалось загрузить медиатеку: " + err.message, { error: true });
+}
+
+initPlayer();
+initSearch();
+initViews();
+initLyrics();
+initFlow();
+initPresence();
+initAudio();
+initViz();
+initFxButton();
+initFlowView();
+initStats();
+initTitlebar();   // своя полоска заголовка окна (в программе; в браузере её нет)
+maybeWelcome();   // первый запуск — приветствие и экскурсия
+watchAppUpdate();   // скачалась новая версия Sono — предложим обновиться
+// Скачивания: значки у треков и кнопки «Скачать» обновляются, пока сервер качает
+onDownloadsChange(() => { syncAllRows(); refreshDownloads(); });
+initDownloads();
+
+// Медиатека изменилась → обновить всё, что её показывает
+onChange((section) => {
+  // Сердечки — и при смене плейлистов: ♡ может класть в выбранный плейлист (settings.likeTarget)
+  if (section === "liked" || section === "disliked" || section === "playlists") {
+    syncAllRows();
+    syncLikeButtons();
+  }
+  if (section === "history") refreshHistory();
+  refreshViews(section);
+});
+onSaveError((err) => toast("Не удалось сохранить медиатеку: " + err.message, { error: true }));
+addEventListener("pagehide", flush);
+
+onTrackChange(refreshPlaying);
+onPlayState(syncPlayButtons);
+
+// Кнопки у текущего трека (на большом экране и в мини-плеере)
+const withCurrent = (fn) => () => { if (state.current) fn(state.current); };
+document.querySelectorAll('[data-np="like"]').forEach((b) => b.addEventListener("click", withCurrent(toggleLike)));
+document.querySelectorAll('[data-np="dislike"]').forEach((b) => b.addEventListener("click", withCurrent(toggleDislike)));
+document.querySelectorAll('[data-np="add"]').forEach((b) => b.addEventListener("click", () => {
+  if (state.current) openAddToPlaylist(b, state.current);
+}));
+
+// ---------- Горячие клавиши ----------
+// Пробел — пауза, ←/→ — перемотка на 5 с, L — в избранное, Ctrl+K или / — к поиску
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest?.(".dialog-backdrop, .menu")) return;   // в диалоге и меню клавиши свои
+  if ((e.ctrlKey && e.key.toLowerCase() === "k") || (e.key === "/" && e.target === document.body)) {
+    e.preventDefault();
+    focusSearch();
+    return;
+  }
+  if (e.target.matches("input:not([type=range])")) return;   // в поле ввода клавиши нужны для текста
+  // Пробел на кнопке и стрелки на ползунке браузер обработает сам
+  if (e.code === "Space" && !e.target.closest("button, .lib-item")) { e.preventDefault(); togglePlay(); }
+  else if (e.target.type === "range" || !state.current || e.ctrlKey || e.altKey) return;
+  else if (e.key === "ArrowLeft") seekBy(-5);
+  else if (e.key === "ArrowRight") seekBy(5);
+  else if (e.code === "KeyL") toggleLike(state.current);
+});

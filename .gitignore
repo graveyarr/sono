@@ -1,0 +1,33 @@
+# Скачанная музыка и обложки — чужие авторские материалы, в репозиторий НЕЛЬЗЯ
+cache/
+
+# Сборка .exe (python build.py) — пересоздаётся каждый раз.
+# Готовый установщик SonoSetup.exe выкладывается в GitHub Releases, а не в код.
+build/
+dist/
+*.spec
+
+# Данные запущенного приложения (личные плейлисты, избранное, история)
+library.json
+library.tmp
+network.json
+library.broken-*.json
+sono.log
+player.log
+webview/
+# Автонастройка zapret: скрипт, параметры и ход подбора
+zapret/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Редакторы и система
+.vscode/
+.idea/
+.claude/settings.local.json
+Thumbs.db
+desktop.ini
+.DS_Store
