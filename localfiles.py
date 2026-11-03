@@ -47,20 +47,22 @@ def track_id(path: str) -> str:
     return hashlib.sha1(os.path.normcase(os.path.abspath(path)).encode("utf-8")).hexdigest()[:16]
 
 
-def _tags(path: Path) -> dict:
-    """Название, исполнитель, альбом, длительность. Тегов нет — название из имени файла («Исполнитель - Название»)."""
+def _tags(path: Path) -> dict | None:
+    """Название, исполнитель, альбом, длительность. Тегов нет — название из имени файла («Исполнитель - Название»).
+    None — это не музыка (битый файл или чужой файл с расширением .mp3): в список его не берём."""
     import mutagen
     title = artist = album = ""
     duration = None
     try:
         f = mutagen.File(path, easy=True)
-        if f is not None:
-            tags = f.tags or {}
-            pick = lambda k: (tags.get(k) or [""])[0] if hasattr(tags, "get") else ""   # noqa: E731
-            title, artist, album = pick("title"), pick("artist") or pick("albumartist"), pick("album")
-            duration = round(f.info.length) if getattr(f, "info", None) and f.info.length else None
+        if f is None:
+            return None
+        tags = f.tags or {}
+        pick = lambda k: (tags.get(k) or [""])[0] if hasattr(tags, "get") else ""   # noqa: E731
+        title, artist, album = pick("title"), pick("artist") or pick("albumartist"), pick("album")
+        duration = round(f.info.length) if getattr(f, "info", None) and f.info.length else None
     except Exception:
-        pass
+        return None
     if not title:
         stem = path.stem
         if " - " in stem and not artist:
@@ -100,7 +102,13 @@ def scan() -> None:
                     except OSError:
                         continue
                     known = old.get(tid)
-                    fresh[tid] = known if known and known.get("mtime") == mtime else {"path": str(path), "mtime": mtime, **_tags(path)}
+                    # Без длительности — перечитываем: так из списка уходят битые файлы, найденные старыми версиями
+                    if not (known and known.get("mtime") == mtime and known.get("duration")):
+                        tags = _tags(path)
+                        if tags is None:
+                            continue
+                        known = {"path": str(path), "mtime": mtime, **tags}
+                    fresh[tid] = known
                     _scan["found"] = len(fresh)
             with _lock:
                 _data["tracks"] = fresh

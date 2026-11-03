@@ -3,7 +3,7 @@
 
 import { addToPlaylistItems, createPlaylist, openPlaylistMenu, openTrackMenu, pickPlaylistCover, removeTracksWithUndo, renamePlaylist, toggleDislike, toggleLike } from "./actions.js";
 import { renderAlbum, renderArtist } from "./artist.js";
-import { FLOW_MODES, flowMode, setFlowMode, startFlow } from "./flow.js";
+import { FLOW_MODES, cachedMixes, flowMode, hasTaste, setFlowMode, startFlow, tasteMixes } from "./flow.js";
 import { renderFlowView } from "./flowview.js";
 import { renderStats, statsCard } from "./stats.js";
 import { icons } from "./icons.js";
@@ -228,7 +228,8 @@ function flowCard() {
   playBtn.dataset.collection = "flow:main";
   playBtn.innerHTML = `<span class="i-play">${icons.play}</span><span class="i-pause">${icons.pause}</span>`;
   playBtn.title = "Слушать Flow";
-  playBtn.addEventListener("click", () => (playingFrom("flow:main") ? togglePlay() : startFlow()));
+  // Вкуса ещё нет — сначала выбрать исполнителей на вкладке Flow
+  playBtn.addEventListener("click", () => (playingFrom("flow:main") ? togglePlay() : hasTaste() ? startFlow() : showView("flow")));
   const seg = el("div", "seg flow-modes");
   for (const m of FLOW_MODES) {
     const btn = el("button", `seg-btn${m.value === mode ? " on" : ""}`, m.title);
@@ -286,13 +287,62 @@ function renderHome() {
     start.append(importBtn);
     children.push(start);
   }
-  // Новинки исполнителей, на которых подписан, — подгружаются в фоне и встают после плиток
+  // «Ваши миксы» и новинки исполнителей, на которых подписан, — подгружаются в фоне и встают после плиток
+  const mixes = el("div", "home-mixes");
   const fresh = el("div", "home-new");
-  children.splice(1, 0, fresh);
+  children.splice(1, 0, mixes, fresh);
+  mixesRow(mixes);
   newReleasesRow(fresh);
   homeRest.replaceChildren(...children);
   markCurrentRows(state.current ? keyOf(state.current) : null);
   syncPlayButtons();
+}
+
+/** «Ваши миксы»: Flow по группе похожих любимых исполнителей. Посчитанные — сразу, без мигания */
+function mixesRow(box) {
+  const fill = (list) => {
+    if (!list?.length) return;
+    const cards = el("div", "home-cards");
+    for (const mix of list) {
+      const id = `flow:mix-${mix.id}`;
+      const card = el("button", "home-card mix-card");
+      card.type = "button";
+      card.dataset.collection = id;
+      const art = el("div", "home-card-art mix-art");
+      const [lead, ...rest] = mix.artists;
+      if (lead.picture) {
+        const img = el("img");
+        img.alt = "";
+        img.loading = "lazy";
+        img.src = imgUrl(lead.picture);
+        img.onerror = () => img.classList.add("broken");
+        art.append(img);
+      }
+      // Остальные исполнители микса — маленькие кружки внизу
+      const faces = el("div", "mix-faces");
+      for (const a of rest.slice(0, 4)) {
+        const face = el("span", "mix-face", a.name.slice(0, 1).toUpperCase());
+        if (a.picture) {
+          const img = el("img");
+          img.alt = "";
+          img.src = imgUrl(a.picture);
+          img.onload = () => face.replaceChildren(img);
+        }
+        face.title = a.name;
+        faces.append(face);
+      }
+      art.append(el("span", "mix-badge", "Микс"), faces);
+      card.append(art, el("span", "home-card-title", mix.name),
+        el("span", "home-card-artist", mix.artists.length > 2 ? mix.artists.map((a) => a.name).join(", ") : "и похожие исполнители"));
+      card.title = mix.artists.map((a) => a.name).join(", ");
+      card.addEventListener("click", () => (playingFrom(id) ? togglePlay() : startFlow({ mix })));
+      cards.append(card);
+    }
+    box.replaceChildren(el("h2", "home-h", "Ваши миксы"), cards);
+  };
+  const ready = cachedMixes();
+  if (ready) fill(ready);
+  else tasteMixes().then((list) => { if (box.isConnected) fill(list); });
 }
 
 /** «Новинки ваших исполнителей» на «Главной» (подписки — кнопка «Подписаться» на странице исполнителя) */

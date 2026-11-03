@@ -24,11 +24,13 @@ export function showWhatsNew(entries = CHANGELOG.slice(0, 1)) {
   const { box, close } = openModal({ className: "whatsnew" });
   box.addEventListener("submit", (e) => { e.preventDefault(); close(); });
   const head = el("div", "wn-head");
-  head.append(el("div", "wn-kicker", entries.length > 1 ? `Вы обновились до ${entries[0].version}` : entries[0].date),
-    el("h2", "", entries.length > 1 ? "Что нового в Sono" : `Что нового в Sono ${entries[0].version}`));
+  // У каждого обновления короткое название («Исправления», «Трей и свои файлы»): одно обновление — оно и есть заголовок
+  const one = entries.length === 1 ? entries[0] : null;
+  head.append(el("div", "wn-kicker", one ? `Sono ${one.version} · ${one.date}` : `Вы обновились до ${entries[0].version}`),
+    el("h2", "", one ? one.name || `Что нового в Sono ${one.version}` : "Что нового в Sono"));
   const list = el("div", "wn-list");
   for (const entry of entries) {
-    if (entries.length > 1) list.append(el("div", "wn-version", `${entry.version} · ${entry.date}`));
+    if (!one) list.append(el("div", "wn-version", [entry.version, entry.name, entry.date].filter(Boolean).join(" · ")));
     for (const item of entry.items) {
       const row = el("div", "wn-item");
       const icon = el("span", "wn-icon");

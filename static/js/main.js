@@ -99,7 +99,7 @@ document.querySelectorAll('[data-np="add"]').forEach((b) => b.addEventListener("
 }));
 
 // ---------- Горячие клавиши ----------
-// Пробел — пауза, ←/→ — перемотка на 5 с, L — в избранное, Ctrl+K или / — к поиску
+// Пробел — пауза, ←/→ — перемотка на 5 с, L — в избранное, Ctrl+K или / — к поиску (на любой раскладке)
 
 // Кнопка «нажимается» пробелом при его отпускании — гасим и это, иначе сработало бы и то, и другое
 document.addEventListener("keyup", (e) => {
@@ -108,12 +108,14 @@ document.addEventListener("keyup", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.target.closest?.(".dialog-backdrop, .menu")) return;   // в диалоге и меню клавиши свои
-  if ((e.ctrlKey && e.key.toLowerCase() === "k") || (e.key === "/" && e.target === document.body)) {
+  // По клавише (e.code), а не по букве: на русской раскладке Ctrl+K — это «Ctrl+Л», а «/» — это «.»
+  const typing = e.target.matches("input:not([type=range]), textarea, select, [contenteditable]");
+  if ((e.ctrlKey && e.code === "KeyK") || (e.code === "Slash" && !e.ctrlKey && !e.altKey && !typing)) {
     e.preventDefault();
     focusSearch();
     return;
   }
-  if (e.target.matches("input:not([type=range]), textarea, select, [contenteditable]")) return;   // в поле ввода клавиши нужны для текста
+  if (typing) return;   // в поле ввода клавиши нужны для текста
   // Пробел — всегда пауза/продолжить, даже если в фокусе кнопка: раньше он «нажимал» последнюю нажатую
   // кнопку (например, «Следующая») — так браузер ведёт себя с кнопками. Стрелки на ползунке браузер обработает сам
   if (e.code === "Space") { e.preventDefault(); if (!e.repeat) togglePlay(); }

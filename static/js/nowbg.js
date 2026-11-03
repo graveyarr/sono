@@ -170,11 +170,21 @@ function resize() {
 
 // ---------- Кадр ----------
 
-function frame(ts) {
-  if (!running) return;
+// У каждого запуска рисования свой номер: новый запуск останавливает старый цикл.
+// Без этого каждый перезапуск добавлял ещё один цикл, и работы становилось всё больше
+let loop = 0;
+function start() {
+  const id = ++loop;
+  running = true;
+  lastFrame = 0;
+  requestAnimationFrame((t) => frame(t, id));
+}
+
+function frame(ts, id) {
+  if (!running || id !== loop) return;
   // «Без анимаций»: свет не «дышит» под басы; для «Градиента» ниже рисуется один кадр
   if (motionOff() && nowBackground() !== "mesh") { running = false; glow.style.setProperty("--pulse", "0"); return; }
-  requestAnimationFrame(frame);
+  requestAnimationFrame((t) => frame(t, id));
   // Басы — мягко (сильно сглажено), чтобы не мигало
   const { bass = 0 } = musicLevels(ts) || {};
   const playing = !audio.paused;
@@ -211,9 +221,7 @@ function refresh(force = false) {
   if (should !== wasOnNow) { wasOnNow = should; refreshGlow(); }   // класс body меняется часто — только на смену экрана
   if (motionOff() && running && !force) return;
   if (should && (!running || force)) {
-    running = true;
-    lastFrame = 0;
-    requestAnimationFrame(frame);
+    start();
   } else if (!should) {
     running = false;
   }
@@ -224,9 +232,9 @@ export function initNowBackground() {
   coverImg.addEventListener("load", refreshGlow);   // сменилась обложка
   // Включили/выключили «Без анимаций» — перезапустить (или остановить) рисование
   document.addEventListener("sono:motion", () => { running = false; lastFrame = 0; refresh(true); refreshGlow(); });
-  new MutationObserver(refreshGlow).observe(coverWrap, { attributes: true, attributeFilter: ["class"] });   // клип появился/пропал
+  new MutationObserver(() => refreshGlow()).observe(coverWrap, { attributes: true, attributeFilter: ["class"] });   // клип появился/пропал
   clipVideo.addEventListener("loadeddata", refreshGlow);
-  new MutationObserver(refresh).observe(document.body, { attributes: true, attributeFilter: ["class"] });
-  document.addEventListener("visibilitychange", refresh);
+  new MutationObserver(() => refresh()).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  document.addEventListener("visibilitychange", () => refresh());
   apply();
 }

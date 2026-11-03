@@ -180,7 +180,7 @@ const eqLow = [1, 1, 1], eqHigh = [0, 0, 0];   // «коридор» громк�
 let eqRunning = false;
 
 function eqTick(ts) {
-  if (!analyser || audio.paused) {
+  if (!analyser || audio.paused || motionOff()) {   // «Без анимаций» включили на ходу — палочки замирают
     eqRunning = false;
     document.body.classList.remove("eq-live");
     document.querySelectorAll(EQ_BARS).forEach((i) => { i.style.height = ""; });
@@ -270,7 +270,8 @@ function draw(ts) {
     g.fill();
   }
 
-  if (running && (alive || !audio.paused)) requestAnimationFrame(draw);
+  // Ушли с «Сейчас играет» (или выключили визуализацию) — не рисуем скрытый холст; вернутся — refreshViz запустит снова
+  if (running && shouldRun() && (alive || !audio.paused)) requestAnimationFrame(draw);
   else running = false;
 }
 
@@ -303,5 +304,7 @@ export function initViz() {
   // Экран «Сейчас играет» открыли/закрыли
   new MutationObserver(refreshViz).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   document.addEventListener("visibilitychange", refreshViz);
+  // «Без анимаций» выключили — палочки-«эквалайзеры» снова идут за звуком
+  document.addEventListener("sono:motion", () => { refreshViz(); startEq(); });
   refreshViz();
 }

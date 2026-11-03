@@ -337,6 +337,9 @@ def _norm(text: str) -> str:
     return re.sub(r"[\W_]+", " ", (text or "").lower().replace("ё", "е")).strip()
 
 
+YTM_FAST = {"quiet": True, "skip_download": True, "extractor_args": {"youtube": {"player_client": ["visionos"]}}}
+
+
 def _youtube_music_song(artist: str, title: str, duration: float | None) -> dict | None:
     """Ищет официальную запись в YouTube Music. В выдаче нет исполнителя и длительности, поэтому
     кандидатов с точно таким же названием проверяем по-настоящему: канал исполнителя
@@ -354,11 +357,21 @@ def _youtube_music_song(artist: str, title: str, duration: float | None) -> dict
     except Exception:
         return None
     candidates = [e["id"] for e in entries if e.get("id") and _norm((e.get("title") or "").split("(")[0]) == want]
-    for video_id in candidates[:2]:
-        try:
-            with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
-                info = ydl.extract_info(f"https://music.youtube.com/watch?v={video_id}", download=False, process=False)
-        except Exception:
+
+    def info_of(video_id: str) -> dict | None:
+        # Быстрый «клиент» visionos (без разгадывания скрипта YouTube): ~1,6 с вместо ~3 с; не вышло — обычный
+        for opts in (YTM_FAST, {"quiet": True, "skip_download": True}):
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    return ydl.extract_info(f"https://music.youtube.com/watch?v={video_id}", download=False, process=False)
+            except Exception:
+                continue
+        return None
+
+    # Кандидатов проверяем одновременно: раньше по очереди — трек, которого «нет нигде», искался 10–13 с
+    infos = list(_SEARCH_POOL.map(info_of, candidates[:2]))
+    for video_id, info in zip(candidates[:2], infos):
+        if not info:
             continue
         who = _norm(" ".join(str(info.get(k) or "") for k in ("channel", "uploader", "artist", "creator"))
                     + " " + " ".join(info.get("artists") or []))
@@ -554,9 +567,11 @@ def _yandex_order(item: dict) -> str | None:
     try:
         found = _get_json("https://api.music.yandex.net/search?" + urlencode(
             {"text": f"{item['artist']} {item['title']}", "type": "track", "page": 0}))
+        # Вместо ответа Яндекс иногда присылает строку — тогда «не понять»
+        results = found["result"]["tracks"]["results"][:5]
     except Exception:
         return None
-    for t in (((found.get("result") or {}).get("tracks") or {}).get("results") or [])[:5]:
+    for t in results:
         names = ", ".join(a.get("name", "") for a in t.get("artists") or [])
         if _same(names, item["artist"]) and _same(t.get("title"), item["title"]):
             return "normal"

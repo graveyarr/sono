@@ -45,7 +45,16 @@ export async function openArtist({ id, name } = {}) {
     openView(`artist:${id}`);
     return true;
   }
-  const found = name ? await artistByName(name.trim()) : null;
-  if (found) openView(`artist:${found.id}`);
-  return !!found;
+  // Пока ищем по имени, повторный щелчок по нему же не запускает второй поиск (и второе «Не нашёл»)
+  const key = (name || "").trim().toLowerCase();
+  if (key && key === lookingFor) return true;
+  lookingFor = key;
+  try {
+    const found = key ? await artistByName(name.trim()) : null;
+    if (found) openView(`artist:${found.id}`);
+    return !!found;
+  } finally {
+    lookingFor = "";
+  }
 }
+let lookingFor = "";

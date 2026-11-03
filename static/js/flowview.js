@@ -6,7 +6,8 @@
 // Поверх — запуск, режимы, Flow по исполнителю и по плейлисту, что Flow уже выучил.
 
 import { analyserNode } from "./audio.js";
-import { FLOW_MODES, flowMode, flowPlaying, learnedSummary, resetLearning, setFlowMode, startFlow, tasteArtists } from "./flow.js";
+import { FLOW_MODES, flowMode, flowPlaying, hasTaste, learnedSummary, resetLearning, seedTaste, setFlowMode, startFlow,
+         tasteArtists } from "./flow.js";
 import { icons } from "./icons.js";
 import { lib, motionOff } from "./library.js";
 import { artistByName } from "./meta.js";
@@ -18,6 +19,10 @@ const box = document.getElementById("view-flow");
 const canvas = document.getElementById("flow-bg");
 const coverEl = document.getElementById("cover");   // обложка на «Сейчас играет» — из неё и делаем фон
 const MODE_ICONS = { liked: icons.heart, mix: icons.shuffle, discover: icons.compass };
+// Новому человеку (вкуса ещё нет) — выбрать нескольких исполнителей, с них Flow и начнётся
+const STARTER = ["Кино", "Земфира", "Сплин", "Король и Шут", "Скриптонит", "Miyagi & Andy Panda", "Макс Корж", "Баста",
+  "Монеточка", "Pharaoh", "MACAN", "Zivert", "Три дня дождя", "Noize MC", "The Weeknd", "Dua Lipa", "Billie Eilish",
+  "Imagine Dragons", "Arctic Monkeys", "Linkin Park", "Lana Del Rey", "Travis Scott", "Daft Punk", "Queen"];
 
 // ---------- Экран ----------
 
@@ -61,12 +66,66 @@ function build() {
   const artists = el("div", "flowv-chips");
   const playlists = el("div", "flowv-chips");
   const learn = el("p", "flowv-learn");
+  const starter = el("section", "flowv-starter");
   const content = el("div", "flowv");
-  content.append(hero, modes,
+  content.append(hero, starter, modes,
     el("h2", "flowv-h", "Flow по исполнителю"), artists,
     el("h2", "flowv-h", "Flow по плейлисту"), playlists, learn);
   box.replaceChildren(content);
-  ui = { sub, play, next, now, modes, artists, playlists, learn };
+  ui = { sub, play, next, now, modes, artists, playlists, learn, starter };
+}
+
+/** Аватар исполнителя в кружок; не нашёлся в базе — onMissing (обычно убрать карточку) */
+function loadAvatar(name, pic, onMissing) {
+  const show = (found) => {
+    if (!found) return onMissing?.();
+    if (!found.picture) return;
+    const img = el("img");
+    img.alt = "";
+    img.src = imgUrl(found.picture);
+    img.onload = () => pic.replaceChildren(img);
+  };
+  if (avatars.has(name)) show(avatars.get(name));
+  else artistByName(name).then((found) => { if (found) avatars.set(name, found); show(found); }).catch(() => {});
+}
+
+/** «С чего начнём?» — для тех, у кого ещё нет вкуса: щёлкнуть по нескольким исполнителям → Flow */
+function fillStarter() {
+  const show = !hasTaste();
+  ui.starter.hidden = !show;
+  if (!show || ui.starter.childElementCount) return;
+  const picked = new Map();
+  const go = el("button", "flowv-start");
+  go.type = "button";
+  const update = () => {
+    go.disabled = !picked.size;
+    go.textContent = picked.size ? `Начать Flow · ${plural(picked.size, "исполнитель", "исполнителя", "исполнителей")}`
+      : "Выберите хотя бы одного";
+  };
+  update();
+  const chips = el("div", "flowv-chips");
+  for (const name of STARTER) {
+    const chip = el("button", "flowv-chip pick");
+    chip.type = "button";
+    const pic = el("span", "flowv-chip-pic", name.slice(0, 1).toUpperCase());
+    chip.append(pic, el("span", "flowv-chip-name", name));
+    loadAvatar(name, pic);   // список проверенный — без картинки карточка просто остаётся с буквой
+    chip.addEventListener("click", () => {
+      if (picked.has(name)) picked.delete(name); else picked.set(name, { name });
+      chip.classList.toggle("on", picked.has(name));
+      update();
+    });
+    chips.append(chip);
+  }
+  go.addEventListener("click", () => {
+    seedTaste([...picked.values()]);
+    ui.starter.hidden = true;
+    startFlow({ mode: flowMode() });
+    fillLists();
+  });
+  ui.starter.append(el("h2", "flowv-h", "С чего начнём?"),
+    el("p", "flowv-empty", "Выберите исполнителей, которые вам нравятся, — Flow начнёт с похожего и дальше будет учиться на вас."),
+    chips, go);
 }
 
 const avatars = new Map();   // имя → { id, picture } (или null — не нашёлся)
@@ -76,17 +135,8 @@ function artistChip({ name, id }) {
   chip.type = "button";
   const pic = el("span", "flowv-chip-pic", name.slice(0, 1).toUpperCase());
   chip.append(pic, el("span", "flowv-chip-name", name));
-  const show = (found) => {
-    if (!found?.picture) return;
-    const img = el("img");
-    img.alt = "";
-    img.src = imgUrl(found.picture);
-    img.onload = () => pic.replaceChildren(img);
-  };
   // Не нашёлся в базе (часто это название YouTube-канала, а не исполнитель) — карточку убираем
-  const check = (found) => { if (found) show(found); else chip.remove(); };
-  if (avatars.has(name)) check(avatars.get(name));
-  else artistByName(name).then((found) => { avatars.set(name, found); check(found); }).catch(() => {});
+  loadAvatar(name, pic, () => chip.remove());
   chip.addEventListener("click", async () => {
     const found = id ? { id, name } : (avatars.get(name) ?? await artistByName(name).catch(() => null));
     if (!found?.id) return toast(`Не нашёл «${name}» в базе`, { error: true });
@@ -131,6 +181,8 @@ function sync() {
     img.onerror = () => img.classList.add("broken");
     const text = el("div", "flowv-now-text");
     text.append(el("div", "flowv-now-title", shown.title), el("div", "flowv-now-artist", `${shown.artist} · ${state.context?.name ?? "Flow"}`));
+    // Почему Flow поставил этот трек: «Похоже на Кино», «Вы слушаете Сплин», «Из избранного»
+    if (t.because) text.append(el("div", "flowv-now-why", t.because));
     ui.now.replaceChildren(img, text);
   }
 }
@@ -158,6 +210,7 @@ function fillLists() {
 
 export function renderFlowView() {
   if (!ui) build();
+  fillStarter();
   fillLists();
   sync();
   refreshAnim();

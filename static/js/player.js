@@ -5,7 +5,7 @@
 import { icons } from "./icons.js";
 import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, setSetting } from "./library.js";
 import { isMeta, missingReason, resolveMeta, toReal } from "./meta.js";
-import { SOURCE_NAMES, artistLinks, compactNumber, coverUrl, displayTrack, formatTime, imageHsl, playsText, replay, trackPath } from "./ui.js";
+import { SOURCE_NAMES, artistLinks, compactNumber, coverUrl, displayTrack, formatTime, imageHsl, playsText, replay, toast, trackPath } from "./ui.js";
 
 const audio = document.getElementById("player");
 const coverEl = document.getElementById("cover");
@@ -80,6 +80,11 @@ export function setStatus(text, isError = false) {
   statusEl.textContent = text;
   statusEl.classList.toggle("error", isError);
   if (text) console.log("[status]", text);
+  // Строка состояния есть только на «Сейчас играет» — на других экранах ошибку показываем уведомлением,
+  // иначе трек молча не играет. Во Flow пропуск ненайденного трека — обычное дело, не шумим
+  if (isError && text && !document.body.classList.contains("on-now") && state.context?.type !== "flow") {
+    toast(text, { error: true });
+  }
 }
 
 // ---------- Включение трека ----------
@@ -188,6 +193,13 @@ export function swapCurrent(alt) {
   const pos = audio.currentTime;
   state.queue[state.index] = alt;
   playAt(alt, state.queue, state.index, state.context);
+  resumeAt = pos > 1 ? pos : null;
+}
+
+/** Вернуться к треку очереди и продолжить с того же места (например, «Отменить» после дизлайка) */
+export function returnToQueue(i, pos = 0) {
+  if (!state.queue[i]) return;
+  playFromQueue(i);
   resumeAt = pos > 1 ? pos : null;
 }
 

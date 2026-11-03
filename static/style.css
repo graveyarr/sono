@@ -985,9 +985,10 @@ body.on-flow .top { border-bottom-color: transparent; }
 .flowv-now img { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex: none; }
 .flowv-now img.broken { visibility: hidden; }
 .flowv-now-text { min-width: 0; }
-.flowv-now-title, .flowv-now-artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flowv-now-title, .flowv-now-artist, .flowv-now-why { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flowv-now-title { font-size: 14.5px; font-weight: 700; }
 .flowv-now-artist { margin-top: 2px; font-size: 12.5px; color: rgba(255, 255, 255, 0.65); }
+.flowv-now-why { margin-top: 3px; font-size: 12px; color: color-mix(in srgb, var(--accent) 45%, #fff); }
 
 /* Режимы — три стеклянные карточки */
 .flowv-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; max-width: 820px; }
@@ -1035,6 +1036,23 @@ body.on-flow .top { border-bottom-color: transparent; }
 .flowv-chip-name { min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flowv-chip-sub { font-size: 12px; color: rgba(255, 255, 255, 0.55); white-space: nowrap; }
 .flowv-empty { margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.6); }
+/* «С чего начнём?» — выбор исполнителей для нового человека */
+.flowv-starter { margin: 30px 0 34px; }
+.flowv-starter[hidden] { display: none; }
+.flowv-starter .flowv-h { margin-top: 0; margin-bottom: 6px; }
+.flowv-starter > .flowv-empty { margin-bottom: 14px; }
+.flowv-chip.pick.on { border-color: rgba(255, 255, 255, 0.7); background: rgba(255, 255, 255, 0.2); }
+.flowv-chip.pick.on .flowv-chip-pic { box-shadow: 0 0 0 2px #fff; }
+.flowv-start {
+  margin-top: 18px; height: 44px; padding: 0 24px;
+  border: 0; border-radius: 22px;
+  background: #fff; color: #000;
+  font: inherit; font-size: 14.5px; font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s var(--ease), opacity 0.2s;
+}
+.flowv-start:hover:not(:disabled) { transform: scale(1.04); }
+.flowv-start:disabled { opacity: 0.4; cursor: default; }
 .flowv-learn { margin: 34px 0 0; font-size: 13px; color: rgba(255, 255, 255, 0.55); }
 .flowv-link { padding: 0; border: 0; background: none; color: rgba(255, 255, 255, 0.85); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .flowv-link:hover { color: #fff; }
@@ -1179,7 +1197,10 @@ body.playing .cover-wrap {
 }
 .cover-wrap.clip-on #clip { opacity: 1; }
 
-.np-row { display: flex; align-items: flex-start; gap: 4px; margin-top: 26px; }
+.np-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; margin-top: 26px; }
+/* Узкая колонка (маленькое окно): если названию остаётся меньше 150 px, кнопки уходят строкой ниже —
+   иначе слово рвалось посередине («Кукуш|ка») */
+.np-row .info { flex: 1 1 150px; }
 /* Название трека — ссылка на его альбом (щелчок → альбом/сингл, трек подсвечен) */
 body.has-track #np-info [data-np="title"] { cursor: pointer; }
 body.has-track #np-info [data-np="title"]:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
@@ -1254,7 +1275,7 @@ body.dragging-tracks .lib-item[data-view^="playlist:"] { outline: 1px dashed rgb
   margin: 0; padding-bottom: 0.08em;
   font-size: 25px; font-weight: 800; line-height: 1.2; letter-spacing: -0.01em;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; word-break: break-word;
+  overflow: hidden; overflow-wrap: break-word;
 }
 .info p { margin: 4px 0 0; font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-actions { display: flex; flex: none; margin: 2px -8px 0 0; }
@@ -1303,7 +1324,9 @@ input[data-np="seek"] { --fill: var(--accent); }
 .controls > [data-np="queue"] { justify-self: start; margin-left: -6px; }
 .buttons { display: flex; align-items: center; gap: 10px; }
 
-.source-badge { font-size: 11.5px; color: var(--faint); letter-spacing: 0.02em; }
+/* Строка «YouTube · просмотры · ♥» — в одну строку между временем; не влезает — многоточие */
+.times { gap: 10px; }
+.source-badge { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; color: var(--faint); letter-spacing: 0.02em; }
 
 /* Круглая белая кнопка «играть» */
 .play {
@@ -1510,6 +1533,29 @@ body.playing [data-np="play"] .i-pause, .big-play.is-playing .i-pause { opacity:
   overflow: hidden;
 }
 .release-card { cursor: pointer; }
+/* «Ваши миксы»: фото главного исполнителя, пометка «Микс» и кружки остальных */
+.mix-art::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent 55%);
+  pointer-events: none;
+}
+.mix-badge {
+  position: absolute; top: 8px; left: 8px; z-index: 1;
+  padding: 3px 9px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff;
+}
+.mix-faces { position: absolute; left: 8px; bottom: 8px; z-index: 1; display: flex; }
+.mix-face {
+  width: 30px; height: 30px; margin-right: -8px;
+  display: grid; place-items: center;
+  border: 2px solid #121212; border-radius: 50%; overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 35%, #222);
+  font-size: 12px; font-weight: 700; color: #fff;
+}
+.mix-face img { width: 100%; height: 100%; object-fit: cover; }
+.home-card:hover .mix-face img { transform: none; }
+.mix-card.current .home-card-title { color: var(--accent); }
 .release-card .home-card-art.no-image { display: grid; place-items: center; color: rgba(255, 255, 255, 0.7); }
 .release-card .home-card-art img { position: absolute; inset: 0; }
 .artist-card {
@@ -1546,7 +1592,8 @@ body.playing [data-np="play"] .i-pause, .big-play.is-playing .i-pause { opacity:
    Три колонки: левая и правая одинаковые (1fr), поэтому кнопки всегда ровно по центру. */
 .minibar {
   grid-row: 2; grid-column: 1 / -1;
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 560px) minmax(0, 1fr);
+  /* Середина не шире 46 % окна: на узком окне (860 px) иначе названию трека слева оставалось 0 */
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, min(560px, 46%)) minmax(0, 1fr);
   align-items: center; gap: 16px;
   height: 0; margin-top: 0;
   padding: 0 16px 0 8px;

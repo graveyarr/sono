@@ -36,11 +36,17 @@ def _get(url: str, params: dict | None = None) -> dict:
     path = _dir / f"{key}.json"
     try:
         if time.time() - path.stat().st_mtime < TTL:
-            return json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("_notFound"):
+                raise LookupError("не найдено")
+            return data
     except (OSError, ValueError):
         pass
     resp = requests.get(url, params=params, headers=UA, timeout=12)
     if resp.status_code == 404:
+        # «Нет такой страницы» тоже запоминаем: иначе, например, у исполнителя без статьи в Википедии
+        # каждое открытие страницы заново ждало три ответа «не найдено» (2–4 с)
+        path.write_text(json.dumps({"_notFound": True}), encoding="utf-8")
         raise LookupError("не найдено")
     resp.raise_for_status()
     data = resp.json()
@@ -78,7 +84,7 @@ def _track(t: dict, album: dict | None = None) -> dict:
         "artistRefs": [{"id": a.get("id"), "name": a.get("name", "")} for a in people],
         "duration": round((t.get("durationMs") or 0) / 1000) or None,
         "cover": _img(cover, "200x200"), "coverLarge": _img(cover, "600x600"),
-        "album": album.get("title"), "albumId": album.get("id"),
+        "album": album.get("title"), "albumId": album.get("id"), "year": album.get("year"),
         "available": t.get("available", True),
         # Пометка 18+: в оригинале есть мат — пару без цензуры искать особенно важно
         "explicit": t.get("contentWarning") == "explicit",
@@ -104,37 +110,55 @@ def _artist_card(a: dict) -> dict:
 
 # ---------- Что спрашивает страница ----------
 
+def _search(text: str, kind: str) -> list[dict]:
+    """Поиск Яндекса: список найденного (artists/tracks). Вместо ответа Яндекс иногда присылает строку
+    («text-is-empty» и т.п.) — тогда просто ничего не нашлось, а не ошибка сервера."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    found = _get(f"{YANDEX}/search", {"text": text, "type": kind, "page": 0})
+    result = found.get("result") if isinstance(found, dict) else None
+    block = result.get(kind + "s") if isinstance(result, dict) else None
+    items = block.get("results") if isinstance(block, dict) else None
+    return [x for x in items or [] if isinstance(x, dict)]
+
+
 def search_artists(query: str, limit: int = 6) -> list[dict]:
-    found = _get(f"{YANDEX}/search", {"text": query, "type": "artist", "page": 0})
-    results = (((found.get("result") or {}).get("artists") or {}).get("results")) or []
-    return [_artist_card(a) for a in results[:limit]]
+    return [_artist_card(a) for a in _search(query, "artist")[:limit]]
 
 
 def artist_by_name(name: str) -> dict | None:
     """Исполнитель по имени (для щелчка по имени в списке треков)."""
     name = re.split(r",| feat\.? | ft\.? ", name, flags=re.I)[0].strip()
     found = search_artists(name, limit=5)
-    want = _norm(name)
+    # Сравниваем и слитно: канал SoundCloud «lucybedroque» = «Lucy Bedroque» в Яндексе
+    want = _norm(name).replace(" ", "")
     for a in found:
-        if _norm(a["name"]) == want:
+        if _norm(a["name"]).replace(" ", "") == want:
             return a
-    if found and want and (want in _norm(found[0]["name"]) or _norm(found[0]["name"]) in want):
+    first = _norm(found[0]["name"]).replace(" ", "") if found else ""
+    if first and want and (want in first or first in want):
         return found[0]
     return None
 
 
 def find_track(artist: str, title: str, duration: float | None) -> dict | None:
     """Трек в базе Яндекса по исполнителю и названию (щелчок по названию → его альбом или сингл).
-    Совпасть должны название (без скобок) и исполнитель. Длительность только помогает выбрать: загрузка
-    на SoundCloud/YouTube бывает на 10–15 с короче версии в Яндексе, а альбом при этом тот же.
     Ответ: {"albumId", "trackId": "ya…"} или None."""
+    found = match_track(artist, title, duration)
+    return {"albumId": found[1].get("id"), "trackId": f"ya{found[0]['id']}"} if found else None
+
+
+def match_track(artist: str, title: str, duration: float | None) -> tuple[dict, dict] | None:
+    """Трек Яндекса (как он есть в ответе) и его альбом. Совпасть должны название (без скобок) и исполнитель.
+    Длительность только помогает выбрать: загрузка на SoundCloud/YouTube бывает на 10–15 с короче
+    версии в Яндексе, а альбом при этом тот же."""
     want_title = _norm(re.sub(r"\s*[(\[].*?[)\]]", "", title or ""))
     want_artist = _norm(re.split(r",| feat\.? | ft\.? | & ", artist or "", flags=re.I)[0])
     if not want_title:
         return None
-    found = _get(f"{YANDEX}/search", {"text": f"{artist} {title}".strip(), "type": "track", "page": 0})
     best, best_score = None, -1e9
-    for rank, t in enumerate((((found.get("result") or {}).get("tracks") or {}).get("results")) or []):
+    for rank, t in enumerate(_search(f"{artist} {title}", "track")):
         name = _norm(re.sub(r"\s*[(\[].*?[)\]]", "", t.get("title") or ""))
         people = " ".join(_norm(a.get("name", "")) for a in t.get("artists") or [])
         if name != want_title and not (want_title in name or name in want_title):
@@ -151,7 +175,7 @@ def find_track(artist: str, title: str, duration: float | None) -> dict | None:
         if score > best_score:
             # Сначала обычный альбом/сингл, а не сборник «лучшее за год» (у сборников исполнитель «various»)
             album = next((al for al in albums if al.get("type") != "compilation"), albums[0])
-            best, best_score = {"albumId": album.get("id"), "trackId": f"ya{t['id']}"}, score
+            best, best_score = (t, album), score
     return best
 
 
@@ -182,7 +206,7 @@ def artist(artist_id: int) -> dict:
 # Яндекс знает биографию не всех (у многих — пусто или одна строка). Тогда — короткая статья из Википедии,
 # но только если это статья о музыканте: у тёзок («Кино» — это и фильм) описание другое.
 MUSIC_WORDS = re.compile(r"музык|певец|певица|исполнител|рэп|рок|групп|композитор|автор песен|диджей|продюсер|"
-                         r"singer|musician|rapper|band|songwriter|record producer|dj|duo|group", re.I)
+                         r"singer|musician|rapper|band|songwriter|record producer|\bdj\b|duo|group", re.I)
 
 
 def _bio(a: dict) -> dict:

@@ -3,13 +3,14 @@
 
 import { findOriginal, hasAltVersion, restoreOriginal } from "./censor.js";
 import { download, isDownloaded, isDownloading, removeDownload } from "./downloads.js";
+import { startFlow } from "./flow.js";
 import { icons, sourceIcons } from "./icons.js";
 import { sharePlaylist } from "./share.js";
 import * as library from "./library.js";
 import { keyOf, lib } from "./library.js";
 import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
 import { openAlbumAt, openArtist, splitArtists } from "./nav.js";
-import { playNext, queueNext, state } from "./player.js";
+import { playNext, queueNext, returnToQueue, state } from "./player.js";
 import { confirmDialog, displayTrack, el, openMenu, plural, promptDialog, toast } from "./ui.js";
 
 const isCurrent = (track) => !!state.current && keyOf(state.current) === keyOf(track);
@@ -38,9 +39,20 @@ export const toggleLike = withReal((track) => {
 });
 
 export const toggleDislike = withReal((track) => {
+  // Запоминаем, что было до дизлайка, — для «Отменить» (промахнуться мимо кнопки легко)
+  const liked = library.likePlace(track);
+  const wasCurrent = isCurrent(track);
+  const index = state.index;
+  const pos = document.getElementById("player").currentTime;
   if (library.toggleDislike(track)) {
-    toast("Не нравится — этот трек будет пропускаться");
-    if (isCurrent(track)) playNext();   // как у всех: дизлайк на играющем треке переключает дальше
+    const undo = () => {
+      if (library.isDisliked(track)) library.toggleDislike(track);
+      library.restoreLike(track, liked);
+      // Переключились дальше из-за дизлайка — возвращаемся на то же место трека
+      if (wasCurrent && !isCurrent(track) && keyOf(state.queue[index] ?? {}) === keyOf(track)) returnToQueue(index, pos);
+    };
+    toast("Не нравится — этот трек будет пропускаться", { action: { label: "Отменить", run: undo } });
+    if (wasCurrent) playNext();   // как у всех: дизлайк на играющем треке переключает дальше
   } else {
     toast("Дизлайк убран");
   }
@@ -214,6 +226,7 @@ function trackMenuItems(track, ctx = {}) {
   const liked = library.isLiked(real), disliked = library.isDisliked(real);
   const items = [
     { label: "Играть следующим", icon: icons.playNext, action: () => { queueNext(track); toast("Будет играть следующим"); } },
+    { label: "Радио по треку", icon: icons.flow, action: () => startFlow({ track: real }) },
     { label: "Добавить в плейлист", icon: icons.plus, submenu: () => addToPlaylistItems(track) },
     { sep: true },
     { label: library.likeTarget()
@@ -261,7 +274,6 @@ function trackMenuItems(track, ctx = {}) {
           .then((r) => { if (!r.ok) toast("Не получилось открыть", { error: true }); }) });
   }
   if (ctx.playlistId) {
-    const p = library.getPlaylist(ctx.playlistId);
     items.push({ sep: true }, {
       label: "Удалить из этого плейлиста", icon: icons.trash, danger: true,
       action: () => removeTracksWithUndo(ctx.playlistId, [track]),

@@ -54,7 +54,8 @@ export async function toReal(track) {
   const real = await resolveMeta(track);
   if (!real || !isMeta(track)) return real;
   const extra = { artistId: track.artistId, albumId: track.albumId, album: track.album, artistRefs: track.artistRefs,
-                  metaId: track.id };   // metaId — чтобы Flow не повторял трек
+                  metaId: track.id,     // metaId — чтобы Flow не повторял трек
+                  because: track.because };   // «Похоже на …» — почему Flow поставил этот трек
   if (track.cover) Object.assign(extra, { cover: track.cover, coverLarge: track.coverLarge });
   return Object.fromEntries(Object.entries({ ...real, ...extra }).filter(([, v]) => v != null));
 }

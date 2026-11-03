@@ -146,6 +146,22 @@ export function toggleLike(track) {
   return true;
 }
 
+/** Где лежит лайк трека (для «Отменить» после дизлайка): {playlist, index} или null — лайка нет */
+export function likePlace(track) {
+  const target = likeTarget();
+  const index = (target?.tracks ?? lib.liked).findIndex((t) => keyOf(t) === keyOf(track));
+  return index < 0 ? null : { playlist: target?.id ?? null, index };
+}
+
+/** Вернуть лайк на прежнее место (то, что запомнил likePlace) */
+export function restoreLike(track, place) {
+  if (!place) return;
+  const list = place.playlist ? getPlaylist(place.playlist)?.tracks : lib.liked;
+  if (!list || has(list, track)) return;
+  list.splice(Math.min(place.index, list.length), 0, slim(track));
+  changed(place.playlist ? "playlists" : "liked");
+}
+
 /** Возвращает новое состояние: true — теперь с дизлайком */
 export function toggleDislike(track) {
   if (isDisliked(track)) {

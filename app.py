@@ -964,13 +964,24 @@ def save_library_section(name: str, value) -> None:
 
 
 # ---------- HTTP-маршруты ----------
+
+def _body() -> dict:
+    """JSON из запроса — всегда словарь: на кривые данные (число, строку, список) отвечаем понятной ошибкой
+    или пустым результатом, а не падением сервера."""
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
+
+
+def _list(value) -> list:
+    return value if isinstance(value, list) else []
+
 # Во всех адресах треков сначала источник, потом id: /api/stream/youtube/dQw4w9WgXcQ
 
 @app.post("/api/import")
 def api_import_start():
     """Запускает импорт. {url} — по ссылке, или {text} — по списку треков;
     match — где искать пары: youtube, soundcloud или auto (сначала SoundCloud, иначе YouTube)"""
-    data = request.get_json(silent=True) or {}
+    data = _body()
     match = data.get("match", "auto")
     if match not in SOURCES and match != "auto":
         return jsonify(error="Неизвестный источник"), 400
@@ -1042,7 +1053,7 @@ def api_library_export():
 @app.post("/api/library/import")
 def api_library_import():
     """Восстановить медиатеку из файла копии. Ничего не затирает: новое добавляется к тому, что есть."""
-    backup = request.get_json(silent=True) or {}
+    backup = _body()
     incoming = backup.get("library") if backup.get("format") in ("sono-library", "player-library") else None   # player-… — копии, сделанные до переименования
     if not isinstance(incoming, dict):
         return jsonify(error="Это не файл медиатеки Sono"), 400
@@ -1100,7 +1111,7 @@ def api_library_import():
 @app.post("/api/share/playlist")
 def api_share_playlist():
     """Плейлист в файл — его можно отправить другу, он откроет его через «Импорт»."""
-    data = request.get_json(silent=True) or {}
+    data = _body()
     tracks = _clean_tracks(data.get("tracks"))
     name = str(data.get("name") or "Плейлист")[:100]
     path = _unique_path(f"{_safe_name(name)}.sono.json")
@@ -1112,7 +1123,7 @@ def api_share_playlist():
 @app.post("/api/reveal")
 def api_reveal():
     """Показать файл в Проводнике (только наши файлы из «Загрузок»)."""
-    path = Path(str((request.get_json(silent=True) or {}).get("path", "")))
+    path = Path(str(_body().get("path", "")))
     if path.parent != EXPORT_DIR or not path.exists():
         abort(400)
     subprocess.Popen(["explorer", "/select,", str(path)])
@@ -1233,7 +1244,7 @@ def plays_for(tracks: list[tuple[str, str]]) -> dict[str, int | None]:
 @app.post("/api/plays")
 def api_plays():
     """{tracks: [{source, id}]} → {plays: {"источник:id": число или null}}. До 200 треков за раз."""
-    items = [(str(t.get("source")), str(t.get("id"))) for t in (request.get_json(silent=True) or {}).get("tracks") or []]
+    items = [(str(t.get("source")), str(t.get("id"))) for t in _list(_body().get("tracks")) if isinstance(t, dict)]
     items = [(s, i) for s, i in items if s in ("youtube", "soundcloud") and valid(s, i)][:200]
     return jsonify(plays=plays_for(items))
 
@@ -1323,7 +1334,7 @@ def api_network():
 
 @app.put("/api/network")
 def api_network_save():
-    data = request.get_json(silent=True) or {}
+    data = _body()
     config = {**_network, **{k: data[k] for k in NETWORK_DEFAULT if k in data}}
     if config["mode"] not in ("off", "bypass", "proxy") or config["strategy"] not in netbypass.STRATEGIES:
         return jsonify(error="Неизвестный режим"), 400
@@ -1388,7 +1399,7 @@ def api_app_update_check():
 @app.post("/api/track-album")
 def api_track_album():
     """{artist, title, duration} → альбом/сингл этого трека в базе Яндекса: {albumId, trackId} или 404."""
-    data = request.get_json(silent=True) or {}
+    data = _body()
     try:
         found = artists.find_track(str(data.get("artist") or "")[:200], str(data.get("title") or "")[:200], data.get("duration"))
     except Exception as e:
@@ -1418,7 +1429,7 @@ def source_link(source: str, track_id: str) -> str:
 @app.get("/api/link/<source>/<track_id>")
 def api_link(source, track_id):
     """Ссылка на трек на YouTube/SoundCloud — «⋯» → «Скопировать ссылку»."""
-    if not valid(source, track_id):
+    if source not in SOURCES or not valid(source, track_id):   # у своих файлов ссылки нет
         abort(400)
     try:
         return jsonify(url=source_link(source, track_id))
@@ -1429,7 +1440,7 @@ def api_link(source, track_id):
 @app.post("/api/open-link/<source>/<track_id>")
 def api_open_link(source, track_id):
     """«⋯» → «Открыть на YouTube/SoundCloud»: страница трека в обычном браузере (адрес строим сами — только эти сайты)."""
-    if not valid(source, track_id):
+    if source not in SOURCES or not valid(source, track_id):   # у своих файлов ссылки нет
         abort(400)
     try:
         url = source_link(source, track_id)
@@ -1498,7 +1509,7 @@ def api_presence_status():
 @app.post("/api/presence")
 def api_presence():
     """{source, id, title, artist, album, cover, position, duration, playing} — или {clear: true}."""
-    data = request.get_json(silent=True) or {}
+    data = _body()
     if data.get("clear") or not data.get("playing") or not valid(data.get("source"), str(data.get("id", ""))):
         _presence.show(None)
         return jsonify(ok=True)
@@ -1522,16 +1533,37 @@ SOURCES_TITLE = {"youtube": "YouTube", "soundcloud": "SoundCloud"}
 
 @app.post("/api/flow")
 def api_flow():
-    data = request.get_json(silent=True) or {}
-    seeds = [s for s in (data.get("seeds") or [])[:40] if isinstance(s, dict)]
-    mode = data.get("mode") if data.get("mode") in flow.MODES else "mix"
-    exclude = [str(x) for x in (data.get("exclude") or [])[:3000]]
-    banned = [str(x) for x in (data.get("banned") or [])[:300]]
+    data = _body()
+    seeds = [s for s in _list(data.get("seeds"))[:60] if isinstance(s, dict)]
+    mode = data.get("mode") if isinstance(data.get("mode"), str) and data["mode"] in flow.MODES else "mix"
+    exclude = [str(x) for x in _list(data.get("exclude"))[:3000]]
+    banned = [str(x) for x in _list(data.get("banned"))[:300]]
+    tracks = [t for t in _list(data.get("tracks"))[:20] if isinstance(t, dict)]
+    avoid = [a for a in _list(data.get("avoid"))[:300] if isinstance(a, dict)]
+    known = [str(x) for x in _list(data.get("known"))[:2000]]
+    recent = [str(x) for x in _list(data.get("recent"))[:20]]
     try:
-        return jsonify(tracks=flow.batch(seeds, mode, exclude, banned, size=min(int(data.get("size") or 10), 25)))
+        size = min(max(int(data.get("size") or 10), 1), 25)
+    except (TypeError, ValueError):
+        size = 10
+    try:
+        return jsonify(**flow.batch(seeds, mode, exclude, banned, size=size, tracks=tracks,
+                                    avoid=avoid, known=known, recent=recent, quick=data.get("quick") is True,
+                                    ready=lambda meta_id: not (_resolved.get(meta_id) or {"missing": True}).get("missing")))
     except Exception as e:
         print(f"[flow] {e}")
         return jsonify(error="Нет связи с Яндекс Музыкой — Flow не может подобрать треки"), 502
+
+
+@app.post("/api/flow/mixes")
+def api_flow_mixes():
+    """«Ваши миксы» на «Главной»: {seeds: [{name, id?, weight}]} → группы похожих любимых исполнителей."""
+    seeds = [s for s in _list(_body().get("seeds"))[:60] if isinstance(s, dict)]
+    try:
+        return jsonify(mixes=flow.mixes(seeds))
+    except Exception as e:
+        print(f"[flow] миксы: {e}")
+        return jsonify(error="Нет связи с Яндекс Музыкой"), 502
 
 
 # ---------- zapret: автонастройка уже установленного (zapret.py) ----------
@@ -1551,7 +1583,7 @@ def _sc_test_urls() -> list[str]:
 
 
 def _zapret_root() -> Path:
-    path = Path(str((request.get_json(silent=True) or {}).get("path", "")))
+    path = Path(str(_body().get("path", "")))
     if not (path / "bin" / "winws.exe").is_file():
         raise LookupError("Папка zapret не найдена — нажмите «Найти» ещё раз")
     return path
@@ -1618,8 +1650,8 @@ def api_zapret_progress():
 
 
 def _tracks_from_request() -> list[tuple[str, str]]:
-    data = request.get_json(silent=True) or {}
-    return [(t.get("source"), str(t.get("id"))) for t in (data.get("tracks") or [])[:5000]
+    data = _body()
+    return [(t.get("source"), str(t.get("id"))) for t in _list(data.get("tracks"))[:5000]
             if isinstance(t, dict) and t.get("source") != "local" and valid(t.get("source"), str(t.get("id")))]
 
 
@@ -1681,7 +1713,7 @@ def api_artist(artist_id):
 @app.post("/api/new-releases")
 def api_new_releases():
     """{ids: [id исполнителя Яндекса]} → релизы за последние 3 месяца (для подписок: «Новинки» на «Главной»)."""
-    ids = [int(x) for x in (request.get_json(silent=True) or {}).get("ids") or [] if str(x).isdigit()]
+    ids = [int(x) for x in _body().get("ids") or [] if str(x).isdigit()]
     try:
         return jsonify(releases=artists.new_releases(ids) if ids else [])
     except Exception as e:
@@ -1720,7 +1752,7 @@ def api_img():
 def api_versions():
     """{source, id, artist, title, duration, exclude: ["источник:id"]} → другие загрузки того же трека
     (для трека с цензурой: человек послушает и выберет оригинал). importer.find_versions."""
-    data = request.get_json(silent=True) or {}
+    data = _body()
     source, track_id = str(data.get("source", "")), str(data.get("id", ""))
     if not valid(source, track_id):
         abort(400)
@@ -1747,7 +1779,7 @@ _resolved_lock = threading.Lock()
 @app.post("/api/resolve")
 def api_resolve():
     """{id, artists, title, duration, prefetch} → настоящий трек (YouTube или SoundCloud) или 404."""
-    data = request.get_json(silent=True) or {}
+    data = _body()
     meta_id = str(data.get("id", ""))
     if not re.match(r"^(ya|dz)\d+$", meta_id):
         abort(400)
@@ -1814,7 +1846,9 @@ def api_cover(source, track_id):
     path = localfiles.cover_of(track_id) if source == "local" else get_cover_file(source, track_id, size)
     if not path:
         abort(404)
-    return send_file(path, mimetype="image/jpeg")
+    # Обложка трека не меняется — браузер может не переспрашивать сутки (раньше спрашивал при каждом показе).
+    # У своих файлов обложку могут заменить — их проверяем как прежде
+    return send_file(path, mimetype="image/jpeg", max_age=None if source == "local" else 24 * 3600)
 
 
 @app.get("/api/stream/<source>/<track_id>")
@@ -1843,7 +1877,7 @@ def api_local():
 @app.post("/api/local/folders")
 def api_local_add():
     """{path} — добавить папку с музыкой (подпапки тоже) и просмотреть её в фоне."""
-    path = str((request.get_json(silent=True) or {}).get("path") or "").strip().strip('"')
+    path = str(_body().get("path") or "").strip().strip('"')
     try:
         localfiles.add_folder(path)
     except Exception as e:
@@ -1853,7 +1887,7 @@ def api_local_add():
 
 @app.delete("/api/local/folders")
 def api_local_remove():
-    path = str((request.get_json(silent=True) or {}).get("path") or "")
+    path = str(_body().get("path") or "")
     localfiles.remove_folder(path)
     return jsonify(localfiles.status())
 
@@ -1912,7 +1946,7 @@ def find_clip(source: str, track_id: str, artist: str, title: str, duration: flo
 @app.post("/api/clip")
 def api_clip():
     """{source, id, artist, title, duration, channel} → {clip: id видео YouTube или null}. Ответ помним (нет клипа — неделю)."""
-    data = request.get_json(silent=True) or {}
+    data = _body()
     source, track_id = str(data.get("source", "")), str(data.get("id", ""))
     if not valid(source, track_id):
         abort(400)
