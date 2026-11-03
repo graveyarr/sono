@@ -211,6 +211,25 @@ export function removeFromPlaylist(id, track) {
   changed("playlists");
 }
 
+/** Удалить несколько треков из плейлиста сразу. Возвращает прежний список — для «Отменить» */
+export function removeManyFromPlaylist(id, tracks) {
+  const p = getPlaylist(id);
+  if (!p) return null;
+  const before = p.tracks.slice();
+  const keys = new Set(tracks.map(keyOf));
+  p.tracks = p.tracks.filter((t) => !keys.has(keyOf(t)));
+  changed("playlists");
+  return before;
+}
+
+/** «Отменить»: вернуть плейлисту прежний список треков (если плейлист ещё есть) */
+export function setPlaylistTracks(id, tracks) {
+  const p = getPlaylist(id);
+  if (!p) return;
+  p.tracks = tracks.slice();
+  changed("playlists");
+}
+
 /** Перетаскивание: трек с позиции from встаёт на позицию to */
 export function moveInPlaylist(id, from, to) {
   const p = getPlaylist(id);
@@ -255,6 +274,10 @@ export function clearHistory() {
 
 export const getSetting = (name, fallback) => lib.settings[name] ?? fallback;
 
+/** «Без анимаций» (Настройки → Оформление): для слабых компьютеров — ничего не движется само,
+    визуализация и живые фоны не рисуются каждый кадр (body.no-anim, проверяют viz/nowbg/flowview) */
+export const motionOff = () => lib.settings.reduceMotion === true;
+
 export function setSetting(name, value) {
   lib.settings[name] = value;
   changed("settings");
@@ -273,6 +296,21 @@ export function updateTrack(track, patch) {
   }
   if (lib.playlists.some((p) => fix(p.tracks))) changed("playlists");
   Object.assign(track, patch);   // и у того же трека, что на экране / в очереди
+}
+
+// ---------- Подписки на исполнителей ----------
+// settings.followed = [{ id (Яндекс), name, picture }] — их новые релизы на «Главной» (views.js → newReleasesRow)
+
+export const followedArtists = () => getSetting("followed", []);
+export const isFollowing = (id) => followedArtists().some((a) => String(a.id) === String(id));
+
+/** Подписаться/отписаться. Возвращает true, если теперь подписан */
+export function toggleFollow(artist) {
+  const list = followedArtists();
+  const on = !isFollowing(artist.id);
+  setSetting("followed", on ? [{ id: artist.id, name: artist.name, picture: artist.picture || null }, ...list]
+    : list.filter((a) => String(a.id) !== String(artist.id)));
+  return on;
 }
 
 // ---------- Версии без цензуры ----------

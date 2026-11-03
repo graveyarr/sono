@@ -31,6 +31,8 @@ export const icons = {
   censor: outline('<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-4 3v-3H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/><path d="M12 8.5v5M9.8 9.8l4.4 2.4M14.2 9.8l-4.4 2.4"/>'),
   image: outline('<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 16l-5-5-8.5 8.5"/>'),
   swap: outline('<path d="M7 4L4 7l3 3M4 7h13M17 20l3-3-3-3M20 17H7"/>'),
+  folder: outline('<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>'),
+  sort: outline('<path d="M7 5v14M4 16l3 3 3-3M13 7h7M13 12h5M13 17h3"/>'),
   playNext: outline('<path d="M4 6h12M4 12h12M4 18h7M17 15v6M14 18h6"/>'),
   note: filled('<path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V6l11-2v11.5a2.5 2.5 0 1 1-2-2.45V7.4l-7 1.27v8.83z"/>'),
   nowPlaying: filled('<rect x="4" y="10" width="3" height="10" rx="1"/><rect x="10.5" y="4" width="3" height="16" rx="1"/><rect x="17" y="13" width="3" height="7" rx="1"/>'),

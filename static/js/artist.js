@@ -4,10 +4,11 @@
 import { openTrackMenu, toggleLike } from "./actions.js";
 import { startFlow } from "./flow.js";
 import { icons } from "./icons.js";
-import { openView } from "./nav.js";
+import { openView, takeHighlight } from "./nav.js";
 import { isPlaying, play, prefetch, state, togglePlay } from "./player.js";
-import { compactNumber, countText, el, formatTotal, iconButton, imageHsl, imgUrl, markCurrentRows, nameHue, plural, trackRow } from "./ui.js";
-import { keyOf } from "./library.js";
+import { compactNumber, countText, el, formatTotal, iconButton, imageHsl, imgUrl, markCurrentRows, nameHue, plural, toast, trackRow } from "./ui.js";
+import { isFollowing, keyOf, toggleFollow } from "./library.js";
+import { fillPlays, loadPlays, playsOf } from "./plays.js";
 import { artistStatsLine } from "./stats.js";
 
 const cache = new Map();   // адрес → ответ сервера (на время работы программы)
@@ -152,28 +153,76 @@ export async function renderArtist(box, id, stillHere) {
   flowBtn.innerHTML = `${icons.flow}<span>Flow</span>`;
   flowBtn.title = `Бесконечный поток: ${a.name} и похожие`;
   flowBtn.addEventListener("click", () => startFlow({ artist: { id: a.id, name: a.name } }));
-  actions.append(flowBtn);
+  // Подписка: новинки этого исполнителя появятся на «Главной», о новом релизе Sono напомнит
+  const follow = el("button", "follow-pill");
+  follow.type = "button";
+  const drawFollow = () => {
+    const on = isFollowing(a.id);
+    follow.classList.toggle("on", on);
+    follow.textContent = on ? "Вы подписаны" : "Подписаться";
+    follow.title = on ? "Отписаться" : "Новые релизы — на «Главной» и уведомлением";
+  };
+  follow.addEventListener("click", () => {
+    const on = toggleFollow({ id: a.id, name: a.name, picture: a.picture });
+    drawFollow();
+    toast(on ? `Подписка на ${a.name}: новые релизы — на «Главной»` : `Вы отписались от ${a.name}`);
+  });
+  drawFollow();
+  actions.append(flowBtn, follow);
   hero.append(header, actions);
   paintHero(hero, a.pictureLarge && imgUrl(a.pictureLarge), a.name);
 
   const body = el("div", "pl-body");
 
-  // Популярные треки: 5, по кнопке — все
+  // Новый релиз (за последние 3 месяца) — крупной карточкой первым
+  if (a.newRelease) body.append(section("Новинка", newReleaseCard(a.newRelease)));
+
+  // Популярные треки: 5, по кнопке — все. Порядок — как в Яндексе (по популярности) или по прослушиваниям
+  // на YouTube/SoundCloud: для этого трекам ищутся пары (по 4 сразу), числа приходят по мере готовности
   if (a.top.length) {
     const holder = el("div");
     let shown = 5;
+    let byPlays = false;
+    const order = () => (byPlays ? a.top.slice().sort((x, y) => (playsOf(y) ?? -1) - (playsOf(x) ?? -1)) : a.top);
     const draw = () => {
-      holder.replaceChildren(trackList(a.top, context, shown));
+      const tracks = order();
+      const card = trackList(tracks, context, shown);
+      holder.replaceChildren(card);
       if (a.top.length > 5) {
         const more = el("button", "meta-more", shown < a.top.length ? "Ещё" : "Свернуть");
         more.type = "button";
         more.addEventListener("click", () => { shown = shown < a.top.length ? a.top.length : 5; draw(); });
         holder.append(more);
       }
+      fillPlays(card, tracks);
       markCurrentRows(state.current ? keyOf(state.current) : null);
+      // Видимые треки: найти пары и прослушивания, вписать, когда будут
+      loadPlays(tracks.slice(0, shown), { resolve: true }).then(() => { if (stillHere() && card.isConnected) fillPlays(card, tracks); });
     };
+    const sortSeg = el("div", "seg meta-sort");
+    for (const [label, value] of [["По популярности", false], ["По прослушиваниям", true]]) {
+      const b = el("button", `seg-btn${value === byPlays ? " on" : ""}`, label);
+      b.type = "button";
+      b.addEventListener("click", async () => {
+        if (byPlays === value) return;
+        byPlays = value;
+        sortSeg.querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("on", x === b));
+        if (byPlays) {
+          b.classList.add("busy");
+          await loadPlays(a.top, { resolve: true });   // все популярные треки — до 50, по 4 сразу
+          b.classList.remove("busy");
+          if (!stillHere()) return;
+        }
+        draw();
+      });
+      sortSeg.append(b);
+    }
     draw();
-    body.append(section("Популярные треки", holder));
+    const head = el("div", "meta-h-row");
+    head.append(el("h2", "meta-h", "Популярные треки"), sortSeg);
+    const sec = el("section", "meta-section");
+    sec.append(head, holder);
+    body.append(sec);
   }
 
   // Дискография: вкладки «Альбомы» / «Синглы и EP»
@@ -220,7 +269,8 @@ export async function renderArtist(box, id, stillHere) {
       const open = text.classList.toggle("collapsed");
       toggle.textContent = open ? "Читать полностью" : "Свернуть";
     });
-    body.append(section("Об исполнителе", text, toggle));
+    const source = a.bioSource ? el("p", "meta-bio-source", `Источник: ${a.bioSource}`) : "";
+    body.append(section("Об исполнителе", text, toggle, source));
   }
 
   box.replaceChildren(hero, body);
@@ -235,6 +285,29 @@ function prefetchTop(tracks, stillHere) {
       await prefetch(t);
     }
   }, 500);
+}
+
+/** Крупная карточка нового релиза: обложка, «Сингл · 12 октября», ▶ */
+function newReleaseCard(r) {
+  const card = el("button", "new-release");
+  card.type = "button";
+  const art = picture(r.cover, "new-release-art", r.title);
+  const when = r.date ? new Date(r.date).toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric" }) : r.year;
+  const text = el("div", "new-release-text");
+  text.append(el("div", "new-release-kind", `${TYPE_NAMES[r.type] ?? "Альбом"} · ${when}`), el("div", "new-release-title", r.title),
+    el("div", "new-release-sub", r.tracks ? plural(r.tracks, "трек", "трека", "треков") : ""));
+  const playBtn = el("span", "play new-release-play");
+  playBtn.innerHTML = icons.play;
+  playBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      const album = await load(`/api/album/${r.id}`);
+      if (album.tracks.length) play(album.tracks[0], album.tracks.slice(), 0, { type: "album", id: album.id, name: album.title });
+    } catch {}
+  });
+  card.append(art, text, playBtn);
+  card.addEventListener("click", () => openView(`album:${r.id}`));
+  return card;
 }
 
 function releaseCard(r) {
@@ -298,4 +371,12 @@ export async function renderAlbum(box, id, stillHere) {
   box.replaceChildren(hero, body);
   markCurrentRows(state.current ? keyOf(state.current) : null);
   prefetchTop(al.tracks, stillHere);
+  loadPlays(al.tracks).then(() => { if (stillHere()) fillPlays(body, al.tracks); });   // у треков, чьи пары уже найдены
+  // Пришли щелчком по названию трека — показываем, где он в альбоме
+  const want = takeHighlight();
+  const row = want && box.querySelector(`.track[data-key="${CSS.escape(want)}"]`);
+  if (row) {
+    row.classList.add("flash");
+    requestAnimationFrame(() => row.scrollIntoView({ block: "center", behavior: "smooth" }));
+  }
 }

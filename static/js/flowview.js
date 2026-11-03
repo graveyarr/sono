@@ -8,7 +8,7 @@
 import { analyserNode } from "./audio.js";
 import { FLOW_MODES, flowMode, flowPlaying, learnedSummary, resetLearning, setFlowMode, startFlow, tasteArtists } from "./flow.js";
 import { icons } from "./icons.js";
-import { lib } from "./library.js";
+import { lib, motionOff } from "./library.js";
 import { artistByName } from "./meta.js";
 import { isPlaying, onPlayState, onTrackChange, playNext, state, togglePlay } from "./player.js";
 import { coverUrl, displayTrack, el, imgUrl, plural, toast } from "./ui.js";
@@ -357,6 +357,8 @@ function frame(ts, id) {
   const light = 0.82 + lv.mid * 0.16;                 // громкие места чуть светлее
   if (gl) drawGL(warp, zoom, light);
   else draw2D(zoom, light);
+  // «Без анимаций»: один неподвижный кадр (новый — при смене обложки, см. useCurrentCover)
+  if (motionOff()) { if (mix >= 1) running = false; else requestAnimationFrame((t) => frame(t, id)); return; }
   requestAnimationFrame((t) => frame(t, id));
 }
 
@@ -376,6 +378,7 @@ function refreshAnim() {
 function useCurrentCover() {
   const ready = state.current && coverEl.complete && coverEl.naturalWidth > 0;
   setPicture(ready ? coverEl : null);
+  if (motionOff()) { mixFrom = -1e9; running = false; refreshAnim(); }   // сразу новая обложка, без перетекания
 }
 
 export function initFlowView() {
@@ -384,6 +387,7 @@ export function initFlowView() {
   coverEl.addEventListener("load", useCurrentCover);   // сменилась обложка — новая краска
   new ResizeObserver(() => { needResize = true; }).observe(canvas);
   new MutationObserver(refreshAnim).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  document.addEventListener("sono:motion", () => { running = false; refreshAnim(); });   // «Без анимаций» включили/выключили
   document.addEventListener("visibilitychange", refreshAnim);
   onTrackChange(() => { if (document.body.classList.contains("on-flow")) sync(); });
   onPlayState(() => { if (document.body.classList.contains("on-flow")) sync(); });

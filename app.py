@@ -30,6 +30,7 @@ import artists
 import discord_rpc
 import flow
 import importer
+import localfiles
 import netbypass
 import zapret
 
@@ -241,7 +242,12 @@ def friendly_error(e: Exception) -> str:
     return re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?", "", text)   # убираем техническую приставку yt-dlp
 
 
+LOCAL_ID = re.compile(r"^[0-9a-f]{16}$")   # свои файлы с компьютера (localfiles.py): sha1 пути
+
+
 def valid(source: str, track_id: str) -> bool:
+    if source == "local":
+        return bool(LOCAL_ID.match(track_id))
     return source in SOURCES and bool(SOURCES[source]["id_re"].match(track_id))
 
 
@@ -250,7 +256,8 @@ def track_url(source: str, track_id: str) -> str:
 
 
 def cache_key(source: str, track_id: str) -> str:
-    return SOURCES[source]["prefix"] + track_id
+    # Свои файлы (local) — не из SOURCES: для кэша текстов и т.п. просто «local.<номер>»
+    return (SOURCES[source]["prefix"] if source in SOURCES else f"{source}.") + track_id
 
 
 _sc_artwork: dict[str, str] = {}   # id трека SoundCloud -> адрес обложки (запоминаем при поиске)
@@ -427,6 +434,8 @@ def _save_stream_links():
 
 
 _load_stream_links()
+localfiles.init(DATA_DIR, CACHE_DIR)
+localfiles.scan()   # при запуске — проверить, не появилось ли в папках нового (в фоне)
 
 
 def _link_expiry(url: str) -> float:
@@ -775,6 +784,8 @@ def _download_worker():
 
 
 def download_status(source: str, track_id: str) -> str:
+    if source == "local":
+        return "done"   # свой файл и так на диске
     key = f"{source}:{track_id}"
     if key in _dl_status:
         return _dl_status[key]
@@ -1160,11 +1171,80 @@ def api_search():
 _search_cache: dict[tuple, tuple] = {}
 
 
+# ---------- Сколько раз слушали — пачкой (плейлисты, страница исполнителя) ----------
+# SoundCloud — один запрос к API на 50 треков; YouTube — поиск по номеру видео (он выдаёт само видео
+# с числом просмотров, ~0,6 с), по 4 одновременно. Ответы помним сутки (cache/plays.json).
+PLAYS_FILE = CACHE_DIR / "plays.json"
+try:
+    _plays: dict = json.loads(PLAYS_FILE.read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    _plays = {}
+_plays_lock = threading.Lock()
+
+
+def _plays_youtube(video_id: str) -> int | None:
+    try:
+        hit = next((r for r in search("youtube", video_id, limit=1) if r["id"] == video_id), None)
+        return hit.get("plays") if hit else None
+    except Exception:
+        return None
+
+
+def plays_for(tracks: list[tuple[str, str]]) -> dict[str, int | None]:
+    now = time.time()
+    out, need_yt, need_sc = {}, [], []
+    for source, track_id in tracks:
+        key = f"{source}:{track_id}"
+        saved = _plays.get(key)
+        if saved and now - saved[1] < 24 * 3600:
+            out[key] = saved[0]
+        elif (st := _track_stats.get(key)) and st.get("plays") is not None:
+            out[key] = st["plays"]   # уже знаем из поиска или из получения ссылки
+        elif source == "youtube":
+            need_yt.append(track_id)
+        elif source == "soundcloud":
+            need_sc.append(track_id)
+    if need_sc:
+        with ydl_pool("search") as ydl:
+            client_id = ydl.cache.load("soundcloud", "client_id")
+        for i in range(0, len(need_sc), 50):
+            try:
+                resp = _http.get("https://api-v2.soundcloud.com/tracks", headers=SC_HEADERS, timeout=10,
+                                 params={"ids": ",".join(need_sc[i:i + 50]), "client_id": client_id})
+                for t in resp.json() if resp.ok else []:
+                    out[f"soundcloud:{t['id']}"] = t.get("playback_count")
+            except Exception:
+                pass
+    if need_yt:
+        with ThreadPoolExecutor(4) as pool:
+            for vid, n in zip(need_yt, pool.map(_plays_youtube, need_yt)):
+                out[f"youtube:{vid}"] = n
+    with _plays_lock:
+        for key, n in out.items():
+            if n is not None:
+                _plays[key] = (n, now)
+        try:
+            PLAYS_FILE.write_text(json.dumps(_plays), encoding="utf-8")
+        except OSError:
+            pass
+    return out
+
+
+@app.post("/api/plays")
+def api_plays():
+    """{tracks: [{source, id}]} → {plays: {"источник:id": число или null}}. До 200 треков за раз."""
+    items = [(str(t.get("source")), str(t.get("id"))) for t in (request.get_json(silent=True) or {}).get("tracks") or []]
+    items = [(s, i) for s, i in items if s in ("youtube", "soundcloud") and valid(s, i)][:200]
+    return jsonify(plays=plays_for(items))
+
+
 @app.get("/api/stats/<source>/<track_id>")
 def api_track_stats(source, track_id):
     """Сколько раз трек слушали и лайкали (для экрана «Сейчас играет»)."""
     if not valid(source, track_id):
         return jsonify(error="Неверный трек"), 400
+    if source == "local":
+        return jsonify(plays=None, likes=None)
     try:
         return jsonify(track_stats(source, track_id))
     except Exception as e:
@@ -1191,6 +1271,8 @@ def api_prefetch(source, track_id):
     YouTube: получаем ссылку и начало трека. SoundCloud: начинаем скачивать трек (в фоне)."""
     if not valid(source, track_id):
         abort(400)
+    if source == "local":
+        return jsonify(ok=True)   # свой файл — и так мгновенно
     try:
         if source == "youtube":
             resolve_stream(track_id)
@@ -1303,6 +1385,62 @@ def api_app_update_check():
     return jsonify(ok=True)
 
 
+@app.post("/api/track-album")
+def api_track_album():
+    """{artist, title, duration} → альбом/сингл этого трека в базе Яндекса: {albumId, trackId} или 404."""
+    data = request.get_json(silent=True) or {}
+    try:
+        found = artists.find_track(str(data.get("artist") or "")[:200], str(data.get("title") or "")[:200], data.get("duration"))
+    except Exception as e:
+        return jsonify(error=friendly_error(e)), 502
+    if not found:
+        return jsonify(error="Не нашёл альбом с этим треком"), 404
+    return jsonify(found)
+
+
+_sc_links: dict[str, str] = {}
+
+
+def source_link(source: str, track_id: str) -> str:
+    """Ссылка на трек на самом сайте. У SoundCloud храним только номер — адрес страницы узнаём у его API."""
+    if source == "youtube":
+        return f"https://www.youtube.com/watch?v={track_id}"
+    if track_id not in _sc_links:
+        with ydl_pool("search") as ydl:
+            client_id = ydl.cache.load("soundcloud", "client_id")
+        resp = _http.get(f"https://api-v2.soundcloud.com/tracks/{track_id}", params={"client_id": client_id},
+                         headers=SC_HEADERS, timeout=10)
+        resp.raise_for_status()
+        _sc_links[track_id] = resp.json()["permalink_url"]
+    return _sc_links[track_id]
+
+
+@app.get("/api/link/<source>/<track_id>")
+def api_link(source, track_id):
+    """Ссылка на трек на YouTube/SoundCloud — «⋯» → «Скопировать ссылку»."""
+    if not valid(source, track_id):
+        abort(400)
+    try:
+        return jsonify(url=source_link(source, track_id))
+    except Exception as e:
+        return jsonify(error=friendly_error(e)), 502
+
+
+@app.post("/api/open-link/<source>/<track_id>")
+def api_open_link(source, track_id):
+    """«⋯» → «Открыть на YouTube/SoundCloud»: страница трека в обычном браузере (адрес строим сами — только эти сайты)."""
+    if not valid(source, track_id):
+        abort(400)
+    try:
+        url = source_link(source, track_id)
+    except Exception as e:
+        return jsonify(error=friendly_error(e)), 502
+    if not re.match(r"^https://(www\.youtube\.com|soundcloud\.com)/", url):
+        abort(400)
+    webbrowser.open(url)
+    return jsonify(ok=True)
+
+
 @app.post("/api/open-releases")
 def api_open_releases():
     """Окно «Что нового» → «Все выпуски на GitHub»: открыть страницу выпусков в обычном браузере.
@@ -1315,8 +1453,9 @@ def api_open_releases():
 
 @app.post("/api/app-update/install")
 def api_app_update_install():
+    """Человек согласился обновиться: скачать (если ещё не скачано) и установить. Программа перезапустится."""
     try:
-        appupdate.install()
+        appupdate.download_and_install()
     except Exception as e:
         return jsonify(error=str(e)), 400
     return jsonify(ok=True)
@@ -1481,7 +1620,7 @@ def api_zapret_progress():
 def _tracks_from_request() -> list[tuple[str, str]]:
     data = request.get_json(silent=True) or {}
     return [(t.get("source"), str(t.get("id"))) for t in (data.get("tracks") or [])[:5000]
-            if isinstance(t, dict) and valid(t.get("source"), str(t.get("id")))]
+            if isinstance(t, dict) and t.get("source") != "local" and valid(t.get("source"), str(t.get("id")))]
 
 
 @app.post("/api/downloads")
@@ -1537,6 +1676,16 @@ def api_artist_by_name():
 @app.get("/api/artist/<int:artist_id>")
 def api_artist(artist_id):
     return _meta_call(artists.artist, artist_id)
+
+
+@app.post("/api/new-releases")
+def api_new_releases():
+    """{ids: [id исполнителя Яндекса]} → релизы за последние 3 месяца (для подписок: «Новинки» на «Главной»)."""
+    ids = [int(x) for x in (request.get_json(silent=True) or {}).get("ids") or [] if str(x).isdigit()]
+    try:
+        return jsonify(releases=artists.new_releases(ids) if ids else [])
+    except Exception as e:
+        return jsonify(error=friendly_error(e)), 502
 
 
 @app.get("/api/album/<album_id>")
@@ -1662,7 +1811,7 @@ def api_cover(source, track_id):
     size = request.args.get("size", "small")
     if not valid(source, track_id) or size not in COVER_VARIANTS:
         abort(400)
-    path = get_cover_file(source, track_id, size)
+    path = localfiles.cover_of(track_id) if source == "local" else get_cover_file(source, track_id, size)
     if not path:
         abort(404)
     return send_file(path, mimetype="image/jpeg")
@@ -1673,9 +1822,47 @@ def api_stream(source, track_id):
     """Отдаёт аудио браузеру. Играть можно сразу, перемотка работает в обоих случаях."""
     if not valid(source, track_id):
         abort(400)
+    if source == "local":   # свой файл с компьютера — прямо с диска, с перемоткой
+        path = localfiles.path_of(track_id)
+        if not path:
+            return jsonify(error="Файл не найден — его переместили или удалили"), 404
+        return send_file(path, conditional=True)
     if source == "youtube":
         return stream_youtube(track_id)
     return stream_soundcloud(track_id)
+
+
+# ---------- Свои файлы с компьютера (localfiles.py) ----------
+
+@app.get("/api/local")
+def api_local():
+    """Папки, найденные треки и идёт ли сейчас просмотр папок."""
+    return jsonify(**localfiles.status(), tracks=localfiles.tracks())
+
+
+@app.post("/api/local/folders")
+def api_local_add():
+    """{path} — добавить папку с музыкой (подпапки тоже) и просмотреть её в фоне."""
+    path = str((request.get_json(silent=True) or {}).get("path") or "").strip().strip('"')
+    try:
+        localfiles.add_folder(path)
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(localfiles.status())
+
+
+@app.delete("/api/local/folders")
+def api_local_remove():
+    path = str((request.get_json(silent=True) or {}).get("path") or "")
+    localfiles.remove_folder(path)
+    return jsonify(localfiles.status())
+
+
+@app.post("/api/local/rescan")
+def api_local_rescan():
+    localfiles.touch_cover_cache()
+    localfiles.scan()
+    return jsonify(localfiles.status())
 
 
 # ---------- Клипы вместо обложки ----------

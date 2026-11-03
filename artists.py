@@ -91,7 +91,9 @@ def _release(a: dict) -> dict:
         kind = "ep"   # у Яндекса нет типа «EP» — короткие альбомы считаем EP
     return {"id": a["id"], "title": a.get("title"), "year": str(a.get("year") or ""),
             "type": kind, "cover": _img(a.get("coverUri"), "400x400"),
-            "coverLarge": _img(a.get("coverUri"), "1000x1000"), "tracks": a.get("trackCount")}
+            "coverLarge": _img(a.get("coverUri"), "1000x1000"), "tracks": a.get("trackCount"),
+            "date": (a.get("releaseDate") or "")[:10],   # 2025-08-29 — для «Новинок»
+            "artist": ", ".join(p.get("name", "") for p in a.get("artists") or [])}
 
 
 def _artist_card(a: dict) -> dict:
@@ -121,6 +123,38 @@ def artist_by_name(name: str) -> dict | None:
     return None
 
 
+def find_track(artist: str, title: str, duration: float | None) -> dict | None:
+    """Трек в базе Яндекса по исполнителю и названию (щелчок по названию → его альбом или сингл).
+    Совпасть должны название (без скобок) и исполнитель. Длительность только помогает выбрать: загрузка
+    на SoundCloud/YouTube бывает на 10–15 с короче версии в Яндексе, а альбом при этом тот же.
+    Ответ: {"albumId", "trackId": "ya…"} или None."""
+    want_title = _norm(re.sub(r"\s*[(\[].*?[)\]]", "", title or ""))
+    want_artist = _norm(re.split(r",| feat\.? | ft\.? | & ", artist or "", flags=re.I)[0])
+    if not want_title:
+        return None
+    found = _get(f"{YANDEX}/search", {"text": f"{artist} {title}".strip(), "type": "track", "page": 0})
+    best, best_score = None, -1e9
+    for rank, t in enumerate((((found.get("result") or {}).get("tracks") or {}).get("results")) or []):
+        name = _norm(re.sub(r"\s*[(\[].*?[)\]]", "", t.get("title") or ""))
+        people = " ".join(_norm(a.get("name", "")) for a in t.get("artists") or [])
+        if name != want_title and not (want_title in name or name in want_title):
+            continue
+        if want_artist and want_artist not in people and want_artist.replace(" ", "") not in people.replace(" ", ""):
+            continue
+        albums = t.get("albums") or []
+        if not albums:
+            continue
+        got = (t.get("durationMs") or 0) / 1000
+        score = (3 if name == want_title else 0) - rank * 0.2
+        if duration and got:
+            score -= min(abs(got - duration), 60) / 10
+        if score > best_score:
+            # Сначала обычный альбом/сингл, а не сборник «лучшее за год» (у сборников исполнитель «various»)
+            album = next((al for al in albums if al.get("type") != "compilation"), albums[0])
+            best, best_score = {"albumId": album.get("id"), "trackId": f"ya{t['id']}"}, score
+    return best
+
+
 def artist(artist_id: int) -> dict:
     info = _get(f"{YANDEX}/artists/{artist_id}/brief-info").get("result") or {}
     a = info.get("artist") or {}
@@ -129,7 +163,7 @@ def artist(artist_id: int) -> dict:
                   {"page": 0, "page-size": 200, "sort-by": "year"}).get("result") or {}
     releases = [_release(r) for r in albums.get("albums") or []]
     releases += _deezer_extra_releases(a.get("name") or "", releases)
-    releases.sort(key=lambda r: r["year"] or "0", reverse=True)   # новые сверху
+    releases.sort(key=lambda r: r.get("date") or r["year"] or "0", reverse=True)   # новые сверху
     stats = info.get("stats") or {}
     return {**_artist_card(a), "likes": a.get("likesCount"),
             # Слушателей в Яндекс Музыке за последний месяц и насколько их стало больше/меньше
@@ -138,7 +172,66 @@ def artist(artist_id: int) -> dict:
             "tracksTotal": (tracks.get("pager") or {}).get("total"),
             "releases": releases,
             "related": [_artist_card(r) for r in info.get("similarArtists") or []],
-            "bio": ((a.get("description") or {}).get("text") or "").strip()[:3000]}
+            # Новый релиз за последние 3 месяца — карточкой наверху страницы
+            "newRelease": next((r for r in releases if r.get("date") and r["date"] >= time.strftime(
+                "%Y-%m-%d", time.localtime(time.time() - 90 * 86400))), None),
+            **_bio(a)}
+
+
+# ---------- Биография ----------
+# Яндекс знает биографию не всех (у многих — пусто или одна строка). Тогда — короткая статья из Википедии,
+# но только если это статья о музыканте: у тёзок («Кино» — это и фильм) описание другое.
+MUSIC_WORDS = re.compile(r"музык|певец|певица|исполнител|рэп|рок|групп|композитор|автор песен|диджей|продюсер|"
+                         r"singer|musician|rapper|band|songwriter|record producer|dj|duo|group", re.I)
+
+
+def _bio(a: dict) -> dict:
+    text = ((a.get("description") or {}).get("text") or "").strip()
+    if len(text) >= 120:
+        return {"bio": text[:3000], "bioSource": "Яндекс Музыка"}
+    wiki = wiki_bio(a.get("name") or "")
+    if wiki:
+        return {"bio": wiki["text"], "bioSource": "Википедия", "bioUrl": wiki["url"]}
+    return {"bio": text[:3000], "bioSource": "Яндекс Музыка" if text else ""}
+
+
+def wiki_bio(name: str) -> dict | None:
+    """Краткая статья из Википедии (сначала русская, потом английская), если она о музыканте."""
+    if not name:
+        return None
+    for lang, title in (("ru", name), (f"ru", f"{name} (группа)"), ("ru", f"{name} (музыкант)"), ("en", name)):
+        try:
+            page = _get(f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(title.replace(' ', '_'))}")
+        except Exception:
+            continue
+        if page.get("type") != "standard":
+            continue   # «неоднозначность» (страница со списком тёзок) — не то
+        about = f"{page.get('description') or ''} {(page.get('extract') or '')[:200]}"
+        if MUSIC_WORDS.search(about) and len(page.get("extract") or "") > 80:
+            return {"text": page["extract"].strip()[:3000],
+                    "url": ((page.get("content_urls") or {}).get("desktop") or {}).get("page", "")}
+    return None
+
+
+# ---------- Новинки исполнителей, на которых подписан человек ----------
+
+def new_releases(artist_ids: list[int], days: int = 90) -> list[dict]:
+    """Релизы за последние days дней у этих исполнителей — новые сверху. Кэш ответов Яндекса — сутки."""
+    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
+    out, seen = [], set()
+    for artist_id in artist_ids[:60]:
+        try:
+            albums = _get(f"{YANDEX}/artists/{int(artist_id)}/direct-albums",
+                          {"page": 0, "page-size": 10, "sort-by": "year"}).get("result") or {}
+        except Exception:
+            continue
+        for a in albums.get("albums") or []:
+            r = _release(a)
+            if r["date"] and r["date"] >= since and r["id"] not in seen:
+                seen.add(r["id"])
+                out.append({**r, "artistId": int(artist_id)})
+    out.sort(key=lambda r: r["date"], reverse=True)
+    return out
 
 
 def album(album_id: str) -> dict:

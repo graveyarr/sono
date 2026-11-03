@@ -26,7 +26,25 @@ function apply() {
     b.title = visible ? "Скрыть текст" : "Текст песни";
     b.setAttribute("aria-label", b.title);
   });
+  box.classList.remove(...LYRICS_STYLES.map((x) => `ls-${x.id}`));
+  box.classList.add(`ls-${lyricsStyle()}`);
   if (shown) load();
+}
+
+// Оформление текста (Настройки → Оформление): «Карточка» — фон цвета обложки, как в Spotify (по умолчанию);
+// «Спокойный» — тонкий текст без эффектов; «Крупный» — прежний: большая светящаяся строка (другу казался смешным)
+export const LYRICS_STYLES = [
+  { id: "card", title: "Карточка", hint: "Фон цвета обложки, текущая строка — белая" },
+  { id: "minimal", title: "Спокойный", hint: "Тонкий текст без эффектов" },
+  { id: "big", title: "Крупный", hint: "Большие строки, текущая светится" },
+];
+export const lyricsStyle = () => {
+  const id = getSetting("lyricsStyle", "card");
+  return LYRICS_STYLES.some((x) => x.id === id) ? id : "card";
+};
+export function setLyricsStyle(id) {
+  setSetting("lyricsStyle", id);
+  apply();
 }
 
 function head() {

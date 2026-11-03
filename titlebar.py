@@ -151,6 +151,25 @@ class WindowApi:
     def is_maximized(self):
         return bool(_hwnd and user32.IsZoomed(_hwnd))
 
+    def tray_status(self, title, playing):
+        """Что играет — для подсказки значка в трее и пункта «Пауза/Играть» в его меню."""
+        import tray
+        tray.set_status(str(title or "")[:120], bool(playing))
+
+    def set_close_to_tray(self, on):
+        """Настройка «Закрывать в трей»: крестик прячет окно, музыка играет дальше."""
+        import tray
+        tray.set_close_to_tray(bool(on))
+
+    def pick_folder(self):
+        """Окно Windows «Выбор папки» — для «Мои файлы» в настройках. Возвращает путь или None."""
+        import webview
+        if not webview.windows:
+            return None
+        kind = getattr(getattr(webview, "FileDialog", None), "FOLDER", None) or webview.FOLDER_DIALOG
+        picked = webview.windows[0].create_file_dialog(kind)
+        return picked[0] if picked else None
+
     def close(self):
         # Чуть позже: сначала pywebview должен вернуть странице ответ на этот вызов —
         # если окно закроется раньше, .NET падает с ошибкой на выходе (было в проверке)

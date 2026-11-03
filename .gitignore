@@ -11,6 +11,9 @@ dist/
 library.json
 library.tmp
 network.json
+# Свои файлы с компьютера: какие папки добавил человек (localfiles.py)
+local.json
+local.tmp
 library.broken-*.json
 sono.log
 player.log

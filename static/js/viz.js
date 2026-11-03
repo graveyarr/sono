@@ -5,7 +5,7 @@
 // Выключается в настройках (settings.visualizer).
 
 import { analyserNode, audioContext, onAudioReady } from "./audio.js";
-import { getSetting } from "./library.js";
+import { getSetting, motionOff } from "./library.js";
 
 const audio = document.getElementById("player");
 const coverEl = document.getElementById("cover");
@@ -208,7 +208,7 @@ function eqTick(ts) {
 }
 
 function startEq() {
-  if (eqRunning || !analyser || audio.paused) return;
+  if (eqRunning || !analyser || audio.paused || motionOff()) return;   // «Без анимаций» — палочки стоят
   eqRunning = true;
   requestAnimationFrame(eqTick);
 }
@@ -275,11 +275,11 @@ function draw(ts) {
 }
 
 function shouldRun() {
-  return vizEnabled() && document.body.classList.contains("on-now") && !document.hidden;
+  return vizEnabled() && !motionOff() && document.body.classList.contains("on-now") && !document.hidden;
 }
 
 export function refreshViz() {
-  canvas.hidden = !vizEnabled();
+  canvas.hidden = !vizEnabled() || motionOff();
   if (!shouldRun() || running) return;
   running = true;
   resize();

@@ -3,14 +3,14 @@
 
 import { findOriginal, hasAltVersion, restoreOriginal } from "./censor.js";
 import { download, isDownloaded, isDownloading, removeDownload } from "./downloads.js";
-import { icons } from "./icons.js";
+import { icons, sourceIcons } from "./icons.js";
 import { sharePlaylist } from "./share.js";
 import * as library from "./library.js";
 import { keyOf, lib } from "./library.js";
 import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
-import { openArtist, openView, splitArtists } from "./nav.js";
+import { openAlbumAt, openArtist, splitArtists } from "./nav.js";
 import { playNext, queueNext, state } from "./player.js";
-import { confirmDialog, displayTrack, el, openMenu, promptDialog, toast } from "./ui.js";
+import { confirmDialog, displayTrack, el, openMenu, plural, promptDialog, toast } from "./ui.js";
 
 const isCurrent = (track) => !!state.current && keyOf(state.current) === keyOf(track);
 
@@ -111,6 +111,48 @@ async function squareJpeg(file) {
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
+/** Удалить треки из плейлиста с кнопкой «Отменить» в уведомлении (вернёт их на прежние места) */
+export function removeTracksWithUndo(playlistId, tracks) {
+  const p = library.getPlaylist(playlistId);
+  const before = library.removeManyFromPlaylist(playlistId, tracks);
+  if (!before) return;
+  const what = tracks.length === 1 ? "Удалено" : `Удалено ${plural(tracks.length, "трек", "трека", "треков")}`;
+  toast(`${what} из «${p?.name ?? "плейлиста"}»`, { action: { label: "Отменить", run: () => library.setPlaylistTracks(playlistId, before) } });
+}
+
+/** Ссылка на трек на YouTube/SoundCloud — в буфер обмена */
+async function copyTrackLink(track) {
+  try {
+    const res = await fetch(`/api/link/${track.source}/${encodeURIComponent(track.id)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    await navigator.clipboard.writeText(data.url);
+    toast("Ссылка скопирована");
+  } catch (e) {
+    toast(`Не получилось скопировать ссылку${e?.message ? `: ${e.message}` : ""}`, { error: true });
+  }
+}
+
+/** Открыть альбом/сингл, где есть этот трек, и подсветить его. У треков из базы альбом известен,
+    для остальных ищем в базе Яндекса по исполнителю и названию (/api/track-album) */
+export async function openTrackAlbum(track) {
+  if (!track) return;
+  if (track.albumId) return openAlbumAt(track.albumId, isMeta(track) ? keyOf(track) : track.metaId ? `meta:${track.metaId}` : null);
+  const shown = displayTrack(track);
+  toast("Ищу альбом с этим треком…");
+  try {
+    const res = await fetch("/api/track-album", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ artist: shown.artist, title: shown.title, duration: track.duration }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    openAlbumAt(data.albumId, `meta:${data.trackId}`);
+  } catch (e) {
+    toast(e?.message || "Не нашёл альбом с этим треком", { error: true });
+  }
+}
+
 /** true — удалили */
 export async function deletePlaylist(playlist) {
   const ok = await confirmDialog({
@@ -133,7 +175,9 @@ const downloadOne = withReal((track) => {
   toast("Скачиваю — трек будет играть без интернета");
 });
 
-function addToPlaylistItems(track) {
+/** Меню «В плейлист»: один трек или несколько (выбранные в списке) */
+export function addToPlaylistItems(track) {
+  if (Array.isArray(track)) return addManyItems(track);
   const items = [{ label: "Новый плейлист…", icon: icons.plus, action: () => createPlaylist(track) }];
   if (lib.playlists.length) items.push({ sep: true });
   const real = resolvedOf(track);   // у трека из базы «уже есть» проверяем по найденной паре
@@ -141,6 +185,24 @@ function addToPlaylistItems(track) {
     const already = !!real && p.tracks.some((t) => keyOf(t) === keyOf(real));
     items.push({ label: p.name, icon: already ? icons.check : "", action: () => addTo(track, p) });
   }
+  return items;
+}
+
+// Несколько треков сразу (выбраны Ctrl/Shift). Треки «из базы» в списках не бывают выбраны — там уже пары
+function addManyItems(tracks) {
+  const addAll = (p) => {
+    const added = tracks.filter((t) => library.addToPlaylist(p.id, t)).length;
+    toast(added ? `Добавлено в «${p.name}»: ${plural(added, "трек", "трека", "треков")}` : `Уже есть в «${p.name}»`);
+  };
+  const items = [{ label: "Новый плейлист…", icon: icons.plus, action: async () => {
+    const name = await promptDialog({ title: "Новый плейлист", value: `Мой плейлист №${lib.playlists.length + 1}`,
+      placeholder: "Название", okLabel: "Создать" });
+    if (!name) return;
+    const playlist = library.createPlaylist(name, tracks);
+    toast(`Создан «${playlist.name}»: ${plural(playlist.tracks.length, "трек", "трека", "треков")}`);
+  } }];
+  if (lib.playlists.length) items.push({ sep: true });
+  for (const p of lib.playlists) items.push({ label: p.name, icon: "", action: () => addAll(p) });
   return items;
 }
 
@@ -160,13 +222,17 @@ function trackMenuItems(track, ctx = {}) {
       icon: liked ? icons.heartFilled : icons.heart, action: () => toggleLike(track) },
     { label: disliked ? "Убрать дизлайк" : "Не нравится", icon: disliked ? icons.dislikeFilled : icons.dislike, action: () => toggleDislike(track) },
   ];
-  items.push(isDownloaded(real) || isDownloading(real)
-    ? { label: "Удалить загрузку", icon: icons.download, action: async () => {
-      toast(await removeDownload([real]) ? "Не получилось удалить — трек сейчас играет" : "Загрузка удалена");
-    } }
-    : { label: "Скачать", icon: icons.download, action: () => downloadOne(track) });
-  // Трек с цензурой (слова заменены или вырезаны) — найти другую загрузку; выбор не понравился — вернуть
-  items.push({ label: "Трек с цензурой — найти оригинал", icon: icons.censor, action: () => withReal((t) => findOriginal(t))(track) });
+  // Свой файл с компьютера: скачивать нечего, других «версий» нет — эти пункты не нужны
+  const fromDisk = real.source === "local";
+  if (!fromDisk) {
+    items.push(isDownloaded(real) || isDownloading(real)
+      ? { label: "Удалить загрузку", icon: icons.download, action: async () => {
+        toast(await removeDownload([real]) ? "Не получилось удалить — трек сейчас играет" : "Загрузка удалена");
+      } }
+      : { label: "Скачать", icon: icons.download, action: () => downloadOne(track) });
+    // Трек с цензурой (слова заменены или вырезаны) — найти другую загрузку; выбор не понравился — вернуть
+    items.push({ label: "Трек с цензурой — найти оригинал", icon: icons.censor, action: () => withReal((t) => findOriginal(t))(track) });
+  }
   if (hasAltVersion(real)) {
     items.push({ label: "Вернуть исходную версию", icon: icons.censor, action: () => { restoreOriginal(real); toast("Исходная версия вернётся при следующем включении"); } });
   }
@@ -184,12 +250,21 @@ function trackMenuItems(track, ctx = {}) {
   items.push({ sep: true }, people.length > 1
     ? { label: "Перейти к исполнителю", icon: icons.artist, submenu: () => people.map((p) => ({ label: p.name, icon: icons.artist, action: goTo(p) })) }
     : { label: "Перейти к исполнителю", icon: icons.artist, action: goTo(people[0] ?? { name: "" }) });
-  if (track.albumId) items.push({ label: "Перейти к альбому", icon: icons.album, action: () => openView(`album:${track.albumId}`) });
+  // Альбом есть у любого трека: у треков из базы он известен, остальным Sono найдёт его в базе Яндекса
+  if (real.source !== "local") items.push({ label: "Перейти к альбому", icon: icons.album, action: () => openTrackAlbum(track) });
+  // Ссылка на сам трек — на YouTube или SoundCloud
+  if (real.source === "youtube" || real.source === "soundcloud") {
+    const site = real.source === "youtube" ? "YouTube" : "SoundCloud";
+    items.push({ label: "Скопировать ссылку", icon: icons.share, action: () => copyTrackLink(real) },
+      { label: `Открыть на ${site}`, icon: sourceIcons[real.source],
+        action: () => fetch(`/api/open-link/${real.source}/${encodeURIComponent(real.id)}`, { method: "POST" })
+          .then((r) => { if (!r.ok) toast("Не получилось открыть", { error: true }); }) });
+  }
   if (ctx.playlistId) {
     const p = library.getPlaylist(ctx.playlistId);
     items.push({ sep: true }, {
       label: "Удалить из этого плейлиста", icon: icons.trash, danger: true,
-      action: () => { library.removeFromPlaylist(ctx.playlistId, track); toast(`Удалено из «${p?.name ?? "плейлиста"}»`); },
+      action: () => removeTracksWithUndo(ctx.playlistId, [track]),
     });
   }
   if (ctx.history) {

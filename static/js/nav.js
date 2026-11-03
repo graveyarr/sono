@@ -11,6 +11,19 @@ export function setNavigator(fn) { navigator = fn; }
 /** Открыть экран: "home", "now", "playlist:<id>", "artist:<id>", "album:<id>"… */
 export function openView(key) { navigator?.(key); }
 
+// Открыть альбом и подсветить в нём трек (щелчок по названию трека). Страница альбома забирает
+// отметку takeHighlight() после отрисовки — так nav.js не зависит от artist.js
+let pendingHighlight = null;
+export function openAlbumAt(albumId, trackKey = null) {
+  pendingHighlight = trackKey;
+  openView(`album:${albumId}`);
+}
+export function takeHighlight() {
+  const key = pendingHighlight;
+  pendingHighlight = null;
+  return key;
+}
+
 const norm = (s) => (s || "").toLowerCase().replace(/ё/g, "е").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 /** Исполнители трека по отдельности: [{ name, id }]. «A, B feat. C» → три имени.

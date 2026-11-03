@@ -4,8 +4,10 @@ import { fadeSeconds, normalizeEnabled, setFadeSeconds, setNormalize } from "./a
 import { clipsEnabled, setClipsEnabled } from "./clip.js";
 import { autoFlowEnabled } from "./flow.js";
 import { NOW_BACKGROUNDS, nowBackground, setNowBackground } from "./nowbg.js";
+import { localSection } from "./local.js";
+import { LYRICS_STYLES, lyricsStyle, setLyricsStyle } from "./lyrics.js";
 import { icons } from "./icons.js";
-import { getSetting, lib, likeTarget, likeTargetName, setSetting } from "./library.js";
+import { getSetting, lib, likeTarget, likeTargetName, motionOff, setSetting } from "./library.js";
 import { setMinibarLarge, syncLikeButtons } from "./player.js";
 import { presenceEnabled, updatePresence } from "./presence.js";
 import { el, openMenu, syncAllRows, toast } from "./ui.js";
@@ -208,6 +210,11 @@ function appearanceSection() {
     vizEnabled(), (on) => { setSetting("visualizer", on); refreshViz(); }));
   section.append(vizColorsRow());
   section.append(nowBackgroundRow());
+  section.append(choiceRow("Текст песни", LYRICS_STYLES, lyricsStyle, setLyricsStyle));
+  section.append(switchRow("Без анимаций",
+    "Для слабых компьютеров: ничего не движется само — без плавных переходов, визуализации и живых фонов. "
+      + "Sono работает так же, только меньше нагружает компьютер.",
+    motionOff(), (on) => { setSetting("reduceMotion", on); applyMotion(); refreshViz(); }));
   section.append(switchRow("Клипы вместо обложки",
     "Если у трека есть официальный клип на YouTube, на «Сейчас играет» вместо обложки идёт он — без звука, вместе с музыкой. "
       + "Берёт больше интернета (примерно 2–4 МБ в минуту).",
@@ -222,7 +229,32 @@ function appearanceSection() {
   return section;
 }
 
-/** Фон «Сейчас играет»: Свет (по умолчанию) / Тихий / Градиент / Линии */
+/** Строка выбора из нескольких вариантов (кнопки-сегменты) с подсказкой под названием */
+function choiceRow(title, options, current, choose) {
+  const row = el("div", "set-switch set-choice");
+  const text = el("span", "set-switch-text");
+  const sub = el("span", "set-switch-sub");
+  text.append(el("span", "set-switch-title", title), sub);
+  const seg = el("div", "seg");
+  const draw = () => {
+    const on = current();
+    sub.textContent = options.find((o) => o.id === on)?.hint ?? "";
+    seg.querySelectorAll(".seg-btn").forEach((b) => b.classList.toggle("on", b.dataset.id === on));
+  };
+  for (const o of options) {
+    const btn = el("button", "seg-btn", o.title);
+    btn.type = "button";
+    btn.dataset.id = o.id;
+    btn.title = o.hint;
+    btn.addEventListener("click", () => { choose(o.id); draw(); });
+    seg.append(btn);
+  }
+  draw();
+  row.append(text, seg);
+  return row;
+}
+
+/** Фон «Сейчас играет»: Свет (по умолчанию) / Тихий / Градиент */
 function nowBackgroundRow() {
   const row = el("div", "set-switch set-choice");
   const text = el("span", "set-switch-text");
@@ -353,6 +385,12 @@ function playbackSection() {
   }
   fadeRow.append(text, seg);
   section.append(fadeRow, likeTargetRow());
+  section.append(switchRow("Закрывать в трей",
+    "Крестик прячет окно, а музыка играет дальше; значок Sono — у часов Windows (правой кнопкой — пауза, следующий, выход).",
+    getSetting("closeToTray", true) !== false, (on) => {
+      setSetting("closeToTray", on);
+      document.dispatchEvent(new CustomEvent("sono:close-to-tray"));
+    }));
   section.append(switchRow("Flow, когда очередь закончилась",
     "Плейлист или трек доиграл — дальше бесконечный Flow в том же духе: похожая музыка по исполнителям из этой очереди.",
     autoFlowEnabled(), (on) => setSetting("autoFlow", on)));
@@ -375,7 +413,7 @@ function updateText(u) {
 function updateSection() {
   const section = el("section", "set-card update-card");
   section.append(el("h2", "", "Обновления"),
-    el("p", "set-text", "Sono обновляется сам: новую версию программы скачивает с GitHub и ставит по одной кнопке. "
+    el("p", "set-text", "Sono сам узнаёт о новой версии на GitHub и спрашивает, обновиться ли: согласитесь — скачает и поставит её сам. "
       + "А yt-dlp — часть, которая достаёт музыку, — ломается чаще всего (YouTube часто меняет сайт), "
       + "поэтому его свежая версия скачивается отдельно, при каждом запуске."));
   const line = el("div", "set-result-line");
@@ -415,70 +453,97 @@ function updateSection() {
 
 function appUpdateText(u) {
   if (!u?.enabled) return "Автообновление включится, когда Sono будет выложен на GitHub.";
-  if (u.state === "ready") return `Готова новая версия ${u.latest}.`;
+  if (u.state === "available" || u.state === "ready") {
+    return u.error ? `Не получилось скачать версию ${u.latest}: ${u.error}` : `Доступна новая версия ${u.latest}. Обновить сейчас?`;
+  }
   if (u.state === "downloading") return `Скачиваю версию ${u.latest}… ${u.progress || 0}%`;
   if (u.state === "checking") return "Проверяю, нет ли новой версии…";
   if (u.state === "installing") return "Устанавливаю — Sono сейчас перезапустится…";
   if (u.state === "error") return `Не получилось проверить: ${u.error}`;
   if (u.state === "uptodate") return "Это последняя версия.";
-  return "Проверяется при запуске и раз в 6 часов.";
+  return "Проверяется при запуске и раз в 6 часов. Скачивается — только если вы согласитесь.";
 }
 
-/** Запустить установщик: программа закроется и откроется уже новой */
-export async function installAppUpdate() {
+const appUpdateStatus = () => fetch("/api/app-update").then((r) => r.json()).catch(() => null);
+
+/** Человек согласился: скачать (если ещё нет) и установить. Сервер качает в фоне, а затем сам запускает
+    установщик — программа закроется и откроется уже новой. onStatus(u) — следить за ходом */
+export async function installAppUpdate(onStatus) {
   const res = await fetch("/api/app-update/install", { method: "POST" });
-  if (!res.ok) toast((await res.json().catch(() => ({}))).error || "Не получилось обновить", { error: true });
-  else toast("Обновляю Sono — через несколько секунд он откроется снова");
+  if (!res.ok) return toast((await res.json().catch(() => ({}))).error || "Не получилось обновить", { error: true });
+  const poll = async () => {
+    const u = await appUpdateStatus();
+    onStatus?.(u);
+    if (u?.state === "installing") return toast("Обновляю Sono — через несколько секунд он откроется снова");
+    if (u?.state === "available" && u.error) return toast(`Не получилось скачать обновление: ${u.error}`, { error: true });
+    setTimeout(poll, 700);
+  };
+  poll();
 }
 
 function appUpdateLine() {
   const line = el("div", "set-result-line");
   const check = el("button", "btn ghost", "Проверить сейчас");
   check.type = "button";
-  const install = el("button", "btn primary", "Обновить и перезапустить");
+  const install = el("button", "btn primary", "Обновить");
   install.type = "button";
-  install.addEventListener("click", installAppUpdate);
+  const later = el("button", "btn ghost", "Не сейчас");
+  later.type = "button";
+  let dismissed = false;   // «Не сейчас» — вопрос прячется до следующей проверки
   const draw = (u) => {
     const version = !u ? "?" : u.current === "0" ? "(из исходников)" : u.current;
-    line.replaceChildren(el("span", "", `Sono ${version} · ${appUpdateText(u)}`));
-    if (u?.state === "ready") line.append(install);
-    else if (u?.enabled) line.append(check);
+    const asking = u && ["available", "ready"].includes(u.state);
+    line.replaceChildren(el("span", "", `Sono ${version} · ${asking && dismissed ? `есть версия ${u.latest}` : appUpdateText(u)}`));
+    if (asking && !dismissed) line.append(install, later);
+    else if (u?.enabled && !["downloading", "installing", "checking"].includes(u?.state)) line.append(check);
   };
   const poll = async () => {
-    const u = await fetch("/api/app-update").then((r) => r.json()).catch(() => null);
+    const u = await appUpdateStatus();
     draw(u);
-    if (u && ["checking", "downloading"].includes(u.state) && box.contains(line)) setTimeout(poll, 1000);
+    if (u && ["checking", "downloading"].includes(u.state) && box.contains(line)) setTimeout(poll, 700);
   };
   check.addEventListener("click", async () => {
+    dismissed = false;
     await fetch("/api/app-update/check", { method: "POST" });
     setTimeout(poll, 300);
   });
+  install.addEventListener("click", () => installAppUpdate(draw));
+  later.addEventListener("click", () => { dismissed = true; poll(); });
   draw(null);
   poll();
   return line;
 }
 
-/** Готова новая версия — показать внизу плашку с кнопкой (один раз за запуск) */
+/** Нашлась новая версия — спросить внизу плашкой, обновиться ли (один раз за запуск). Ничего не качаем без согласия */
 export function watchAppUpdate() {
   let shown = false;
   const look = async () => {
-    const u = await fetch("/api/app-update").then((r) => r.json()).catch(() => null);
+    const u = await appUpdateStatus();
     if (!u?.enabled) return;
-    if (u.state === "ready" && !shown) {
+    if (["available", "ready"].includes(u.state) && !u.error && !shown) {
       shown = true;
       const bar = el("div", "update-pill");
-      bar.append(el("span", "", `Доступна новая версия Sono ${u.latest}`));
+      const text = el("span", "", `Доступна новая версия Sono ${u.latest}. Обновить?`);
       const go = el("button", "btn", "Обновить");
       go.type = "button";
-      go.addEventListener("click", () => { bar.remove(); installAppUpdate(); });
       const later = el("button", "btn ghost", "Потом");
       later.type = "button";
       later.addEventListener("click", () => bar.remove());
-      bar.append(go, later);
+      go.addEventListener("click", () => {
+        go.remove();
+        later.remove();
+        text.textContent = "Скачиваю обновление…";
+        installAppUpdate((s) => {
+          if (s?.state === "downloading") text.textContent = `Скачиваю обновление… ${s.progress || 0}%`;
+          else if (s?.state === "installing") text.textContent = "Устанавливаю — Sono сейчас перезапустится…";
+          else if (s?.error) bar.remove();
+        });
+      });
+      bar.append(text, go, later);
       document.body.append(bar);
       return;
     }
-    setTimeout(look, ["checking", "downloading"].includes(u.state) ? 5000 : 30 * 60 * 1000);
+    setTimeout(look, u.state === "checking" ? 5000 : 30 * 60 * 1000);
   };
   setTimeout(look, 30000);   // проверка на сервере начинается через 20 с после запуска
 }
@@ -747,6 +812,12 @@ function librarySection() {
   return section;
 }
 
+/** Включить/выключить «Без анимаций» на странице (класс body.no-anim); живые фоны перечитают настройку сами */
+export function applyMotion() {
+  document.body.classList.toggle("no-anim", motionOff());
+  document.dispatchEvent(new CustomEvent("sono:motion"));
+}
+
 // ---------- Сборка экрана ----------
 
 let navSpy = null;   // подсветка раздела в оглавлении при прокрутке
@@ -760,6 +831,7 @@ function render() {
     ["Воспроизведение", playbackSection()],
     ["Оформление", appearanceSection()],
     ["Медиатека", librarySection()],
+    ["Мои файлы", localSection()],
     ["Обход блокировок", networkSection()],
     ["zapret", zapretCard()],
     ["Обновления", updateSection()],

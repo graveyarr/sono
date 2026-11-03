@@ -253,6 +253,8 @@
           <svg class="i-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M16 10l4 4M20 10l-4 4"/></svg>
         </button>
         <input type="range" data-np="volume" min="0" max="1" step="0.01" value="1" aria-label="Громкость">
+        <!-- Проценты над шариком — видны, пока наводят или тянут (player.js → placeVolumeTips) -->
+        <span class="vol-tip" data-np="volume-tip" aria-hidden="true">60%</span>
       </div>
     </div>
   </footer>

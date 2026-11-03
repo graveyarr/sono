@@ -7,6 +7,8 @@ import { isMeta, resolvedOf } from "./meta.js";
 import { openArtist, splitArtists } from "./nav.js";
 
 export const SOURCE_NAMES = { youtube: "YouTube", soundcloud: "SoundCloud" };
+/** Где лежит трек — для колонки «Сайт»; свои файлы — не сайт, поэтому не в SOURCE_NAMES (там выбор, где искать) */
+export const sourceLabel = (source) => SOURCE_NAMES[source] ?? (source === "local" ? "С компьютера" : "");
 
 /** Создаёт элемент: el("div", "class", "текст") */
 export function el(tag, className = "", text = "") {
@@ -206,7 +208,8 @@ export function trackRow(track, { index = 0, numbered = false, showSource = fals
   meta.title = track.title;   // полное исходное название — во всплывающей подсказке
   li.append(img, meta);
 
-  if (numbered) li.append(el("span", "t-source", SOURCE_NAMES[track.source] ?? ""));
+  // Прослушивания на YouTube/SoundCloud — заполняет plays.js, когда узнает
+  if (numbered) li.append(el("span", "t-plays"), el("span", "t-source", sourceLabel(track.source)));
 
   const like = iconButton(icons.heart, "В избранное", "t-like");
   like.addEventListener("click", (e) => { e.stopPropagation(); onLike?.(track); });
@@ -289,6 +292,7 @@ export function collectionCover(kind, { name = "", tracks = [], cover = null } =
   if (kind === "liked") { box.innerHTML = icons.heartFilled; return box; }
   if (kind === "disliked") { box.innerHTML = icons.dislikeFilled; return box; }
   if (kind === "downloads") { box.innerHTML = icons.download; return box; }
+  if (kind === "local") { box.innerHTML = icons.folder; return box; }
 
   if (cover) {   // своя обложка плейлиста (картинка, которую выбрал человек)
     const img = el("img");
@@ -490,12 +494,20 @@ const toasts = el("div", "toasts");
 toasts.setAttribute("aria-live", "polite");
 document.body.append(toasts);
 
-export function toast(text, { error = false } = {}) {
-  const item = el("div", `toast${error ? " error" : ""}`, text);
-  toasts.append(item);
-  while (toasts.children.length > 3) toasts.firstElementChild.remove();
-  setTimeout(() => {
+/** Уведомление внизу. action: { label, run } — кнопка в уведомлении (например, «Отменить»); тогда оно висит дольше */
+export function toast(text, { error = false, action = null } = {}) {
+  const item = el("div", `toast${error ? " error" : ""}${action ? " with-action" : ""}`, text);
+  const leave = () => {
     item.classList.add("leaving");
     setTimeout(() => item.remove(), 300);
-  }, error ? 4500 : 2600);
+  };
+  if (action) {
+    const btn = el("button", "toast-action", action.label);
+    btn.type = "button";
+    btn.addEventListener("click", () => { action.run(); leave(); });
+    item.append(btn);
+  }
+  toasts.append(item);
+  while (toasts.children.length > 3) toasts.firstElementChild.remove();
+  setTimeout(leave, action ? 6000 : error ? 4500 : 2600);
 }

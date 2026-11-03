@@ -1,6 +1,6 @@
 // Точка входа: загружаем медиатеку, подключаем все части и горячие клавиши.
 
-import { openAddToPlaylist, toggleDislike, toggleLike } from "./actions.js";
+import { openAddToPlaylist, openTrackAlbum, toggleDislike, toggleLike } from "./actions.js";
 import { initDownloads, onDownloadsChange } from "./downloads.js";
 import { initFlow } from "./flow.js";
 import { initPresence } from "./presence.js";
@@ -12,14 +12,16 @@ import { initFxButton } from "./fx.js";
 import { initFlowView } from "./flowview.js";
 import { initStats } from "./stats.js";
 import { maybeWelcome } from "./welcome.js";
-import { watchAppUpdate } from "./settings.js";
+import { applyMotion, watchAppUpdate } from "./settings.js";
 import { initTitlebar } from "./titlebar.js";
 import { maybeWhatsNew } from "./whatsnew.js";
-import { flush, loadLibrary, onChange, onSaveError } from "./library.js";
+import { loadLocal, onLocalChange } from "./local.js";
+import { announceNewReleases } from "./releases.js";
+import { flush, getSetting, loadLibrary, onChange, onSaveError } from "./library.js";
 import { initLyrics } from "./lyrics.js";
-import { initPlayer, onPlayState, onTrackChange, seekBy, state, syncLikeButtons, togglePlay } from "./player.js";
+import { initPlayer, isPlaying, onPlayState, onTrackChange, playNext, playPrev, seekBy, state, syncLikeButtons, togglePlay } from "./player.js";
 import { focusSearch, initSearch, refreshHistory } from "./search.js";
-import { syncAllRows, toast } from "./ui.js";
+import { displayTrack, syncAllRows, toast } from "./ui.js";
 import { initViews, refreshDownloads, refreshPlaying, refreshViews, syncPlayButtons } from "./views.js";
 
 try {
@@ -28,7 +30,9 @@ try {
   toast("Не удалось загрузить медиатеку: " + err.message, { error: true });
 }
 
+applyMotion();   // «Без анимаций» — до всего остального, чтобы ничего не успело дёрнуться
 initPlayer();
+loadLocal();   // свои файлы с компьютера — раздел «Мои файлы» в медиатеке
 initSearch();
 initViews();
 initLyrics();
@@ -43,10 +47,31 @@ initFlowView();
 initStats();
 initTitlebar();   // своя полоска заголовка окна (в программе; в браузере её нет)
 maybeWelcome();   // первый запуск — приветствие и экскурсия
-setTimeout(maybeWhatsNew, 1200);   // обновились — коротко рассказать, что нового (после приветствия, если оно было)
+setTimeout(maybeWhatsNew, 1200);
+
+// ---------- Значок в трее (tray.py) ----------
+// Меню значка просит страницу: пауза, следующий, предыдущий. А страница сообщает значку, что играет
+window.sonoTray = (action) => ({ toggle: togglePlay, next: playNext, prev: playPrev })[action]?.();
+const trayApi = () => window.pywebview?.api?.tray_status ? window.pywebview.api : null;
+const sendTray = () => {
+  const api = trayApi();
+  if (!api) return;
+  const shown = state.current ? displayTrack(state.current) : null;
+  api.tray_status(shown ? `${shown.artist ? `${shown.artist} — ` : ""}${shown.title}` : "", isPlaying()).catch(() => {});
+};
+onTrackChange(sendTray);
+onPlayState(sendTray);
+const sendCloseToTray = () => trayApi()?.set_close_to_tray(getSetting("closeToTray", true) !== false).catch(() => {});
+if (window.pywebview?.api) sendCloseToTray();
+else addEventListener("pywebviewready", sendCloseToTray, { once: true });
+document.addEventListener("sono:close-to-tray", sendCloseToTray);
+setTimeout(announceNewReleases, 6000);   // вышло что-то у исполнителей, на которых подписан, — уведомление   // обновились — коротко рассказать, что нового (после приветствия, если оно было)
 watchAppUpdate();   // скачалась новая версия Sono — предложим обновиться
+// Щелчок по названию трека на «Сейчас играет» — открыть его альбом/сингл и подсветить трек
+document.querySelector('#np-info [data-np="title"]').addEventListener("click", () => openTrackAlbum(state.current));
 // Скачивания: значки у треков и кнопки «Скачать» обновляются, пока сервер качает
 onDownloadsChange(() => { syncAllRows(); refreshDownloads(); });
+onLocalChange(() => refreshViews("local"));   // нашлись новые свои файлы — медиатека и открытый список
 initDownloads();
 
 // Медиатека изменилась → обновить всё, что её показывает

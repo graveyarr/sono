@@ -158,30 +158,23 @@ body:not(.on-now) .bg-grain { animation-play-state: paused; }
 body.on-now.nowbg-calm .bg-art.on { opacity: 0.7; }
 body.nowbg-calm .bg-art { animation-duration: 60s; }
 
-/* Свет из-за обложки: мягкое пятно цвета обложки + еле заметные лучи, медленно поворачиваются;
-   --pulse (0…1, басы — nowbg.js) чуть увеличивает и подсвечивает. Без filter: blur — только градиенты */
+/* «Свет» — подсветка из-за обложки её же цветами, как фоновая подсветка у телевизоров и в YouTube:
+   на холсте .np-glow — крошечная копия обложки (или текущего кадра клипа), растянутая и сильно размытая, —
+   каждый край светит своим цветом. Прежний вариант (одно пятно + лучи) автор назвал «ИИшным» — убран.
+   --pulse (басы, nowbg.js) — едва заметно «дышит»: чуть ярче и больше */
 .np-glow {
   position: absolute; z-index: 0; pointer-events: none;
-  left: 50%; top: 50%; width: 260%; aspect-ratio: 1;
-  transform: translate(-50%, -50%) scale(calc(0.92 + var(--pulse, 0) * 0.1));
+  inset: -22%;
   opacity: 0; transition: opacity 1.2s var(--ease);
 }
-body.nowbg-light .np-glow { opacity: calc(0.75 + var(--pulse, 0) * 0.25); }
-body.nowbg-light:not(.playing) .np-glow { opacity: 0.45; }
-.np-glow::before, .np-glow::after { content: ""; position: absolute; inset: 0; border-radius: 50%; }
-.np-glow::before {
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 55%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 22%, transparent) 38%, transparent 72%);
+.np-glow canvas {
+  width: 100%; height: 100%; display: block;
+  filter: blur(44px) saturate(1.5) brightness(1.1);
+  transform: scale(calc(1 + var(--pulse, 0) * 0.025));
 }
-.np-glow::after {
-  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--accent) 16%, transparent) 0deg 5deg, transparent 5deg 22deg);
-  -webkit-mask: radial-gradient(closest-side, transparent 18%, #000 30%, transparent 78%);
-  mask: radial-gradient(closest-side, transparent 18%, #000 30%, transparent 78%);
-  animation: glow-turn 140s linear infinite;
-}
-@keyframes glow-turn { to { transform: rotate(360deg); } }
-body:not(.on-now) .np-glow::after { animation-play-state: paused; }
-@media (prefers-reduced-motion: reduce) { .np-glow::after, .bg-grain { animation: none; } }
+body.nowbg-light .np-glow { opacity: calc(0.78 + var(--pulse, 0) * 0.18); }
+body.nowbg-light:not(.playing) .np-glow { opacity: 0.5; }
+@media (prefers-reduced-motion: reduce) { .bg-grain { animation: none; } }
 
 .bg-shade {
   position: absolute; inset: 0;
@@ -615,6 +608,12 @@ body:not(.on-now) .top { border-bottom-color: var(--line); }   /* отделяе
 .pl-download.busy .pl-dl-btn { animation: dl-pulse 1.2s ease-in-out infinite; }
 .pl-dl-status { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .collection-cover.downloads { background: linear-gradient(135deg, #0f9b6c 0%, #3dd6a0 60%, #b8f3da 100%); color: #fff; }
+.collection-cover.local { background: linear-gradient(135deg, #b5651d 0%, #f0a04b 60%, #ffe0b0 100%); color: #fff; }
+/* Настройки → «Мои файлы»: список папок */
+.local-folders { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.local-folder { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
+.local-folder-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.local-folder .btn { height: 30px; font-size: 13px; }
 
 /* Табличный вид в плейлисте: номер · обложка · название · сайт · ♡ · длительность · ⋯ */
 .track.numbered { padding: 6px 12px 6px 8px; }
@@ -635,6 +634,10 @@ body.playing .track.current .t-index { visibility: hidden; }
 body.playing .track.current .t-eq { display: flex; }
 body.playing .track.current:hover .t-eq { display: none; }
 .t-source { width: 96px; flex: none; font-size: 13px; color: var(--faint); }
+/* Сколько раз слушали (plays.js) — справа налево, цифры одной ширины */
+.t-plays { width: 112px; flex: none; padding-right: 18px; text-align: right; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tl-head .t-plays { font-size: inherit; color: inherit; }
+@media (max-width: 1200px) { .t-plays { width: 84px; padding-right: 10px; } .tl-head .t-plays { font-size: 0; } .tl-head .t-plays::after { content: "Слушали"; font-size: 12px; } }
 .t-dur { width: 48px; flex: none; text-align: right; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* Перетаскивание в плейлисте */
@@ -756,6 +759,27 @@ body.show-lyrics .up-next { display: none !important; }
 .lyrics-line:hover { color: rgba(255, 255, 255, 0.62); }
 .lyrics-line.past { color: rgba(255, 255, 255, 0.5); }
 .lyrics-line.active { color: #fff; transform: scale(1.035); text-shadow: 0 0 24px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* Оформления текста (Настройки → Оформление → «Текст песни»; lyrics.js → ls-…). «Крупный» (ls-big) — правила выше */
+/* «Карточка» (по умолчанию): фон панели — цвет обложки; что споют — тёмным оттенком того же цвета,
+   текущая строка — белая, спетое — полупрозрачное белое. Без увеличения и свечения */
+.lyrics.ls-card {
+  background: color-mix(in srgb, var(--accent) 58%, #161616);
+  border-color: transparent;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  transition: background-color 1.2s var(--ease);
+}
+.lyrics.ls-card .lyrics-source { color: rgba(255, 255, 255, 0.55); }
+.ls-card .lyrics-line { font-size: 22px; font-weight: 800; color: color-mix(in srgb, var(--accent) 28%, #000); }
+.ls-card .lyrics-line:hover { color: color-mix(in srgb, var(--accent) 14%, #000); text-decoration: underline; }
+.ls-card .lyrics-line.past { color: rgba(255, 255, 255, 0.72); }
+.ls-card .lyrics-line.active { color: #fff; transform: none; text-shadow: none; }
+.ls-card .lyrics-plain { color: #fff; }
+/* «Спокойный»: тонкий текст поменьше; текущая строка — просто белая и чуть плотнее */
+.ls-minimal .lyrics-line { margin-bottom: 12px; font-size: 18px; font-weight: 500; line-height: 1.5; letter-spacing: 0; color: rgba(255, 255, 255, 0.34); }
+.ls-minimal .lyrics-line:hover { color: rgba(255, 255, 255, 0.6); }
+.ls-minimal .lyrics-line.past { color: rgba(255, 255, 255, 0.5); }
+.ls-minimal .lyrics-line.active { color: #fff; font-weight: 650; transform: none; text-shadow: none; }
 
 .lyrics-plain { white-space: pre-wrap; font-size: 17px; line-height: 1.65; color: rgba(255, 255, 255, 0.86); }
 .lyrics-note { margin: 18px 0 0; font-size: 12.5px; color: var(--faint); }
@@ -1156,6 +1180,70 @@ body.playing .cover-wrap {
 .cover-wrap.clip-on #clip { opacity: 1; }
 
 .np-row { display: flex; align-items: flex-start; gap: 4px; margin-top: 26px; }
+/* Название трека — ссылка на его альбом (щелчок → альбом/сингл, трек подсвечен) */
+body.has-track #np-info [data-np="title"] { cursor: pointer; }
+body.has-track #np-info [data-np="title"]:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+/* Трек, к которому пришли из «Сейчас играет», — вспыхивает цветом обложки и медленно гаснет */
+.track.flash { animation: track-flash 2.4s var(--ease); }
+
+/* ---------- Страница исполнителя: подписка, новинка, сортировка популярных ---------- */
+.follow-pill {
+  height: 36px; padding: 0 18px; margin-left: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.45); border-radius: 18px;
+  background: none; color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s, transform 0.15s var(--ease);
+}
+.follow-pill:hover { border-color: #fff; transform: scale(1.03); }
+.follow-pill.on { border-color: rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.1); }
+.meta-h-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.meta-sort .seg-btn.busy { opacity: 0.6; }
+.meta-bio-source { margin: 10px 0 0; font-size: 12.5px; color: var(--faint); }
+.new-release {
+  display: flex; align-items: center; gap: 20px; width: 100%; max-width: 620px; padding: 14px;
+  border: 0; border-radius: 16px; background: rgba(255, 255, 255, 0.06);
+  color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background-color 0.2s;
+}
+.new-release:hover { background: rgba(255, 255, 255, 0.1); }
+.new-release-art { position: relative; flex: none; width: 116px; height: 116px; border-radius: 10px; overflow: hidden; background: rgba(255, 255, 255, 0.08); display: grid; place-items: center; }
+.new-release-art img { width: 100%; height: 100%; object-fit: cover; }
+.new-release-text { flex: 1; min-width: 0; }
+.new-release-kind { font-size: 12.5px; font-weight: 700; color: color-mix(in srgb, var(--accent) 70%, #fff); text-transform: uppercase; letter-spacing: 0.04em; }
+.new-release-title { margin-top: 6px; font-size: 22px; font-weight: 800; line-height: 1.2; padding-bottom: 0.1em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.new-release-sub { margin-top: 4px; font-size: 13.5px; color: var(--muted); }
+.new-release-play { flex: none; width: 48px; height: 48px; }
+
+/* ---------- Над списком треков: поиск, сортировка, выбранные (views.js → listTools) ---------- */
+.list-tools { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; min-height: 40px; flex-wrap: wrap; }
+.list-search {
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 12px; width: min(280px, 100%);
+  border-radius: 18px; background: rgba(255, 255, 255, 0.07); border: 1px solid transparent;
+  color: var(--muted); transition: border-color 0.2s, background-color 0.2s;
+}
+.list-search:focus-within { border-color: rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.1); color: var(--text); }
+.list-search svg { width: 16px; height: 16px; flex: none; }
+.list-search input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 14px; }
+.list-search input::-webkit-search-cancel-button { filter: invert(1); opacity: 0.5; }
+.list-sort { display: flex; align-items: center; gap: 8px; height: 36px; color: var(--muted); }
+.list-sort svg { width: 17px; height: 17px; }
+.list-sort:hover { color: var(--text); }
+/* Выбраны треки — вместо поиска и сортировки панель действий над ними */
+.select-bar { display: none; align-items: center; gap: 4px; flex-wrap: wrap; }
+.list-tools.selecting .list-search, .list-tools.selecting .list-sort { display: none; }
+.list-tools.selecting .select-bar { display: flex; }
+.select-count { margin-right: 8px; font-size: 14px; font-weight: 700; }
+.select-bar .btn { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; font-size: 13.5px; }
+.select-bar .btn svg { width: 16px; height: 16px; }
+.select-bar .danger-text { color: #ff7a7a; }
+.track.selected { background: color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.05)); }
+.track.selected:hover { background: color-mix(in srgb, var(--accent) 30%, rgba(255, 255, 255, 0.07)); }
+/* Тащат треки — плейлисты в медиатеке подсвечиваются как цели */
+body.dragging-tracks .lib-item[data-view^="playlist:"] { outline: 1px dashed rgba(255, 255, 255, 0.25); outline-offset: -2px; }
+.lib-item.drop-target { background: color-mix(in srgb, var(--accent) 30%, transparent) !important; outline: 2px solid color-mix(in srgb, var(--accent) 80%, #fff) !important; }
+@keyframes track-flash {
+  0%, 30% { background: color-mix(in srgb, var(--accent) 34%, transparent); }
+  100% { background: transparent; }
+}
 .info { flex: 1; min-width: 0; }
 .info.swap { animation: info-in 0.45s var(--ease); }
 @keyframes info-in {
@@ -1547,7 +1635,30 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
 .mini-progress span { width: 34px; flex: none; text-align: center; }
 
 /* Громкость в мини-плеере — значок и ползунок рядом, всегда видны */
-.volume.inline { display: flex; align-items: center; gap: 4px; }
+.volume.inline { display: flex; align-items: center; gap: 4px; position: relative; }
+/* Проценты над шариком (нижний плеер): светлая пилюля с хвостиком, как подсказка;
+   видна при наведении на ползунок и пока его тянут, появляется мягко снизу вверх */
+.vol-tip {
+  position: absolute; bottom: calc(50% + 14px); left: 0;
+  transform: translate(-50%, 4px) scale(0.9);
+  padding: 4px 8px 5px;
+  border-radius: 8px;
+  background: #f2f2f2; color: #111;
+  font-size: 12px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+  white-space: nowrap; pointer-events: none;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.2s var(--ease);
+}
+.vol-tip::after {
+  content: ""; position: absolute; left: 50%; top: 100%;
+  width: 8px; height: 8px; margin: -5px 0 0 -4px;
+  background: inherit; border-radius: 1px;
+  transform: rotate(45deg);
+}
+.volume.inline:has(input:hover) .vol-tip, .volume.inline.dragging .vol-tip {
+  opacity: 1; transform: translate(-50%, 0) scale(1);
+}
 .volume.inline input { width: clamp(80px, 9vw, 130px); }
 
 /* ---------- Всплывающее меню «⋯» ---------- */
@@ -2063,6 +2174,13 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
   transition: bottom 0.35s var(--ease);
 }
 body.has-track:not(.on-now) .toasts { bottom: 108px; }   /* над мини-плеером */
+/* Уведомление с кнопкой («Отменить»): кнопку можно нажать, хотя сам слой уведомлений «прозрачен» для мыши */
+.toast.with-action { display: flex; align-items: center; gap: 14px; padding-right: 8px; pointer-events: auto; }
+.toast-action {
+  border: 0; border-radius: 999px; padding: 5px 12px;
+  background: #111; color: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.toast-action:hover { background: #333; }
 .toast {
   max-width: 420px;
   padding: 10px 18px;
@@ -2124,3 +2242,17 @@ body.has-track:not(.on-now) .update-pill { bottom: 108px; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* «Без анимаций» (Настройки → Оформление): ничего не движется само — для слабых компьютеров.
+   Визуализация и живые фоны в этом режиме не рисуются каждый кадр (viz.js, nowbg.js, flowview.js) */
+body.no-anim *, body.no-anim *::before, body.no-anim *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0s !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+body.no-anim .bg-art { animation: none !important; }
+body.no-anim .bg-grain { display: none; }
+body.no-anim .viz { display: none; }

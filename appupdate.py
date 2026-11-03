@@ -2,9 +2,9 @@
 
 Как устроено:
 - при запуске (в фоне) и потом раз в 6 часов спрашиваем GitHub, какой последний выпуск (Release) в репозитории;
-- если его номер новее нашей версии — скачиваем установщик SonoSetup-<версия>.exe из выпуска
-  в DATA_DIR/updates/app и сверяем контрольную сумму (GitHub сам считает sha256 каждого файла выпуска);
-- страница показывает «Доступна версия X» — по кнопке запускаем установщик тихо (/VERYSILENT),
+- если его номер новее нашей версии — страница спрашивает «Доступна версия X — обновить?» (сами ничего не качаем);
+- человек нажал «Обновить» — скачиваем установщик SonoSetup-<версия>.exe в DATA_DIR/updates/app, сверяем
+  контрольную сумму (GitHub сам считает sha256 каждого файла выпуска) и сразу запускаем его тихо (/VERYSILENT),
   он ставит новую версию поверх старой и сам запускает её снова (параметр /UPDATE=1, см. installer.iss),
   а мы сразу закрываемся, чтобы не держать свои файлы.
 Медиатека лежит отдельно (%LOCALAPPDATA%\\Sono) и при обновлении не трогается.
@@ -83,7 +83,8 @@ def start() -> None:
 
 
 def check() -> None:
-    """Проверить GitHub и, если есть новая версия, скачать установщик."""
+    """Проверить GitHub: есть ли новая версия. Только узнаём — скачивание начнётся, когда человек
+    сам нажмёт «Обновить» (download_and_install). Раньше установщик качался сразу, без спроса."""
     if not enabled() or status()["state"] in ("checking", "downloading", "installing"):
         return
     import requests
@@ -106,14 +107,38 @@ def check() -> None:
         asset = next((a for a in rel.get("assets") or [] if re.fullmatch(r"SonoSetup-.*\.exe", a.get("name", ""))), None)
         if not asset:
             raise ValueError(f"в выпуске {latest} нет установщика SonoSetup-….exe")
+        _set(asset=asset)
         target = _dir() / asset["name"]
         want = (asset.get("digest") or "").removeprefix("sha256:").lower()
         if target.is_file() and (not want or _sha256(target) == want):
-            _set(state="ready", file=str(target))   # уже скачан раньше
-            return
+            _set(state="ready", file=str(target))   # уже скачан раньше — останется только установить
+        else:
+            _set(state="available", progress=0)   # есть новая версия — ждём, согласится ли человек
+        print(f"[app-update] доступна версия {latest}")
+    except Exception as e:
+        _set(state="error", error=str(e))
+        print(f"[app-update] не получилось проверить обновление: {e}")
+
+
+def download_and_install() -> None:
+    """Человек нажал «Обновить»: скачать установщик (если ещё нет), сверить сумму и установить."""
+    st = status()
+    if st["state"] == "ready":
+        return install()
+    if st["state"] != "available" or not _status.get("asset"):
+        raise ValueError("Новой версии нет — сначала проверьте обновления")
+    threading.Thread(target=_download_then_install, daemon=True, name="app-update-download").start()
+
+
+def _download_then_install() -> None:
+    import requests
+    asset = _status["asset"]
+    target = _dir() / asset["name"]
+    want = (asset.get("digest") or "").removeprefix("sha256:").lower()
+    try:
         if not want:
             print("[app-update] контрольной суммы нет — проверю только, что файл скачался целиком")
-        _set(state="downloading", progress=0)
+        _set(state="downloading", progress=0, error=None)
         _dir().mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".part")
         h = hashlib.sha256()
@@ -130,16 +155,17 @@ def check() -> None:
                         _set(progress=round(done / total * 100))
         if want and h.hexdigest() != want:
             tmp.unlink(missing_ok=True)
-            raise ValueError("контрольная сумма не совпала — файл повреждён, скачаю в следующий раз")
+            raise ValueError("контрольная сумма не совпала — файл повреждён, попробуйте ещё раз")
         os.replace(tmp, target)
         for old in _dir().glob("SonoSetup-*"):   # старые установщики больше не нужны
             if old != target:
                 old.unlink(missing_ok=True)
         _set(state="ready", file=str(target), progress=100)
-        print(f"[app-update] скачана версия {latest} — можно обновиться")
+        print(f"[app-update] скачана версия {_status.get('latest')} — устанавливаю")
+        install()
     except Exception as e:
-        _set(state="error", error=str(e))
-        print(f"[app-update] не получилось проверить обновление: {e}")
+        _set(state="available", error=str(e))   # можно нажать «Обновить» ещё раз
+        print(f"[app-update] не получилось скачать обновление: {e}")
 
 
 def _latest_from_web(requests) -> dict:

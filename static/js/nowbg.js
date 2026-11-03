@@ -1,15 +1,16 @@
 // Фон экрана «Сейчас играет» (Настройки → Оформление → «Фон»). Плавающие пятна убраны — вместо них:
-//   light  — «Свет» (по умолчанию): из-за обложки идёт мягкое свечение её цвета, на басах чуть «вздыхает» (.np-glow);
+//   light  — «Свет» (по умолчанию): из-за обложки «растекаются» её же цвета — каждый край своим, как фоновая
+//            подсветка у телевизора; при клипе — цвета текущего кадра (холст в .np-glow, CSS сильно размывает);
 //   calm   — «Тихий»: размытая обложка медленно дышит, сверху плёночное зерно (только CSS);
 //   mesh   — «Градиент»: весь фон — одно мягкое поле цветов обложки, цвета медленно перетекают (WebGL).
 // Был ещё вариант «Линии» (горизонтали, как на карте) — автору не понравился, убран; сохранённый выбор → «Свет».
 // Холст («Градиент») рисуется в половину разрешения и не чаще 30 раз в секунду, только пока открыт «Сейчас играет».
 
-import { getSetting, setSetting } from "./library.js";
+import { getSetting, motionOff, setSetting } from "./library.js";
 import { musicLevels } from "./viz.js";
 
 export const NOW_BACKGROUNDS = [
-  { id: "light", title: "Свет", hint: "Мягкое свечение цвета обложки" },
+  { id: "light", title: "Свет", hint: "Из-за обложки мягко растекаются её цвета (у клипа — цвета кадра)" },
   { id: "calm", title: "Тихий", hint: "Размытая обложка, почти без движения" },
   { id: "mesh", title: "Градиент", hint: "Цвета обложки медленно перетекают" },
 ];
@@ -22,6 +23,14 @@ export const nowBackground = () => {
 const canvas = document.getElementById("now-bg");
 const audio = document.getElementById("player");
 const glow = document.querySelector(".np-glow");
+const coverImg = document.getElementById("cover");
+const clipVideo = document.getElementById("clip");
+const coverWrap = coverImg.closest(".cover-wrap");
+// Крошечный холст: обложка по центру с прозрачными полями — после размытия свет мягко гаснет к краям
+const glowCanvas = document.createElement("canvas");
+glow.append(glowCanvas);
+const glowCtx = glowCanvas.getContext("2d");
+let glowTimer = 0;
 let gl = null, prog = null, uni = {};
 let colors = [[0.42, 0.24, 1], [1, 0.31, 0.64], [0.18, 0.66, 1], [1, 0.6, 0.24]];   // пока нет обложки
 let target = colors.map((c) => c.slice());
@@ -37,6 +46,7 @@ function apply() {
   const mode = nowBackground();
   for (const b of NOW_BACKGROUNDS) document.body.classList.toggle(`nowbg-${b.id}`, b.id === mode);
   refresh();
+  refreshGlow();
 }
 
 // ---------- Цвета обложки ----------
@@ -55,6 +65,34 @@ function onCoverColors(found) {
   const list = [...hsl];
   while (list.length < 4) list.push([(list[list.length - 1][0] + 30) % 360, list[0][1], list[0][2] - 6]);
   target = list.slice(0, 4).map(hslToRgb);
+  if (motionOff()) { running = false; lastFrame = 0; refresh(true); }   // перерисовать неподвижный фон под новую обложку
+}
+
+// ---------- «Свет»: подсветка цветами обложки / кадра клипа ----------
+
+/** Нарисовать источник (обложку или кадр видео) в маленький холст с полями. Видео — 16:9, обложка — квадрат */
+function drawGlow(source, wide) {
+  const w = wide ? 64 : 40, h = wide ? 36 : 40, pad = wide ? 7 : 6;   // поля ≈ inset −22% у .np-glow
+  if (glowCanvas.width !== w || glowCanvas.height !== h) { glowCanvas.width = w; glowCanvas.height = h; }
+  try {
+    glowCtx.clearRect(0, 0, w, h);
+    glowCtx.drawImage(source, pad, pad * (wide ? 0.55 : 1), w - pad * 2, h - pad * (wide ? 1.1 : 2));
+  } catch {}   // картинка ещё не загрузилась — нарисуем при следующем случае
+}
+
+function refreshGlow() {
+  clearInterval(glowTimer);
+  if (nowBackground() !== "light" || !document.body.classList.contains("on-now") || document.hidden) return;
+  if (coverWrap.classList.contains("clip-on") && !motionOff()) {
+    // Клип: обновляем подсветку 5 раз в секунду (плавность даёт CSS-размытие) — только пока он идёт
+    const tick = () => { if (!clipVideo.paused && clipVideo.readyState >= 2) drawGlow(clipVideo, true); };
+    drawGlow(clipVideo, true);
+    glowTimer = setInterval(tick, 200);
+  } else if (coverWrap.classList.contains("clip-on")) {
+    drawGlow(clipVideo, true);   // «Без анимаций»: подсветка по одному кадру клипа, без обновлений
+  } else if (coverImg.complete && coverImg.naturalWidth) {
+    drawGlow(coverImg, false);
+  }
 }
 
 // ---------- WebGL ----------
@@ -134,6 +172,8 @@ function resize() {
 
 function frame(ts) {
   if (!running) return;
+  // «Без анимаций»: свет не «дышит» под басы; для «Градиента» ниже рисуется один кадр
+  if (motionOff() && nowBackground() !== "mesh") { running = false; glow.style.setProperty("--pulse", "0"); return; }
   requestAnimationFrame(frame);
   // Басы — мягко (сильно сглажено), чтобы не мигало
   const { bass = 0 } = musicLevels(ts) || {};
@@ -152,7 +192,8 @@ function frame(ts) {
   const dt = Math.min(0.1, (ts - lastFrame) / 1000);
   lastFrame = ts;
   flow += dt * (playing ? 1 : 0.35);   // на паузе течёт медленнее
-  colors = colors.map((c, i) => c.map((v, k) => v + (target[i][k] - v) * 0.03));   // смена обложки — плавно
+  // смена обложки — плавно; «Без анимаций» — сразу
+  colors = motionOff() ? target.map((c) => c.slice()) : colors.map((c, i) => c.map((v, k) => v + (target[i][k] - v) * 0.03));
   if (!initGl()) return;
   resize();
   gl.viewport(0, 0, canvas.width, canvas.height);
@@ -161,11 +202,15 @@ function frame(ts) {
   gl.uniform1f(uni.uPulse, pulse);
   colors.forEach((c, i) => gl.uniform3f(uni[`uC${i}`], ...c));
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  if (motionOff()) running = false;   // «Без анимаций»: один кадр — и стоп (новый — при смене обложки)
 }
 
-function refresh() {
+let wasOnNow = null;
+function refresh(force = false) {
   const should = document.body.classList.contains("on-now") && !document.hidden;
-  if (should && !running) {
+  if (should !== wasOnNow) { wasOnNow = should; refreshGlow(); }   // класс body меняется часто — только на смену экрана
+  if (motionOff() && running && !force) return;
+  if (should && (!running || force)) {
     running = true;
     lastFrame = 0;
     requestAnimationFrame(frame);
@@ -176,6 +221,11 @@ function refresh() {
 
 export function initNowBackground() {
   document.addEventListener("sono:cover-colors", (e) => onCoverColors(e.detail));
+  coverImg.addEventListener("load", refreshGlow);   // сменилась обложка
+  // Включили/выключили «Без анимаций» — перезапустить (или остановить) рисование
+  document.addEventListener("sono:motion", () => { running = false; lastFrame = 0; refresh(true); refreshGlow(); });
+  new MutationObserver(refreshGlow).observe(coverWrap, { attributes: true, attributeFilter: ["class"] });   // клип появился/пропал
+  clipVideo.addEventListener("loadeddata", refreshGlow);
   new MutationObserver(refresh).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   document.addEventListener("visibilitychange", refresh);
   apply();

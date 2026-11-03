@@ -43,9 +43,11 @@ function hide(drop = false) {
 /** Трек сменился — спрашиваем сервер, есть ли клип */
 async function check() {
   const track = state.current;
-  const my = ++token;
-  if (!track || isMeta(track) || !clipsEnabled()) return hide(true);
+  if (!track || isMeta(track) || !clipsEnabled()) { token++; forKey = ""; return hide(true); }
+  // Тот же трек (событие приходит и при изменении очереди) — запрос уже идёт или ответ уже есть.
+  // Раньше здесь сбивался счётчик, и ответ первого запроса выбрасывался — клип не показывался
   if (keyOf(track) === forKey) return show();
+  const my = ++token;
   hide(true);
   forKey = keyOf(track);
   const shown = displayTrack(track);

@@ -510,7 +510,19 @@ function applyVolume() {
   const level = audio.muted ? 0 : volumeLevel;
   all("volume").forEach((r) => { r.value = level; setFill(r, level); r.title = `Громкость ${Math.round(level * 100)}%`; });
   all("volume-pct").forEach((n) => { n.textContent = `${Math.round(level * 100)}%`; });
+  placeVolumeTips(level);
   document.querySelectorAll(".volume").forEach((box) => box.classList.toggle("muted", level === 0));
+}
+
+/** «Пилюля» с процентами над шариком ползунка в нижнем плеере: ставим ровно над ним.
+    Шарик 12 px, его центр ходит от 6 px до (ширина − 6 px) — так считает и сам браузер */
+function placeVolumeTips(level) {
+  all("volume-tip").forEach((tip) => {
+    const range = tip.parentElement.querySelector('input[type="range"]');
+    if (!range) return;
+    tip.textContent = `${Math.round(level * 100)}%`;
+    tip.style.left = `${range.offsetLeft + 6 + level * (range.offsetWidth - 12)}px`;
+  });
 }
 
 // ---------- Системные медиаклавиши и панель Windows ----------
@@ -605,6 +617,16 @@ export function initPlayer() {
   setVolumeLevel(saved !== null ? saved
     : oldLevel !== null ? fromCubic(Number(oldLevel))
     : oldVolume !== null ? fromCubic(Math.cbrt(Number(oldVolume))) : DEFAULT_LEVEL);
+  // Пока тянут ползунок, пилюля с процентами не прячется, даже если курсор ушёл с него
+  all("volume").forEach((range) => {
+    const box = range.closest(".volume");
+    range.addEventListener("pointerdown", () => {
+      box.classList.add("dragging");
+      placeVolumeTips(audio.muted ? 0 : volumeLevel);
+      addEventListener("pointerup", () => box.classList.remove("dragging"), { once: true });
+    });
+    range.addEventListener("pointerenter", () => placeVolumeTips(audio.muted ? 0 : volumeLevel));
+  });
   all("volume").forEach((range) => range.addEventListener("input", () => {
     setVolumeLevel(range.value);
     audio.muted = false;

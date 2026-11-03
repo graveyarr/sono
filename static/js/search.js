@@ -236,7 +236,7 @@ export function initSearch() {
   showHistory();
 
   sourceBtn.addEventListener("click", () => {
-    const names = Object.keys(SOURCE_NAMES);
+    const names = Object.keys(SOURCE_NAMES);   // где искать: YouTube ↔ SoundCloud
     source = names[(names.indexOf(source) + 1) % names.length];
     setSetting("source", source);
     renderSource(true);
