@@ -34,8 +34,9 @@
     <div class="bg-tint"></div>
     <div class="bg-art"></div>
     <div class="bg-art"></div>
-    <!-- Пятна цветов обложки, плавают по орбитам на «Сейчас играет» (цвета ставит viz.js) -->
-    <div class="bg-blobs"><i><b></b></i><i><b></b></i><i><b></b></i><i><b></b></i><i><b></b></i></div>
+    <!-- Фон «Сейчас играет» в режиме «Градиент» (nowbg.js) и плёночное зерно -->
+    <canvas class="now-bg" id="now-bg"></canvas>
+    <div class="bg-grain"></div>
     <div class="bg-shade"></div>
   </div>
 
@@ -119,11 +120,17 @@
       <section class="view view-now" id="view-now" hidden>
         <div class="np-stage">
         <div class="deck">
-          <div class="cover-wrap">
-            <div class="cover-placeholder">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V6l11-2v11.5a2.5 2.5 0 1 1-2-2.45V7.4l-7 1.27v8.83z"/></svg>
+          <div class="cover-stage">
+            <!-- Свет из-за обложки (фон «Свет», nowbg.js) -->
+            <div class="np-glow" aria-hidden="true"></div>
+            <div class="cover-wrap">
+              <div class="cover-placeholder">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V6l11-2v11.5a2.5 2.5 0 1 1-2-2.45V7.4l-7 1.27v8.83z"/></svg>
+              </div>
+              <img id="cover" alt="">
+              <!-- Клип вместо обложки (clip.js) — без звука, идёт вместе с музыкой -->
+              <video id="clip" muted playsinline preload="auto" disablepictureinpicture></video>
             </div>
-            <img id="cover" alt="">
           </div>
 
           <div class="np-row">

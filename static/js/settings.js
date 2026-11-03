@@ -1,7 +1,9 @@
 // Экран «Настройки»: обход блокировок, автонастройка zapret и перенос медиатеки.
 
 import { fadeSeconds, normalizeEnabled, setFadeSeconds, setNormalize } from "./audio.js";
+import { clipsEnabled, setClipsEnabled } from "./clip.js";
 import { autoFlowEnabled } from "./flow.js";
+import { NOW_BACKGROUNDS, nowBackground, setNowBackground } from "./nowbg.js";
 import { icons } from "./icons.js";
 import { getSetting, lib, likeTarget, likeTargetName, setSetting } from "./library.js";
 import { setMinibarLarge, syncLikeButtons } from "./player.js";
@@ -203,6 +205,11 @@ function appearanceSection() {
     "Эквалайзер цветов обложки за экраном «Сейчас играет» — двигается по настоящему звуку.",
     vizEnabled(), (on) => { setSetting("visualizer", on); refreshViz(); }));
   section.append(vizColorsRow());
+  section.append(nowBackgroundRow());
+  section.append(switchRow("Клипы вместо обложки",
+    "Если у трека есть официальный клип на YouTube, на «Сейчас играет» вместо обложки идёт он — без звука, вместе с музыкой. "
+      + "Берёт больше интернета (примерно 2–4 МБ в минуту).",
+    clipsEnabled(), (on) => setClipsEnabled(on)));
 
   const p = presenceInfo;
   const status = !p ? "" : !p.available ? "Пока не подключено: нужен id приложения Discord (см. README)."
@@ -211,6 +218,31 @@ function appearanceSection() {
     `Друзья видят, что вы слушаете: название, исполнитель, обложка. ${status}`,
     presenceEnabled(), (on) => { setSetting("discord", on); updatePresence(0); }));
   return section;
+}
+
+/** Фон «Сейчас играет»: Свет (по умолчанию) / Тихий / Градиент / Линии */
+function nowBackgroundRow() {
+  const row = el("div", "set-switch set-choice");
+  const text = el("span", "set-switch-text");
+  const sub = el("span", "set-switch-sub");
+  text.append(el("span", "set-switch-title", "Фон «Сейчас играет»"), sub);
+  const seg = el("div", "seg");
+  const draw = () => {
+    const on = nowBackground();
+    sub.textContent = NOW_BACKGROUNDS.find((b) => b.id === on).hint;
+    seg.querySelectorAll(".seg-btn").forEach((b) => b.classList.toggle("on", b.dataset.id === on));
+  };
+  for (const b of NOW_BACKGROUNDS) {
+    const btn = el("button", "seg-btn", b.title);
+    btn.type = "button";
+    btn.dataset.id = b.id;
+    btn.title = b.hint;
+    btn.addEventListener("click", () => { setNowBackground(b.id); draw(); });
+    seg.append(btn);
+  }
+  draw();
+  row.append(text, seg);
+  return row;
 }
 
 /** Цвета визуализации: кружки-образцы наборов + «Свои» (два цвета, перелив от первого ко второму) */

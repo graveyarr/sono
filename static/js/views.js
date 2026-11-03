@@ -82,6 +82,18 @@ function prefetchCollection(info) {
   prefetch(info.tracks.find((t) => !lib.disliked.some((d) => keyOf(d) === keyOf(t))));
 }
 
+/** Открыли список — через полсекунды (если ещё на нём) готовим два первых трека: ▶ и щелчок по верху списка —
+    без ожидания. По одному, чтобы не занимать YouTube, пока человек листает */
+export function prefetchFirst(tracks, key) {
+  const first = tracks.filter((t) => !lib.disliked.some((d) => keyOf(d) === keyOf(t))).slice(0, 2);
+  setTimeout(async () => {
+    for (const t of first) {
+      if (view !== key) return;
+      await prefetch(t);
+    }
+  }, 500);
+}
+
 // ---------- Переключение экранов ----------
 
 const FIXED_VIEWS = ["home", "flow", "now", "settings", "stats"];   // экраны со своей секцией (остальные — списки)
@@ -508,6 +520,7 @@ function renderList(fresh) {
   const info = describe(view);
   if (!info) return showView("home");
   const keepScroll = fresh ? 0 : scroller.scrollTop;
+  if (fresh) prefetchFirst(info.tracks, view);
 
   // Шапка: обложка, название, сколько треков
   const header = el("header", "pl-header");

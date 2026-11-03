@@ -280,6 +280,9 @@ def _match_items(job: ImportJob, search_fn, name: str, items: list[dict]):
     _parallel(job, items[:job.total], one)
 
 
+_SEARCH_POOL = ThreadPoolExecutor(12, thread_name_prefix="pair-search")   # импорт ищет по 6 треков сразу, по 2 сайта
+
+
 def _find_pair(match: str, search_fn, artist: str, title: str, duration: float | None,
                why: dict | None = None) -> dict | None:
     """Ищет пару для трека. match: youtube | soundcloud | auto.
@@ -289,15 +292,19 @@ def _find_pair(match: str, search_fn, artist: str, title: str, duration: float |
     why — если передан, туда пишется причина неудачи: {"drm": True} — трек есть только
     на SoundCloud, и там он защищён (так у артистов крупных лейблов)."""
     query = f"{artist} - {title}" if artist else title
-    for source in (["soundcloud", "youtube"] if match == "auto" else [match]):
-        ranked = _ranked(search_fn(source, query, limit=8), duration, artist, title)
+    sources = ["soundcloud", "youtube"] if match == "auto" else [match]
+    # Ищем на обоих сайтах сразу, а не по очереди: если на SoundCloud не нашлось, результат YouTube уже готов
+    # (так пара для трека «из базы» находится на ~1–1,5 с быстрее). Ответ, который не понадобился, просто не ждём
+    found = {source: _SEARCH_POOL.submit(search_fn, source, query, limit=8) for source in sources}
+    for source in sources:
+        ranked = _ranked(found[source].result(), duration, artist, title)
         for candidate in ranked[:3]:
             if source == "soundcloud":
                 if match == "auto" and not _close_enough(candidate, duration, artist, title):
                     break   # на SoundCloud нет точного совпадения — идём на YouTube
                 if (candidate.get("duration") or 0) < 45 and not (duration and duration < 45):
                     continue   # 30-секундный отрывок вместо трека — SoundCloud так отдаёт часть музыки
-                if not _sc_playable(candidate["id"]):
+                if candidate.get("drm") or "drm" not in candidate and not _sc_playable(candidate["id"]):
                     if why is not None:
                         why["drm"] = True
                     continue   # защищён (DRM) — пробуем следующий вариант
@@ -631,8 +638,8 @@ def find_versions(search_fn, artist: str, title: str, duration: float | None,
                 continue
             seen.add(key)
             hint = censor_hint(r.get("title"))
-            if hint < 0:
-                continue   # сама подписана как «clean»/«radio edit»
+            if hint < 0 or r.get("drm"):
+                continue   # сама подписана как «clean»/«radio edit» или защищена (DRM) — не сыграть
             if duration and r.get("duration") and abs(r["duration"] - duration) > 20:
                 continue
             name = (r.get("title") or "").lower()

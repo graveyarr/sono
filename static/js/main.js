@@ -5,6 +5,8 @@ import { initDownloads, onDownloadsChange } from "./downloads.js";
 import { initFlow } from "./flow.js";
 import { initPresence } from "./presence.js";
 import { initViz } from "./viz.js";
+import { initNowBackground } from "./nowbg.js";
+import { initClips } from "./clip.js";
 import { initAudio } from "./audio.js";
 import { initFxButton } from "./fx.js";
 import { initFlowView } from "./flowview.js";
@@ -33,6 +35,8 @@ initFlow();
 initPresence();
 initAudio();
 initViz();
+initNowBackground();   // фон «Сейчас играет»: свет / тихий / градиент / линии
+initClips();   // клип вместо обложки, где он есть
 initFxButton();
 initFlowView();
 initStats();
@@ -70,6 +74,11 @@ document.querySelectorAll('[data-np="add"]').forEach((b) => b.addEventListener("
 // ---------- Горячие клавиши ----------
 // Пробел — пауза, ←/→ — перемотка на 5 с, L — в избранное, Ctrl+K или / — к поиску
 
+// Кнопка «нажимается» пробелом при его отпускании — гасим и это, иначе сработало бы и то, и другое
+document.addEventListener("keyup", (e) => {
+  if (e.code === "Space" && e.target.closest?.("button, .lib-item") && !e.target.closest(".dialog-backdrop, .menu")) e.preventDefault();
+});
+
 document.addEventListener("keydown", (e) => {
   if (e.target.closest?.(".dialog-backdrop, .menu")) return;   // в диалоге и меню клавиши свои
   if ((e.ctrlKey && e.key.toLowerCase() === "k") || (e.key === "/" && e.target === document.body)) {
@@ -77,9 +86,10 @@ document.addEventListener("keydown", (e) => {
     focusSearch();
     return;
   }
-  if (e.target.matches("input:not([type=range])")) return;   // в поле ввода клавиши нужны для текста
-  // Пробел на кнопке и стрелки на ползунке браузер обработает сам
-  if (e.code === "Space" && !e.target.closest("button, .lib-item")) { e.preventDefault(); togglePlay(); }
+  if (e.target.matches("input:not([type=range]), textarea, select, [contenteditable]")) return;   // в поле ввода клавиши нужны для текста
+  // Пробел — всегда пауза/продолжить, даже если в фокусе кнопка: раньше он «нажимал» последнюю нажатую
+  // кнопку (например, «Следующая») — так браузер ведёт себя с кнопками. Стрелки на ползунке браузер обработает сам
+  if (e.code === "Space") { e.preventDefault(); if (!e.repeat) togglePlay(); }
   else if (e.target.type === "range" || !state.current || e.ctrlKey || e.altKey) return;
   else if (e.key === "ArrowLeft") seekBy(-5);
   else if (e.key === "ArrowRight") seekBy(5);

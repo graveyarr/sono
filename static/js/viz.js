@@ -1,7 +1,7 @@
 // Визуализация на «Сейчас играет»: мягкие закруглённые столбики за плеером.
 // Высота — настоящий спектр звука (Web Audio, AnalyserNode): басы слева, верха справа.
 // Цвета — палитра обложки (несколько её цветов, переливом слева направо), к низу растворяются.
-// Та же палитра красит плавающие пятна фона (setBlobColors).
+// Те же цвета обложки получает фон «Сейчас играет» (событие sono:cover-colors → nowbg.js).
 // Выключается в настройках (settings.visualizer).
 
 import { analyserNode, audioContext, onAudioReady } from "./audio.js";
@@ -103,21 +103,6 @@ function coverPalette(img) {
   if (hues.length === 1) hues = [hues[0] - 35, hues[0], hues[0] + 35];
   if (hues.length === 2) hues = [hues[0], (hues[0] + hues[1]) / 2, hues[1]];
   return hues.map((h, i) => [((h % 360) + 360) % 360, 82, 50 + (i % 2) * 6]);
-}
-
-/** Цвета плавающих пятен фона на «Сейчас играет» (--blob-1…5, см. .bg-blobs в style.css).
-    Серая обложка (цветов нет) — пятна тоже приглушённые, без случайной радуги */
-function setBlobColors(colors) {
-  const root = document.documentElement.style;
-  for (let i = 0; i < 5; i++) {
-    let color = `hsl(0 0% ${30 + i * 6}%)`;
-    if (colors?.length) {
-      const [h, s] = colors[i % colors.length];
-      const shift = Math.floor(i / colors.length) * 24;   // повтор цвета — чуть другой оттенок
-      color = `hsl(${(h + shift) % 360} ${Math.min(Math.max(s, 55), 85)}% ${48 + (i % 2) * 6}%)`;
-    }
-    root.setProperty(`--blob-${i + 1}`, color);
-  }
 }
 
 function colorAt(t) {
@@ -310,7 +295,8 @@ export function initViz() {
     try { found = coverPalette(coverEl); } catch {}
     if (found) coverColors = found;
     applyVizColors();   // по обложке — новые цвета; свой набор — остаётся
-    setBlobColors(found);
+    // Цвета обложки нужны и фону «Сейчас играет» (nowbg.js); null — серая обложка без цветов
+    document.dispatchEvent(new CustomEvent("sono:cover-colors", { detail: found }));
   });
   applyVizColors();
   new ResizeObserver(() => { needResize = true; }).observe(canvas);

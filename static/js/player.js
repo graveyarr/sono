@@ -65,10 +65,15 @@ export function prefetch(track) {
   return fetch(path, { method: "POST" }).catch(() => {});
 }
 
-/** Пока играет трек — готовим следующий, чтобы «вперёд» и автопереход были мгновенными */
+/** Пока играет трек — готовим два следующих, чтобы «вперёд» (даже дважды подряд) и автопереход были мгновенными.
+    Второй — после первого: не занимаем YouTube двумя запросами сразу, пока играет музыка */
 function prefetchNext() {
   const i = nextPlayable(state.index, 1);
-  if (i >= 0) prefetch(state.queue[i]);
+  if (i < 0) return;
+  prefetch(state.queue[i]).then(() => {
+    const j = nextPlayable(i, 1);
+    if (j >= 0 && j !== state.index) prefetch(state.queue[j]);
+  });
 }
 
 export function setStatus(text, isError = false) {

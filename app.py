@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -88,6 +89,82 @@ def apply_network(config: dict) -> None:
     _network.clear()
     _network.update(config)
     print(f"[network] режим: {config['mode']}" + (f" ({config['strategy']})" if config["mode"] == "bypass" else ""))
+    reset_ydl_pools()   # у готовых экземпляров yt-dlp прокси прежний — пусть создадутся заново
+
+
+# ---------- Готовые экземпляры yt-dlp ----------
+# Создать yt-dlp и сделать первый запрос — дорого: ~1,8 с против ~1,0 с у уже работавшего экземпляра
+# (у него открыты соединения с YouTube и запомнены его служебные данные). Поэтому держим несколько готовых
+# и раздаём по одному на запрос (один экземпляр нельзя использовать из двух потоков сразу).
+# Замер (ноябрь 2026): ссылка на звук — было 3,3 с, стало ~1,0 с.
+AUDIO_FORMAT = "bestaudio[acodec=opus][protocol=https]/bestaudio[ext=m4a][protocol=https]/bestaudio[protocol=https]/bestaudio"
+VIDEO_FORMAT = ("bestvideo[height<=480][vcodec^=avc1][protocol=https]/bestvideo[height<=480][vcodec^=vp][protocol=https]"
+                "/bestvideo[height<=480][protocol=https]/bestvideo[height<=720][protocol=https]")
+YDL_OPTIONS = {
+    # Ссылка на звук, быстрый путь: «клиент» visionos не требует разгадывать скрипт YouTube (deno не нужен).
+    # protocol=https — обычный файл по ссылке, а не нарезка на фрагменты; сначала Opus (~160 кбит/с), потом AAC
+    "yt_fast": {"quiet": True, "no_warnings": True, "noplaylist": True, "format": AUDIO_FORMAT,
+                "extractor_args": {"youtube": {"player_client": ["visionos"]}}},
+    # Обычный путь — все «клиенты» по умолчанию (если быстрый не дал звука)
+    "yt_full": {"quiet": True, "no_warnings": True, "noplaylist": True, "format": AUDIO_FORMAT},
+    # Видео клипа без звука (звук идёт отдельно, как обычно): до 480p — клип занимает пол-экрана, больше не нужно.
+    # Сначала H.264 или VP9 — их WebView2 показывает везде (AV1 — не на всех видеокартах)
+    "clip_fast": {"quiet": True, "no_warnings": True, "noplaylist": True, "format": VIDEO_FORMAT,
+                  "extractor_args": {"youtube": {"player_client": ["visionos"]}}},
+    "clip_full": {"quiet": True, "no_warnings": True, "noplaylist": True, "format": VIDEO_FORMAT},
+    # Поиск (список без подробностей)
+    "search": {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True},
+}
+_pools: dict[str, queue.LifoQueue] = {}
+_pools_lock = threading.Lock()
+
+
+class ydl_pool:
+    """with ydl_pool("yt_fast") as ydl: ... — готовый экземпляр yt-dlp на время запроса."""
+
+    def __init__(self, kind: str):
+        self.kind = kind
+
+    def __enter__(self):
+        with _pools_lock:
+            self.pool = _pools.setdefault(self.kind, queue.LifoQueue())
+        try:
+            self.ydl = self.pool.get_nowait()
+        except queue.Empty:
+            self.ydl = yt_dlp.YoutubeDL(YDL_OPTIONS[self.kind])   # свободных нет — новый (потом тоже пригодится)
+        return self.ydl
+
+    def __exit__(self, *exc):
+        if self.pool.qsize() < 4:   # больше четырёх в запасе не держим
+            self.pool.put(self.ydl)
+
+
+def reset_ydl_pools() -> None:
+    with _pools_lock:
+        _pools.clear()
+
+
+def _warm_up() -> None:
+    """Прогрев при запуске: первый трек за сессию тоже включится быстро, а не за ~2 с."""
+    def one(kind, url):
+        try:
+            with ydl_pool(kind) as ydl:
+                ydl.extract_info(url, download=False)
+        except Exception as e:
+            print(f"[warm-up] {kind}: {str(e)[:100]}")
+    started = time.perf_counter()
+    jobs = [threading.Thread(target=one, args=("yt_fast", "https://www.youtube.com/watch?v=dQw4w9WgXcQ")),
+            threading.Thread(target=one, args=("yt_fast", "https://www.youtube.com/watch?v=9bZkp7q19f0")),
+            threading.Thread(target=one, args=("search", "ytsearch1:music"))]
+    with ydl_pool("search") as ydl:
+        if not ydl.cache.load("soundcloud", "client_id"):
+            # Ключ SoundCloud ещё не известен (первый запуск) — пусть yt-dlp узнает его сейчас, а не при первом поиске
+            jobs.append(threading.Thread(target=one, args=("search", "scsearch1:music")))
+    for t in jobs:
+        t.start()
+    for t in jobs:
+        t.join()
+    print(f"[warm-up] yt-dlp готов за {time.perf_counter() - started:.1f} с")
 
 
 def _load_network() -> dict:
@@ -99,6 +176,7 @@ def _load_network() -> dict:
 
 
 apply_network(_load_network())
+threading.Thread(target=_warm_up, daemon=True, name="ydl-warm-up").start()
 updater.check()   # в фоне: есть ли свежий yt-dlp (через тот же обход блокировок)
 appupdate.start()   # в фоне: нет ли новой версии самой программы на GitHub (appupdate.py)
 
@@ -175,16 +253,55 @@ def cache_key(source: str, track_id: str) -> str:
 
 
 _sc_artwork: dict[str, str] = {}   # id трека SoundCloud -> адрес обложки (запоминаем при поиске)
+SC_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/147.0 Safari/537.36",
+              "Origin": "https://soundcloud.com", "Referer": "https://soundcloud.com/", "Accept": "application/json"}
+
+
+def _sc_search_api(query: str, limit: int) -> list[dict]:
+    """Поиск на SoundCloud одним запросом к его API (~0,6 с). yt-dlp делает то же самое за 11 запросов (~2 с).
+    Ключ (client_id) берём тот, что yt-dlp уже узнал и запомнил. Ответ — в том же виде, что у yt-dlp."""
+    with ydl_pool("search") as ydl:
+        client_id = ydl.cache.load("soundcloud", "client_id")
+    if not client_id:
+        raise LookupError("yt-dlp ещё не узнал ключ SoundCloud")
+    # Заголовки как у браузера на soundcloud.com: без них SoundCloud через раз отвечает 403
+    resp = _http.get("https://api-v2.soundcloud.com/search/tracks", timeout=10, headers=SC_HEADERS,
+                     params={"q": query, "client_id": client_id, "limit": limit})
+    resp.raise_for_status()
+    entries = []
+    for t in resp.json()["collection"]:
+        if not t.get("streamable", True) or t.get("policy") == "BLOCK":
+            continue
+        protocols = {x.get("format", {}).get("protocol", "") for x in (t.get("media") or {}).get("transcodings") or []}
+        artwork = t.get("artwork_url") or (t.get("user") or {}).get("avatar_url")   # нет обложки — фото автора, как у yt-dlp
+        created = t.get("created_at") or ""
+        entries.append({
+            "id": str(t["id"]), "title": t.get("title"), "uploader": (t.get("user") or {}).get("username"),
+            "duration": (t.get("duration") or 0) / 1000 or None,
+            "thumbnails": [{"url": artwork}] if artwork else [],
+            "view_count": t.get("playback_count"), "like_count": t.get("likes_count"),
+            "timestamp": int(datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()) if created else None,
+            # Только зашифрованные потоки — трек под DRM (у крупных лейблов), сыграть его нельзя
+            "drm": bool(protocols) and all("encrypted" in p for p in protocols),
+        })
+    return entries
 
 
 def search(source: str, query: str, limit: int = 10) -> list[dict]:
     """Ищет треки. Возвращает список словарей с id, названием и т.д."""
-    opts = {"quiet": True, "extract_flat": True, "skip_download": True}
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(f"{SOURCES[source]['search']}{limit}:{query}", download=False)
+    entries = None
+    if source == "soundcloud":
+        try:
+            entries = _sc_search_api(query, limit)
+        except Exception as e:   # ключ устарел, SoundCloud ограничил частоту и т.п. — ищем через yt-dlp (он обновит ключ)
+            print(f"[search] SoundCloud напрямую не вышло ({str(e)[:80]}), ищу через yt-dlp")
+    if entries is None:
+        with ydl_pool("search") as ydl:   # готовый экземпляр — без затрат на создание и первое соединение
+            entries = ydl.extract_info(f"{SOURCES[source]['search']}{limit}:{query}", download=False).get("entries")
 
     results = []
-    for entry in info.get("entries") or []:
+    for entry in entries or []:
         if not entry or not entry.get("id"):
             continue
         duration = entry.get("duration")
@@ -204,6 +321,8 @@ def search(source: str, query: str, limit: int = 10) -> list[dict]:
             "plays": entry.get("view_count"),
             "likes": entry.get("like_count"),
             "uploaded": entry.get("timestamp"),   # когда загружен (есть у SoundCloud) — для поиска версий без цензуры
+            # Защищён ли (только SoundCloud через API): True — сыграть нельзя, False — точно можно, нет поля — неизвестно
+            **({"drm": entry["drm"]} if "drm" in entry else {}),
         })
         _track_stats[f"{source}:{entry['id']}"] = {"plays": entry.get("view_count"), "likes": entry.get("like_count")}
     return results
@@ -322,46 +441,51 @@ def _cached_stream(video_id: str):
     return None
 
 
-def resolve_stream(video_id: str, refresh: bool = False) -> tuple[str, dict]:
-    """Возвращает прямую ссылку на аудио и заголовки для неё (ссылки живут часы).
+def resolve_stream(video_id: str, refresh: bool = False, kind: str = "audio") -> tuple[str, dict]:
+    """Возвращает прямую ссылку на аудио (kind="video" — на видео без звука, для клипа) и заголовки для неё
+    (ссылки живут часы).
 
     Получение ссылки занимает несколько секунд, поэтому её можно запросить заранее (prefetch).
     Если один и тот же трек запрошен дважды одновременно, второй запрос дождётся первого."""
-    if not refresh and (hit := _cached_stream(video_id)):
+    key = video_id if kind == "audio" else f"video:{video_id}"   # у звука ключ прежний — старый кэш ссылок годится
+    if not refresh and (hit := _cached_stream(key)):
         return hit
-    with lock_for("stream:" + video_id):
-        if not refresh and (hit := _cached_stream(video_id)):   # пока ждали, ссылку мог получить другой запрос
+    with lock_for("stream:" + key):
+        if not refresh and (hit := _cached_stream(key)):   # пока ждали, ссылку мог получить другой запрос
             return hit
-        return _resolve_stream_uncached(video_id)
+        return _resolve_stream_uncached(video_id, kind)
 
 
-def _resolve_stream_uncached(video_id: str) -> tuple[str, dict]:
-    opts = {
-        "quiet": True,
-        "noplaylist": True,
-        # protocol=https — обычный файл по ссылке, а не нарезка на фрагменты.
-        # Сначала Opus (~160 кбит/с, лучшее, что есть у YouTube), потом AAC 128 — раньше брали сразу его
-        "format": "bestaudio[acodec=opus][protocol=https]/bestaudio[ext=m4a][protocol=https]/bestaudio[protocol=https]/bestaudio",
-    }
-    print(f"[stream] ищу ссылку для {video_id} ...")
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(track_url("youtube", video_id), download=False)
+def _resolve_stream_uncached(video_id: str, kind: str = "audio") -> tuple[str, dict]:
+    print(f"[stream] ищу ссылку для {video_id}{' (видео)' if kind == 'video' else ''} ...")
+    started = time.perf_counter()
+    # Сначала быстрый путь (один «клиент» YouTube без разгадывания скрипта, ~1 с), не вышло — обычный (~2–3 с)
+    for way in (("yt_fast", "yt_full") if kind == "audio" else ("clip_fast", "clip_full")):
+        try:
+            with ydl_pool(way) as ydl:
+                info = ydl.extract_info(track_url("youtube", video_id), download=False)
+            break
+        except yt_dlp.utils.DownloadError as e:
+            if way.endswith("_full") or re.search(r"unavailable|private|removed|blocked|copyright", str(e), re.I):
+                raise   # видео недоступно — обычный путь тут не поможет, не тратим время
+            print(f"[stream] {video_id}: быстрый путь не подошёл ({str(e)[:80]}), пробую обычный")
     if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
         raise ValueError("Это прямой эфир, его нельзя играть как трек")
     url = info["url"]
     headers = info.get("http_headers") or {}
     # Заодно запоминаем просмотры и лайки — экрану «Сейчас играет» не придётся спрашивать yt-dlp ещё раз
     _track_stats[f"youtube:{video_id}"] = {"plays": info.get("view_count"), "likes": info.get("like_count"), "full": True}
-    _stream_cache[video_id] = (_link_expiry(url), url, headers)
+    _stream_cache[video_id if kind == "audio" else f"video:{video_id}"] = (_link_expiry(url), url, headers)
     _save_stream_links()
-    print(f"[stream] ссылка получена ({info.get('ext')}, {info.get('abr')} kbps)")
+    quality = f"{info.get('abr')} kbps" if kind == "audio" else f"{info.get('height')}p {info.get('vcodec')}"
+    print(f"[stream] ссылка получена за {time.perf_counter() - started:.1f} с ({way}, {info.get('ext')}, {quality})")
     return url, headers
 
 
-def open_upstream(video_id: str, start: int, end: int):
+def open_upstream(video_id: str, start: int, end: int, kind: str = "audio"):
     """Запрашивает у YouTube байты [start, end]. Возвращает (ответ, всего_байт, тип_файла)."""
     for attempt in (1, 2):
-        url, headers = resolve_stream(video_id, refresh=(attempt == 2))
+        url, headers = resolve_stream(video_id, refresh=(attempt == 2), kind=kind)
         resp = _http.get(url, headers={**headers, "Range": f"bytes={start}-{end}"},
                          stream=True, timeout=15)
         if resp.status_code in (403, 404, 410) and attempt == 1:
@@ -404,16 +528,17 @@ def prefetch_head(video_id: str):
             break
 
 
-def stream_youtube(video_id: str):
-    """Пересылает аудио с YouTube браузеру. Понимает Range-запросы (перемотка)."""
-    if path := find_cached(cache_key("youtube", video_id)):
+def stream_youtube(video_id: str, kind: str = "audio"):
+    """Пересылает аудио (kind="video" — видео клипа без звука) с YouTube браузеру. Понимает Range-запросы (перемотка).
+    Идёт через тот же обход блокировок, что и звук: браузер сам к YouTube не ходит."""
+    if kind == "audio" and (path := find_cached(cache_key("youtube", video_id))):
         return send_file(path, conditional=True)   # трек скачан — отдаём с диска: мгновенно и без интернета
     range_header = request.headers.get("Range")
     match = re.match(r"bytes=(\d*)-(\d*)$", range_header or "")
     start = int(match.group(1)) if match and match.group(1) else 0
     wanted_end = int(match.group(2)) if match and match.group(2) else None
 
-    head = _heads.get(video_id)
+    head = _heads.get(video_id) if kind == "audio" else None
     if head and start < len(head[2]):   # начало уже в памяти — YouTube пока не спрашиваем
         total, mimetype, head_data = head
         first = None
@@ -423,7 +548,7 @@ def stream_youtube(video_id: str):
         if wanted_end is not None:
             first_end = min(first_end, wanted_end)
         try:
-            first, total, mimetype = open_upstream(video_id, start, first_end)
+            first, total, mimetype = open_upstream(video_id, start, first_end, kind)
         except Exception as e:
             print(f"[error] stream {video_id}: {e}")
             return jsonify(error=friendly_error(e)), 502
@@ -445,7 +570,7 @@ def stream_youtube(video_id: str):
             while pos <= end:
                 try:
                     if resp is None:
-                        resp, _, _ = open_upstream(video_id, pos, min(pos + CHUNK - 1, end))
+                        resp, _, _ = open_upstream(video_id, pos, min(pos + CHUNK - 1, end), kind)
                     for block in resp.iter_content(64 * 1024):
                         pos += len(block)
                         retries = 0
@@ -1020,7 +1145,8 @@ def api_search():
     if cached and time.time() - cached[0] < 600:
         return jsonify(results=cached[1])
     try:
-        results = search(source, query)
+        # Защищённые (DRM) треки SoundCloud не показываем — включить их всё равно нельзя
+        results = [r for r in search(source, query) if not r.get("drm")]
     except Exception as e:  # покажем ошибку в интерфейсе, а не просто 500
         print(f"[error] search {source}: {e}")
         return jsonify(error=friendly_error(e)), 502
@@ -1190,12 +1316,23 @@ def api_app_update_install():
 _presence = discord_rpc.Presence(discord_rpc.CLIENT_ID)
 
 
+_maxres_ok: dict[str, bool] = {}   # есть ли у видео YouTube большая картинка maxresdefault
+
+
 def _public_cover(source: str, track_id: str, cover: str | None) -> str:
     """Обложка по открытому адресу: Discord берёт картинку сам, наш локальный сервер ему не виден."""
     if cover and cover.startswith("https://"):
         return cover.replace("200x200", "400x400")   # обложки альбомов Яндекса — покрупнее
     if source == "youtube":
-        return f"https://i.ytimg.com/vi/{track_id}/hqdefault.jpg"
+        # Не hqdefault: он 4:3, и у широких видео чёрные полосы сверху и снизу «впечатаны» в саму картинку
+        # (так было в статусе Discord). Широкая картинка без полос — maxresdefault (бывает не у всех) или mqdefault;
+        # Discord сам обрезает её до квадрата по центру — как обложка в плеере
+        if track_id not in _maxres_ok:
+            try:
+                _maxres_ok[track_id] = _http.head(f"https://i.ytimg.com/vi/{track_id}/maxresdefault.jpg", timeout=5).ok
+            except requests.RequestException:
+                _maxres_ok[track_id] = False
+        return f"https://i.ytimg.com/vi/{track_id}/{'maxresdefault' if _maxres_ok[track_id] else 'mqdefault'}.jpg"
     try:
         urls = cover_urls(source, track_id, "large")
         return urls[0] if urls else ""
@@ -1528,6 +1665,91 @@ def api_stream(source, track_id):
     if source == "youtube":
         return stream_youtube(track_id)
     return stream_soundcloud(track_id)
+
+
+# ---------- Клипы вместо обложки ----------
+# Если у трека есть официальный клип на YouTube, «Сейчас играет» показывает его без звука вместо обложки —
+# звук идёт как обычно, видео подстраивается под него. Чтобы картинка не расходилась с музыкой, клип берём
+# только если это то же самое видео, что играет, или его длительность совпадает с треком (±3 с):
+# у клипов со сценкой во вступлении длительность другая — такие не показываем.
+
+CLIP_WORDS = re.compile(r"official\s*(music\s*)?video|music\s*video|\bm/?v\b|official\s*mv|клип|video\s*oficial|videoclip", re.I)
+NOT_CLIP = re.compile(r"audio|lyric|текст|visuali[sz]er|sped|slowed|nightcore|\b8d\b|remix|cover|кавер|\blive\b|концерт|"
+                      r"karaoke|караоке|instrumental|reaction|type beat|tiktok|teaser|trailer|snippet", re.I)
+CLIPS_FILE = CACHE_DIR / "clips.json"
+try:
+    _clips: dict = json.loads(CLIPS_FILE.read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    _clips = {}
+
+
+def find_clip(source: str, track_id: str, artist: str, title: str, duration: float | None,
+              channel: str = "") -> str | None:
+    """id видео YouTube с клипом этого трека или None."""
+    if source == "youtube":
+        # Играет само видео — картинка совпадает с музыкой до кадра. Показываем его, если это клип по названию
+        # или видео с канала исполнителя/лейбла без пометок «audio/lyrics/…». «- Topic» — это только обложка
+        if CLIP_WORDS.search(title or "") or (channel and not re.search(r"-\s*topic$", channel, re.I)
+                                              and not NOT_CLIP.search(title or "")):
+            return track_id
+    if not title:
+        return None
+    want = importer._norm(title.split("(")[0])
+    first_artist = importer._norm(artist.split(",")[0]) if artist else ""
+    for r in search("youtube", f"{artist} {title} official video".strip(), limit=6):
+        name = r.get("title") or ""
+        if not CLIP_WORDS.search(name) or (NOT_CLIP.search(name) and not NOT_CLIP.search(title)):
+            continue
+        if want not in importer._norm(name):
+            continue
+        if first_artist and first_artist not in importer._norm(f"{r.get('channel') or ''} {name}") \
+                and first_artist.replace(" ", "") not in importer._norm(f"{r.get('channel') or ''} {name}").replace(" ", ""):
+            continue
+        if not duration or not r.get("duration") or abs(r["duration"] - duration) > 3:
+            continue   # длительность не совпала (или неизвестна) — картинка разойдётся с музыкой
+        return r["id"]
+    return None
+
+
+@app.post("/api/clip")
+def api_clip():
+    """{source, id, artist, title, duration, channel} → {clip: id видео YouTube или null}. Ответ помним (нет клипа — неделю)."""
+    data = request.get_json(silent=True) or {}
+    source, track_id = str(data.get("source", "")), str(data.get("id", ""))
+    if not valid(source, track_id):
+        abort(400)
+    key = f"{source}:{track_id}"
+    saved = _clips.get(key)
+    if saved and (saved.get("clip") or time.time() - saved.get("checked", 0) < 7 * 24 * 3600):
+        return jsonify(clip=saved.get("clip"))
+    try:
+        clip = find_clip(source, track_id, str(data.get("artist") or "")[:200], str(data.get("title") or "")[:200],
+                         data.get("duration"), str(data.get("channel") or "")[:200])
+    except Exception as e:
+        return jsonify(error=friendly_error(e)), 502
+    _clips[key] = {"clip": clip, "checked": time.time()}
+    try:
+        CLIPS_FILE.write_text(json.dumps(_clips, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    if clip:   # заранее готовим ссылку на видео — когда страница попросит, оно начнётся сразу
+        threading.Thread(target=lambda: _safe(resolve_stream, clip, kind="video"), daemon=True).start()
+    return jsonify(clip=clip)
+
+
+def _safe(fn, *args, **kwargs):
+    try:
+        fn(*args, **kwargs)
+    except Exception as e:
+        print(f"[clip] {e}")
+
+
+@app.get("/api/video/youtube/<video_id>")
+def api_video(video_id):
+    """Видео клипа без звука — через сервер (и обход блокировок), с перемоткой."""
+    if not valid("youtube", video_id):
+        abort(400)
+    return stream_youtube(video_id, kind="video")
 
 
 if __name__ == "__main__":

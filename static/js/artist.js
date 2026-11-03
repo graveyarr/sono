@@ -224,6 +224,17 @@ export async function renderArtist(box, id, stillHere) {
   }
 
   box.replaceChildren(hero, body);
+  prefetchTop(a.top, stillHere);
+}
+
+/** Открыли страницу — готовим два первых трека (найти пару на YouTube/SoundCloud и начало звука), по одному */
+function prefetchTop(tracks, stillHere) {
+  setTimeout(async () => {
+    for (const t of tracks.slice(0, 2)) {
+      if (!stillHere()) return;
+      await prefetch(t);
+    }
+  }, 500);
 }
 
 function releaseCard(r) {
@@ -286,4 +297,5 @@ export async function renderAlbum(box, id, stillHere) {
   body.append(al.tracks.length ? trackList(al.tracks, context) : el("p", "pl-empty", "В этом релизе нет треков."));
   box.replaceChildren(hero, body);
   markCurrentRows(state.current ? keyOf(state.current) : null);
+  prefetchTop(al.tracks, stillHere);
 }
