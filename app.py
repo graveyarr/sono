@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -1299,6 +1300,16 @@ def api_app_update_status():
 @app.post("/api/app-update/check")
 def api_app_update_check():
     threading.Thread(target=appupdate.check, daemon=True).start()
+    return jsonify(ok=True)
+
+
+@app.post("/api/open-releases")
+def api_open_releases():
+    """Окно «Что нового» → «Все выпуски на GitHub»: открыть страницу выпусков в обычном браузере.
+    Адрес фиксированный — страница не может попросить открыть что-то другое."""
+    if not appupdate.REPO:
+        return jsonify(error="Репозиторий не указан"), 400
+    webbrowser.open(f"https://github.com/{appupdate.REPO}/releases")
     return jsonify(ok=True)
 
 

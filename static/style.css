@@ -1784,6 +1784,30 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
 .fx-check input { margin: 2px 0 0; accent-color: var(--accent); }
 
 /* ---------- Первый запуск: приветствие ---------- */
+/* Окно «Что нового» после обновления (whatsnew.js) */
+.dialog.whatsnew {
+  width: min(520px, calc(100vw - 32px));
+  padding: 26px 26px 20px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.wn-kicker { font-size: 12.5px; font-weight: 600; color: color-mix(in srgb, var(--accent) 70%, #fff); }
+.dialog.whatsnew h2 { margin: 4px 0 0; font-size: 22px; letter-spacing: -0.01em; }
+.wn-list { display: flex; flex-direction: column; gap: 4px; max-height: min(420px, 60vh); overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.wn-version { margin: 12px 0 4px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.wn-version:first-child { margin-top: 0; }
+.wn-item { display: flex; gap: 14px; padding: 10px; border-radius: 12px; }
+.wn-item:hover { background: rgba(255, 255, 255, 0.04); }
+.wn-icon {
+  flex: none; display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.06));
+  color: #fff;
+}
+.wn-icon svg { width: 18px; height: 18px; }
+.wn-title { font-size: 14.5px; font-weight: 700; }
+.wn-sub { margin-top: 3px; font-size: 13.5px; line-height: 1.45; color: var(--muted); }
+.dialog.whatsnew .dialog-buttons { justify-content: space-between; }
+
 .dialog.welcome {
   width: min(520px, calc(100vw - 32px));
   padding: 30px 30px 22px;

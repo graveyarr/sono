@@ -14,6 +14,7 @@ import { initStats } from "./stats.js";
 import { maybeWelcome } from "./welcome.js";
 import { watchAppUpdate } from "./settings.js";
 import { initTitlebar } from "./titlebar.js";
+import { maybeWhatsNew } from "./whatsnew.js";
 import { flush, loadLibrary, onChange, onSaveError } from "./library.js";
 import { initLyrics } from "./lyrics.js";
 import { initPlayer, onPlayState, onTrackChange, seekBy, state, syncLikeButtons, togglePlay } from "./player.js";
@@ -42,6 +43,7 @@ initFlowView();
 initStats();
 initTitlebar();   // своя полоска заголовка окна (в программе; в браузере её нет)
 maybeWelcome();   // первый запуск — приветствие и экскурсия
+setTimeout(maybeWhatsNew, 1200);   // обновились — коротко рассказать, что нового (после приветствия, если оно было)
 watchAppUpdate();   // скачалась новая версия Sono — предложим обновиться
 // Скачивания: значки у треков и кнопки «Скачать» обновляются, пока сервер качает
 onDownloadsChange(() => { syncAllRows(); refreshDownloads(); });

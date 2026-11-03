@@ -11,6 +11,8 @@ import { presenceEnabled, updatePresence } from "./presence.js";
 import { el, openMenu, syncAllRows, toast } from "./ui.js";
 import { VIZ_PRESETS, applyVizColors, paletteFor, refreshViz, vizColorsSetting, vizEnabled } from "./viz.js";
 import { showWelcome, startTour } from "./welcome.js";
+import { CHANGELOG } from "./changelog.js";
+import { showWhatsNew } from "./whatsnew.js";
 
 const box = document.getElementById("view-settings");
 let network = null;      // { mode, strategy, proxy }
@@ -400,7 +402,10 @@ function updateSection() {
   const tour = el("button", "btn ghost", "Экскурсия по Sono");
   tour.type = "button";
   tour.addEventListener("click", startTour);
-  again.append(welcome, tour);
+  const news = el("button", "btn ghost", "Что нового");
+  news.type = "button";
+  news.addEventListener("click", () => showWhatsNew(CHANGELOG.slice(0, 3)));   // последние три версии
+  again.append(news, welcome, tour);
   section.append(line, el("div", "set-label", "Знакомство"), again);
   return section;
 }
