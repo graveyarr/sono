@@ -17,7 +17,7 @@ import { CHANGELOG } from "./changelog.js";
 import { showWhatsNew } from "./whatsnew.js";
 
 const box = document.getElementById("view-settings");
-let network = null;      // { mode, strategy, proxy }
+let network = null;      // { mode, strategy, strategySc, fakeTtl, proxy }
 let strategies = {};     // способ → подпись
 let lastTest = null;     // результаты замера
 let testing = false;
@@ -81,18 +81,24 @@ function networkSection() {
 
   // Детали выбранного режима
   if (network.mode === "bypass") {
-    const seg = el("div", "seg set-strategies");
-    for (const [name, title] of Object.entries(strategies)) {
-      const btn = el("button", `seg-btn${network.strategy === name ? " on" : ""}`, title);
-      btn.type = "button";
-      btn.addEventListener("click", async () => {
-        try { await saveNetwork({ strategy: name }); } catch (err) { toast(err.message, { error: true }); }
-        render();
-      });
-      seg.append(btn);
-    }
-    section.append(el("div", "set-label", "Способ"), seg,
-      el("p", "set-hint", "У разных провайдеров срабатывают разные способы. Не знаете какой — нажмите «Подобрать лучший способ»."));
+    // Способ — свой для YouTube и для SoundCloud: SoundCloud провайдеры замораживают иначе
+    const strategyRow = (key) => {
+      const seg = el("div", "seg set-strategies");
+      for (const [name, title] of Object.entries(strategies)) {
+        const btn = el("button", `seg-btn${network[key] === name ? " on" : ""}`, title);
+        btn.type = "button";
+        btn.addEventListener("click", async () => {
+          try { await saveNetwork({ [key]: name }); } catch (err) { toast(err.message, { error: true }); }
+          render();
+        });
+        seg.append(btn);
+      }
+      return seg;
+    };
+    section.append(el("div", "set-label", "Способ для YouTube"), strategyRow("strategy"),
+      el("div", "set-label", "Способ для SoundCloud"), strategyRow("strategySc"),
+      el("p", "set-hint", "У разных провайдеров срабатывают разные способы. Не знаете какой — нажмите «Подобрать лучший способ». "
+        + "«Подделка» — против заморозки SoundCloud: открывается, но трек не грузится."));
   }
   if (network.mode === "proxy") {
     const row = el("form", "set-proxy");
@@ -126,17 +132,20 @@ function networkSection() {
   return section;
 }
 
+const sameNetwork = (a) => a.mode === network.mode && (a.mode !== "bypass"
+  || (a.strategy === network.strategy && a.strategySc === network.strategySc && a.fakeTtl === network.fakeTtl));
+
 function testResults() {
-  const { results, error } = lastTest;
+  const { results, best, error } = lastTest;
   const wrap = el("div", "set-results");
   if (error) {
     wrap.append(el("p", "import-error", error));
     return wrap;
   }
-  const best = results.filter((r) => r.youtube).sort((a, b) => b.youtube - a.youtube)[0];
   const max = Math.max(...results.map((r) => r.youtube || 0), 0.1);
   for (const r of results) {
-    const row = el("div", `set-result${best && r.name === best.name ? " best" : ""}`);
+    const isBest = best && (best.mode === "proxy" ? r.name === "proxy" : r.name === best.strategy || r.name === best.strategySc);
+    const row = el("div", `set-result${isBest ? " best" : ""}`);
     const bar = el("div", "set-bar");
     const fill = el("i");
     fill.style.width = `${((r.youtube || 0) / max) * 100}%`;
@@ -146,25 +155,29 @@ function testResults() {
       el("span", "set-result-sc", r.soundcloud ? `SC ${r.soundcloud} мс` : "SC —"));
     wrap.append(row);
   }
-  if (best) {
-    const direct = results.find((r) => r.name === "off");
-    const note = direct?.youtube && direct.youtube >= best.youtube * 0.8
-      ? "Напрямую YouTube и так работает быстро — обход вам, скорее всего, не нужен (но и не мешает)."
-      : `Быстрее всего — «${label(best.name)}».`;
-    wrap.append(el("p", "set-hint", note));
-    if (best.name !== "off" && !(network.mode === "bypass" && network.strategy === best.name)
-        && !(best.name === "proxy" && network.mode === "proxy")) {
-      const use = el("button", "btn primary", `Включить «${label(best.name)}»`);
-      use.type = "button";
-      use.addEventListener("click", async () => {
-        await saveNetwork(best.name === "proxy" ? { mode: "proxy" } : { mode: "bypass", strategy: best.name });
-        toast(`Включено: «${label(best.name)}»`);
-        render();
-      });
-      wrap.append(use);
-    }
-  } else {
-    wrap.append(el("p", "set-hint", "YouTube не открылся ни одним способом. Попробуйте «Свой прокси» с адресом из вашего VPN."));
+  if (!best) {
+    wrap.append(el("p", "set-hint", "Ни YouTube, ни SoundCloud не открылись ни одним способом. Попробуйте «Свой прокси» с адресом из вашего VPN."));
+    return wrap;
+  }
+  const direct = results.find((r) => r.name === "off");
+  const notes = [];
+  if (best.mode === "proxy") notes.push("Лучше всего — через ваш прокси.");
+  else {
+    notes.push(`YouTube — «${label(best.strategy)}», SoundCloud — «${label(best.strategySc)}».`);
+    if (!results.some((r) => r.youtube)) notes.push("YouTube не открылся ни одним способом.");
+    if (!results.some((r) => r.soundcloud)) notes.push("SoundCloud не открылся ни одним способом.");
+    if (direct?.youtube && direct?.soundcloud) notes.push("Напрямую и так всё работает — обход вам, скорее всего, не нужен (но и не мешает).");
+  }
+  wrap.append(el("p", "set-hint", notes.join(" ")));
+  if (!sameNetwork(best)) {
+    const use = el("button", "btn primary", "Включить лучшее");
+    use.type = "button";
+    use.addEventListener("click", async () => {
+      await saveNetwork(best);
+      toast("Включено лучшее по замеру");
+      render();
+    });
+    wrap.append(use);
   }
   return wrap;
 }

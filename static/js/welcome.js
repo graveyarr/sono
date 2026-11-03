@@ -2,6 +2,7 @@
 // и экскурсия по интерфейсу — подсветка частей окна с подсказками.
 // Показывается один раз (settings.onboarded); снова — кнопкой в настройках.
 
+import { icons } from "./icons.js";
 import { openImportDialog } from "./import.js";
 import { getSetting, lib, setSetting } from "./library.js";
 import { openView } from "./nav.js";
@@ -9,7 +10,17 @@ import { el, openModal, toast } from "./ui.js";
 
 // ---------- Приветствие ----------
 
-const STEPS = ["hello", "network", "import", "tour"];
+const STEPS = ["hello", "features", "network", "import", "tour"];
+
+// Главные фишки — то, чего нет в обычных плеерах
+const FEATURES = [
+  { icon: "censor", title: "Оригинал без цензуры", text: "Трек запикан или слова заменены? «⋯» → «Трек с цензурой» — Sono найдёт исходную версию." },
+  { icon: "flow", title: "Flow под ваш вкус", text: "Бесконечная подборка. Учится на лайках и пропусках." },
+  { icon: "compass", title: "Работает без VPN", text: "Встроенный обход блокировок YouTube и SoundCloud." },
+  { icon: "download", title: "Офлайн", text: "Скачивайте треки и плейлисты — играют без интернета." },
+  { icon: "fx", title: "Slowed, reverb, басы", text: "Звуковые эффекты и эквалайзер прямо в плеере." },
+  { icon: "note", title: "Тексты и клипы", text: "Текст песни строка за строкой и клип вместо обложки." },
+];
 
 export function showWelcome() {
   const { box, close } = openModal({ className: "welcome", onClose: () => setSetting("onboarded", true) });
@@ -38,7 +49,7 @@ export function showWelcome() {
 
   const go = (i) => {
     step = i;
-    box.replaceChildren(...{ hello, network, import: importStep, tour }[STEPS[i]]());
+    box.replaceChildren(...{ hello, features, network, import: importStep, tour }[STEPS[i]]());
     box.classList.remove("step-in");
     void box.offsetWidth;
     box.classList.add("step-in");
@@ -51,6 +62,20 @@ export function showWelcome() {
         + "текстами песен, бесконечным Flow и скачиванием для офлайна."),
       el("p", "welcome-muted", "Пара минут настройки — и всё будет работать как надо."),
       nav("Начнём", () => go(1), { skip: "Пропустить" })];
+  }
+
+  function features() {
+    const grid = el("div", "welcome-features");
+    for (const f of FEATURES) {
+      const card = el("div", "welcome-feature");
+      const icon = el("span", "wn-icon");
+      icon.innerHTML = icons[f.icon];
+      const body = el("div");
+      body.append(el("div", "wn-title", f.title), el("div", "wn-sub", f.text));
+      card.append(icon, body);
+      grid.append(card);
+    }
+    return [el("h2", "", "Что умеет Sono"), grid, nav("Дальше", () => go(2))];
   }
 
   function network() {
@@ -72,7 +97,7 @@ export function showWelcome() {
         + "Проверьте, какой способ быстрее у вашего провайдера, — это займёт до минуты."),
       el("p", "welcome-muted", "Если у вас скачан zapret, Sono может настроить и его — сам подберёт стратегию."),
       actions, result,
-      nav("Дальше", () => go(2))];
+      nav("Дальше", () => go(3))];
   }
 
   function importStep() {
@@ -95,7 +120,7 @@ export function showWelcome() {
         + "YouTube и SoundCloud — или просто списком «Исполнитель — Название» (например, из VK)."),
       el("p", "welcome-muted", "Если вы уже пользовались Sono на другом компьютере — восстановите копию медиатеки."),
       actions,
-      nav("Дальше", () => go(3))];
+      nav("Дальше", () => go(4))];
   }
 
   function tour() {
@@ -116,19 +141,19 @@ async function runNetworkTest(result, button) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "замер не удался");
     const names = Object.fromEntries((await net.json()).strategies);
-    const ok = data.results.filter((r) => r.youtube);
-    const best = ok.sort((a, b) => b.youtube - a.youtube)[0];
+    const { best } = data;
     const direct = data.results.find((r) => r.name === "off");
     if (!best) {
-      result.replaceChildren(el("p", "import-error", "YouTube не открылся ни одним способом. Попробуйте zapret или свой VPN — это в настройках."));
-    } else if (best.name === "off" || (direct?.youtube && direct.youtube >= best.youtube * 0.8)) {
-      result.replaceChildren(el("p", "welcome-ok", `Всё хорошо: YouTube и так работает быстро (${direct.youtube} МБ/с).`));
+      result.replaceChildren(el("p", "import-error", "YouTube и SoundCloud не открылись ни одним способом. Попробуйте zapret или свой VPN — это в настройках."));
+    } else if (direct?.youtube && direct?.soundcloud) {
+      result.replaceChildren(el("p", "welcome-ok", `Всё хорошо: YouTube и SoundCloud и так работают (${direct.youtube} МБ/с).`));
     } else {
-      const label = names[best.name] ?? best.name;
       await fetch("/api/network", { method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "bypass", strategy: best.name }) });
-      result.replaceChildren(el("p", "welcome-ok",
-        `Готово: включил «${label}» — ${best.youtube} МБ/с${direct?.youtube ? ` (напрямую — ${direct.youtube} МБ/с)` : ""}.`));
+        body: JSON.stringify(best) });
+      const yt = data.results.find((r) => r.name === best.strategy)?.youtube;
+      result.replaceChildren(el("p", "welcome-ok", best.mode === "proxy" ? "Готово: включил ваш прокси."
+        : `Готово: YouTube — «${names[best.strategy] ?? best.strategy}»${yt ? ` (${yt} МБ/с)` : ""}, `
+          + `SoundCloud — «${names[best.strategySc] ?? best.strategySc}».`));
     }
   } catch (err) {
     result.replaceChildren(el("p", "import-error", `Не получилось проверить: ${err.message}`));

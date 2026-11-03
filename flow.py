@@ -34,6 +34,8 @@ MODES = {
 }
 
 _pool = ThreadPoolExecutor(12, thread_name_prefix="flow")
+# Вложенные запросы из задач _pool (похожие Deezer — вместе с радио). Сами они ничего не ждут — взаимной блокировки нет
+_side = ThreadPoolExecutor(8, thread_name_prefix="flow-side")
 
 
 def _norm(text: str) -> str:
@@ -116,9 +118,10 @@ def _deezer(name: str) -> dict:
     dz_id = _deezer_id(name)
     if not dz_id:
         return {"radio": [], "related": []}
+    related = _side.submit(_safe, _deezer_related, dz_id, default=[])   # одновременно с радио
     radio = artists._get(f"{artists.DEEZER}/artist/{dz_id}/radio", {"limit": 50}).get("data") or []
     return {"radio": [_dz_track(t) for t in radio if isinstance(t, dict) and t.get("readable", True)],
-            "related": _deezer_related(dz_id)}
+            "related": related.result()}
 
 
 def _safe(fn, *args, default=None):
@@ -220,6 +223,12 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
     track_seeds = [{**t, "artist": str(t.get("artist") or ""), "title": str(t.get("title") or "")}
                    for t in tracks or [] if isinstance(t, dict) and _weight(t) > 0][:8]
 
+    # Deezer ищет по имени — запускаем сразу, не дожидаясь id Яндекса (первый Flow с пустым кэшем: 4,3 → ~2,5 с)
+    dz_names: dict[str, str] = {}
+    for s in seeds:
+        if len(dz_names) < 4 and _compact(s["name"]) and _compact(s["name"]) not in dz_names:
+            dz_names[_compact(s["name"])] = s["name"]
+    dz_jobs = {name: _pool.submit(_safe, _deezer, name, default=None) for name in dz_names.values()}
     artist_jobs = [_pool.submit(_resolve_seed, s) for s in seeds]   # исполнители и треки — одновременно
     track_ids = list(_pool.map(_resolve_track, track_seeds))
     artist_ids = [f.result() for f in artist_jobs]
@@ -251,7 +260,7 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
             if deep and len([k for k in jobs if k[0] == "deep"]) < 5:
                 jobs[("deep", a["name"])] = _pool.submit(_safe, _deep_tracks, a["id"], default=[])
     for a in own_list[:4]:   # Deezer — по самым любимым (3 запроса на исполнителя, потом из кэша)
-        jobs[("dz", a["name"])] = _pool.submit(_safe, _deezer, a["name"], default=None)
+        jobs[("dz", a["name"])] = dz_jobs.get(a["name"]) or _pool.submit(_safe, _deezer, a["name"], default=None)
     for t, w, tid in tseeds:
         jobs[("sim", tid)] = _pool.submit(_safe, _similar_tracks, tid, default=[])
     got = {k: f.result() for k, f in jobs.items()}

@@ -34,3 +34,8 @@ venv/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Android (папка android/): путь к SDK на этом компьютере и служебные файлы Gradle
+android/local.properties
+android/.gradle/
+android/.kotlin/

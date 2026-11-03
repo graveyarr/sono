@@ -180,10 +180,27 @@ function playAt(track, queue, index, context) {
   audio.dataset.trackDuration = track.duration || "";   // для плавного затухания в конце (audio.js)
   audio.src = trackPath("stream", track);
   audio.play().catch(() => {});   // ошибки показывает обработчик "error" ниже
+  warnIfSlow(track);
 
   addToHistory(track);
   updateMediaSession(track);
   trackListeners.forEach((fn) => fn());
+}
+
+// Трек не начался за 6 с — говорим, что происходит, а не молчим. Обычно это редкое видео YouTube:
+// кэш-сервер провайдера сначала сам скачивает его у Google (замер 3 ноября 2026: 15–25 с), потом отдаёт
+let slowTimer = 0;
+function warnIfSlow(track) {
+  clearTimeout(slowTimer);
+  const src = audio.src;
+  slowTimer = setTimeout(() => {
+    if (audio.src !== src || audio.currentTime > 0 || audio.error || audio.paused) return;
+    const text = track.source === "youtube"
+      ? "YouTube долго отдаёт этот трек — редкие видео он сначала загружает к себе. Ещё немного…"
+      : "Трек долго загружается — ещё немного…";
+    setStatus(text);
+    if (!document.body.classList.contains("on-now")) toast(text);
+  }, 6000);
 }
 
 /** Заменить играющий трек другой версией (например, без цензуры) и продолжить с того же места */

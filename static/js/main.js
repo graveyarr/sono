@@ -19,6 +19,7 @@ import { loadLocal, onLocalChange } from "./local.js";
 import { announceNewReleases } from "./releases.js";
 import { flush, getSetting, loadLibrary, onChange, onSaveError } from "./library.js";
 import { initLyrics } from "./lyrics.js";
+import { initMobile } from "./mobile.js";
 import { initPlayer, isPlaying, onPlayState, onTrackChange, playNext, playPrev, seekBy, state, syncLikeButtons, togglePlay } from "./player.js";
 import { focusSearch, initSearch, refreshHistory } from "./search.js";
 import { displayTrack, syncAllRows, toast } from "./ui.js";
@@ -35,6 +36,7 @@ initPlayer();
 loadLocal();   // свои файлы с компьютера — раздел «Мои файлы» в медиатеке
 initSearch();
 initViews();
+initMobile();   // телефон: нижние вкладки и кнопка «Назад» (на компьютере ничего не делает)
 initLyrics();
 initFlow();
 initPresence();
