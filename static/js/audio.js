@@ -2,13 +2,17 @@
 //   источник → басы (полка 110 Гц) → «сухой» звук + реверб → выравнивание громкости → плавность → анализатор → колонки
 // - басы, реверб, скорость — «Звуковые эффекты» (кнопка у плеера, settings.fx);
 // - выравнивание громкости — мягкий компрессор: тихие треки ближе к громким (settings.normalize);
-// - плавность — громкость гаснет в конце трека и нарастает в начале следующего (settings.fadeSec);
+// - наложение треков — конец трека звучит вместе с началом следующего (settings.fadeSec, секунды);
+//   конец доигрывает второй плеер-«хвост», он идёт через те же эффекты. Следующего нет — просто затухание;
 // - анализатор читают визуализация и маленькие «эквалайзеры» (viz.js).
 // Создать цепочку можно только после действия человека (щелчок, клавиша) — иначе браузер «заморозит» звук.
 
 import { getSetting, setSetting } from "./library.js";
 
 const audio = document.getElementById("player");
+// Второй плеер — «хвост»: при наложении доигрывает конец прошлого трека, пока основной уже играет следующий
+const tail = new Audio();
+tail.preload = "auto";
 
 // Эквалайзер — 6 полос, как в Spotify: [частота, тип фильтра, подпись]
 export const EQ_BANDS = [[60, "lowshelf", "60"], [150, "peaking", "150"], [400, "peaking", "400"],
@@ -84,6 +88,15 @@ export function ensureAudioGraph() {
     // на слабых компьютерах звук трещал («странный, плохое качество» — отзыв друга)
     ctx = new AudioContext({ latencyHint: "playback" });
     n.source = ctx.createMediaElementSource(audio);
+    // Наложение треков: у основного плеера и у «хвоста» (доигрывает конец прошлого трека) — свои
+    // регуляторы громкости, дальше оба идут в общий вход n.input → эффекты → … (звучат одинаково)
+    n.main = ctx.createGain();
+    n.tailSource = ctx.createMediaElementSource(tail);
+    n.tailGain = ctx.createGain();
+    n.tailGain.gain.value = 0;
+    n.input = ctx.createGain();
+    n.source.connect(n.main).connect(n.input);
+    n.tailSource.connect(n.tailGain).connect(n.input);
     // Запас перед усилением: если эквалайзер или басы поднимают уровень, звук упирался в потолок и хрипел
     n.pre = ctx.createGain();
     n.eq = EQ_BANDS.map(([freq, type]) => {
@@ -137,8 +150,8 @@ export function resumeAudio() {
 /** Эффекты выключены — звук идёт напрямую, мимо фильтров; включены — через полную цепочку */
 function routeFx(direct) {
   if (direct === n.direct) return;
-  n.source.disconnect();
-  n.source.connect(direct ? n.mix : n.pre);
+  n.input.disconnect();
+  n.input.connect(direct ? n.mix : n.pre);
   n.direct = direct;
 }
 
@@ -168,6 +181,8 @@ function applyFx() {
   audio.preservesPitch = !fx.pitch;
   audio.defaultPlaybackRate = fx.speed;
   audio.playbackRate = fx.speed;
+  tail.preservesPitch = audio.preservesPitch;
+  tail.defaultPlaybackRate = tail.playbackRate = fx.speed;
   if (ctx) {
     const t = ctx.currentTime;
     n.bass.gain.setTargetAtTime(fx.bass, t, 0.05);
@@ -203,26 +218,148 @@ export function setFadeSeconds(sec) {
   updateFade();
 }
 
-// ---------- Плавные переходы ----------
-// Не наложение двух треков (для этого нужен второй плеер), а мягкое затухание в конце трека
-// и нарастание в начале следующего, если он включился сам (а не по щелчку).
+// ---------- Наложение треков и плавность ----------
+// За N секунд до конца (settings.fadeSec) конец трека «переезжает» во второй плеер-хвост: он заранее
+// загружает то же место, встаёт вровень с основным и подхватывает звук. Основной плеер сразу включает
+// следующий трек (интерфейс, очередь, текст — всё уже про него), и оба звучат вместе: прошлый стихает,
+// новый нарастает. Следующего трека нет, повтор одного трека или хвост не успел — как раньше:
+// затухание в конце и нарастание в начале следующего.
 
-let autoNext = false;
+const PREP_SEC = 4;      // за сколько секунд до наложения хвост начинает загружать конец трека
+let autoNext = false;    // следующий трек включился сам после конца — нарастание без наложения
+let crossHandler = null; // {canStart(), start()} — даёт player.js (очередь знает только он)
+const xf = { phase: "idle", src: "", token: 0, len: 0, ramped: false, expectEmptied: false, timer: 0 };
+// phase: idle → prep (хвост грузится) → sync (встаёт вровень) → fading (звучат оба)
+
+/** player.js: canStart() — есть ли следующий трек для наложения, start() — включить его */
+export const setCrossfadeHandler = (handler) => { crossHandler = handler; };
+/** Для проверки из консоли: что сейчас с наложением */
+export const crossfadeInfo = () => ({ phase: xf.phase, tailTime: tail.currentTime, mainTime: audio.currentTime,
+  tailGain: n.tailGain?.gain.value, mainGain: n.main?.gain.value });
 
 function trackLength() {
-  // Пока трек SoundCloud докачивается, браузер врёт про длительность — длительность из данных трека надёжнее
-  const known = Number(audio.dataset.trackDuration);
-  return known > 0 ? known : audio.duration;
+  // Пока трек SoundCloud докачивается, браузер врёт про длительность (например, 0:10) — тогда берём
+  // длительность из данных трека. Иначе точнее сам файл: в данных бывает округлено на секунду-две
+  const known = Number(audio.dataset.trackDuration), real = audio.duration;
+  if (Number.isFinite(real) && real > 0 && (!(known > 0) || Math.abs(real - known) < 10)) return real;
+  return known > 0 ? known : real;
+}
+
+/** Сколько осталось до конца в настоящих секундах (с учётом скорости) */
+const secondsLeft = () => (trackLength() - audio.currentTime) / (audio.playbackRate || 1);
+
+function canCross(sec) {
+  return sec > 0 && !!ctx && !!crossHandler && xf.src !== audio.currentSrc && !audio.paused
+    && trackLength() > sec * 3 && crossHandler.canStart();
+}
+
+/** Остановить хвост. soft — коротко притушить (человек сам переключил трек посреди наложения) */
+function stopTail(soft = false) {
+  clearTimeout(xf.timer);
+  xf.token++;
+  const wasFading = xf.phase === "fading";
+  xf.phase = "idle";
+  if (ctx) {
+    const t = ctx.currentTime;
+    n.tailGain.gain.cancelScheduledValues(t);
+    if (soft && wasFading) n.tailGain.gain.setTargetAtTime(0, t, 0.06);
+    else n.tailGain.gain.setValueAtTime(0, t);
+    if (wasFading) {   // новый трек — на полную, даже если нарастание не успело
+      n.main.gain.cancelScheduledValues(t);
+      n.main.gain.setTargetAtTime(1, t, 0.08);
+    }
+  }
+  const release = () => { tail.pause(); tail.removeAttribute("src"); tail.load(); };
+  if (soft && wasFading) xf.timer = setTimeout(release, 300);
+  else release();
+}
+
+function prepTail() {
+  xf.phase = "prep";
+  xf.src = audio.currentSrc;   // этот трек уже пробовали — второй раз не начинаем (и после неудачи)
+  xf.token++;
+  const speed = audio.playbackRate || 1;
+  tail.src = audio.currentSrc;
+  tail.preservesPitch = audio.preservesPitch;
+  tail.defaultPlaybackRate = tail.playbackRate = speed;
+  tail.volume = audio.volume;
+  tail.muted = audio.muted;
+  // Грузим чуть раньше места, где начнётся наложение, — к тому времени оно уже будет в буфере
+  const sec = fadeSeconds();
+  tail.currentTime = Math.max(audio.currentTime, trackLength() - sec * speed - 1.5);
+}
+
+function syncTail() {
+  xf.phase = "sync";
+  const token = xf.token;
+  const fail = () => { if (token === xf.token) { stopTail(); updateFade(); } };   // дальше — обычное затухание
+  const guard = setTimeout(fail, 2500);   // хвост не успел — не мешаем
+  const ready = () => {
+    if (token !== xf.token) return;
+    const drift = audio.currentTime - tail.currentTime;
+    // Хвост заиграл совсем не с того места (докачивающийся SoundCloud не перематывается) — без наложения
+    if (Math.abs(drift) > 1.5) { clearTimeout(guard); return fail(); }
+    if (Math.abs(drift) > 0.06 && !xf.corrected) {   // поправка внутри буфера — почти мгновенная
+      xf.corrected = true;
+      tail.currentTime = audio.currentTime + 0.02;
+      tail.addEventListener("seeked", ready, { once: true });
+      return;
+    }
+    clearTimeout(guard);
+    handover();
+  };
+  xf.corrected = false;
+  tail.currentTime = audio.currentTime + 0.05;
+  tail.addEventListener("playing", ready, { once: true });
+  tail.play().catch(fail);
+}
+
+function handover() {
+  const t = ctx.currentTime;
+  n.tailGain.gain.cancelScheduledValues(t);
+  n.tailGain.gain.setValueAtTime(1, t);
+  n.main.gain.cancelScheduledValues(t);
+  n.main.gain.setValueAtTime(0, t);
+  Object.assign(xf, { phase: "fading", ramped: false, expectEmptied: true, len: fadeSeconds() });
+  crossHandler.start();   // основной плеер включает следующий трек
+}
+
+/** Новый трек зазвучал — прошлый стихает, новый нарастает (кривые «равной мощности» — без провала посередине) */
+function rampCross() {
+  xf.ramped = true;
+  const rate = tail.playbackRate || 1;
+  const left = Number.isFinite(tail.duration) ? (tail.duration - tail.currentTime) / rate : xf.len;
+  const len = Math.max(0.4, Math.min(xf.len, left));
+  const steps = 64, down = new Float32Array(steps), up = new Float32Array(steps);
+  for (let i = 0; i < steps; i++) {
+    const x = i / (steps - 1);
+    down[i] = Math.cos(x * Math.PI / 2);
+    up[i] = Math.sin(x * Math.PI / 2);
+  }
+  down[steps - 1] = 0;
+  up[steps - 1] = 1;
+  const t = ctx.currentTime;
+  n.tailGain.gain.cancelScheduledValues(t);
+  n.main.gain.cancelScheduledValues(t);
+  n.tailGain.gain.setValueCurveAtTime(down, t, len);
+  n.main.gain.setValueCurveAtTime(up, t, len);
+  const token = xf.token;
+  clearTimeout(xf.timer);
+  xf.timer = setTimeout(() => { if (token === xf.token) stopTail(); }, len * 1000 + 150);
 }
 
 function updateFade() {
   if (!ctx) return;
   const sec = fadeSeconds();
+  const left = secondsLeft();
+  if (xf.phase === "idle" && Number.isFinite(left) && left <= sec + PREP_SEC && canCross(sec)) prepTail();
+  if (xf.phase === "prep" && left <= sec) syncTail();
+  // Наложение будет (или уже готовится) — затухать основному не нужно, конец доиграет хвост
+  const crossing = xf.phase === "prep" || xf.phase === "sync" || (xf.phase === "idle" && canCross(sec));
   let gain = 1;
   if (sec > 0) {
     const t = audio.currentTime, dur = trackLength(), speed = audio.playbackRate || 1;
-    const left = (dur - t) / speed;   // сколько осталось в настоящих секундах (со скоростью)
-    if (Number.isFinite(left) && dur > sec * 3) gain = Math.min(gain, Math.max(0, left / sec));
+    if (!crossing && Number.isFinite(left) && dur > sec * 3) gain = Math.min(gain, Math.max(0, left / sec));
     if (autoNext) {
       const fadeIn = sec * 0.6;
       if (t / speed < fadeIn) gain = Math.min(gain, t / speed / fadeIn);
@@ -238,10 +375,37 @@ export function initAudio() {
   addEventListener("pointerdown", firstGesture, true);
   addEventListener("keydown", firstGesture, true);
   audio.addEventListener("play", resumeAudio);
-  audio.addEventListener("ended", () => { autoNext = true; });   // следующий трек включится сам — с нарастанием
+  audio.addEventListener("ended", () => {
+    if (xf.phase === "prep" || xf.phase === "sync") stopTail();   // хвост не успел — обычный переход
+    autoNext = true;   // следующий трек включится сам — с нарастанием
+  });
   audio.addEventListener("timeupdate", updateFade);
-  audio.addEventListener("volumechange", updateHeadroom);   // запас под эквалайзер зависит от громкости
+  audio.addEventListener("volumechange", () => {
+    updateHeadroom();   // запас под эквалайзер зависит от громкости
+    tail.volume = audio.volume;
+    tail.muted = audio.muted;
+  });
   audio.addEventListener("seeked", updateFade);
-  audio.addEventListener("emptied", () => { if (ctx) n.fade.gain.setValueAtTime(autoNext && fadeSeconds() ? 0 : 1, ctx.currentTime); });
+  // Перемотали, пока хвост готовился, — начнём заново, когда снова дойдём до конца
+  audio.addEventListener("seeking", () => {
+    if (xf.phase === "prep" || xf.phase === "sync") { stopTail(); xf.src = ""; }
+  });
+  audio.addEventListener("pause", () => {
+    if (xf.phase === "prep" || xf.phase === "sync") { stopTail(); xf.src = ""; }
+    // Пауза посреди наложения — прошлый трек не ждёт, новый сразу на полную. Пока основной ещё
+    // не переключился (трек «из базы» ищет пару и сам ставит паузу) — это не человек, хвост играет
+    else if (xf.phase === "fading" && !xf.expectEmptied) stopTail();
+  });
+  audio.addEventListener("playing", () => {
+    if (xf.phase === "fading" && !xf.expectEmptied && !xf.ramped) rampCross();
+  });
+  tail.addEventListener("ended", () => { if (xf.phase === "fading") stopTail(); });
+  tail.addEventListener("error", () => { if (xf.phase !== "idle" && tail.getAttribute("src")) stopTail(); });
+  audio.addEventListener("emptied", () => {
+    xf.src = "";
+    if (xf.expectEmptied) xf.expectEmptied = false;   // это мы сами включили следующий трек
+    else if (xf.phase !== "idle") stopTail(true);      // человек выбрал другой трек посреди наложения
+    if (ctx) n.fade.gain.setValueAtTime(autoNext && fadeSeconds() ? 0 : 1, ctx.currentTime);
+  });
   applyFx();   // скорость — сразу, даже до цепочки
 }

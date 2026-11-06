@@ -23,6 +23,8 @@ from urllib.parse import parse_qs, quote, urlencode, urlparse
 import requests
 import yt_dlp
 
+from artists import _track as artists_track   # трек Яндекса → данные трека «из базы» (обложка, исполнители, альбом)
+
 MAX_TRACKS = 500   # больше за раз не импортируем
 WORKERS = 6        # сколько треков обрабатываем одновременно
 
@@ -91,16 +93,32 @@ class ImportJob:
         self.note = ""                        # пояснение (например, про лимит Spotify)
         self.lock = threading.Lock()
         self.cancelled = False
+        # Переезд всей медиатеки Яндекса: что переносить, по каким спискам разложить, любимые исполнители
+        self.yandex: dict = {}
+        self.collections: list[dict] = []   # [{name, kind, ids}] — ids по порядку списка
+        self.order: list[str] = []          # номер трека Яндекса для каждого места в self.tracks
+        self.artists: list[dict] = []
 
     def snapshot(self) -> dict:
         with self.lock:
-            return {
+            done = self.status == "done"
+            data = {
                 "id": self.id, "status": self.status, "error": self.error,
                 "kind": self.kind, "name": self.name, "note": self.note,
                 "total": self.total, "done": self.done,
-                "tracks": [t for t in self.tracks if t] if self.status == "done" else [],
+                "tracks": [t for t in self.tracks if t] if done else [],
                 "failed": list(self.failed),
             }
+            if self.kind == "yandex_all":
+                data["tracks"] = []   # треки — внутри списков
+                # Остановили на полпути — отдаём то, что уже нашлось (переезд бывает на тысячи треков)
+                if done or (self.status == "cancelled" and self.order):
+                    found = {i: t for i, t in zip(self.order, self.tracks) if t}
+                    data["collections"] = [{"name": c["name"], "kind": c["kind"],
+                                            "tracks": [found[i] for i in c["ids"] if i in found]}
+                                           for c in self.collections]
+                    data["artists"] = list(self.artists)
+            return data
 
     def step(self, index: int, track: dict | None, failed_title: str = "", reason: str = ""):
         with self.lock:
@@ -114,23 +132,33 @@ _jobs: dict[str, ImportJob] = {}
 _jobs_lock = threading.Lock()
 
 
-def start(url: str, match: str, search_fn, max_duration: int, text: str = "") -> ImportJob:
-    """Запускает импорт по ссылке url или по списку треков text (если он не пустой).
+def start(url: str, match: str, search_fn, max_duration: int, text: str = "", yandex: dict | None = None) -> ImportJob:
+    """Запускает импорт по ссылке url, по списку треков text (если он не пустой) или переезд всей
+    медиатеки Яндекса yandex = {login, liked, playlists: [номера], artists}.
 
     search_fn(source, query, limit) — поиск из app.py. Возвращает запущенную задачу."""
-    if text.strip():
+    if yandex:
+        if not re.fullmatch(r"[\w.@+-]{1,100}", str(yandex.get("login", ""))):
+            raise ValueError("Не понял логин Яндекса — вставьте ссылку на свой профиль или плейлист")
+        kind, clean_url = "yandex_all", ""
+    elif text.strip():
         kind, clean_url = "text", ""
     else:
         kind, clean_url = detect(url)
     job = ImportJob(clean_url, match)
     job.kind = kind
     job.text = text
+    if yandex:
+        job.yandex = {"login": str(yandex["login"]), "liked": bool(yandex.get("liked")),
+                      "playlists": list(yandex.get("playlists") or [])[:MAX_PLAYLISTS],
+                      "artists": bool(yandex.get("artists"))}
     with _jobs_lock:
         for old_id in [i for i, j in _jobs.items() if time.time() - j.created > 3600]:
             del _jobs[old_id]   # старые задачи больше не нужны
         _jobs[job.id] = job
     worker = {"spotify": _run_spotify, "yandex": _run_yandex, "apple": _run_apple, "deezer": _run_deezer,
-              "text": _run_text, "youtube": _run_youtube, "soundcloud": _run_soundcloud}[kind]
+              "text": _run_text, "youtube": _run_youtube, "soundcloud": _run_soundcloud,
+              "yandex_all": _run_yandex_all}[kind]
 
     def run():
         try:
@@ -185,13 +213,13 @@ def _friendly(e: Exception, kind: str = "") -> str:
     return re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?", "", text)
 
 
-def _set_entries(job: ImportJob, name: str, count: int):
+def _set_entries(job: ImportJob, name: str, count: int, limit: int = MAX_TRACKS):
     with job.lock:
         job.name = name or "Импорт"
-        job.total = min(count, MAX_TRACKS)
+        job.total = min(count, limit)
         job.tracks = [None] * job.total
-        if count > MAX_TRACKS:
-            job.note = f"В плейлисте {count} треков — импортированы первые {MAX_TRACKS}"
+        if count > limit:
+            job.note = f"В плейлисте {count} треков — импортированы первые {limit}"
 
 
 def _parallel(job: ImportJob, items: list, fn):
@@ -254,9 +282,9 @@ def _run_soundcloud(job: ImportJob, search_fn, max_duration: int):
 # Spotify, Яндекс, Apple, Deezer и текст дают только список «исполнитель — название — длительность».
 # Каждый сервис превращает свои данные в такой список, а пары ищет одна общая функция.
 
-def _match_items(job: ImportJob, search_fn, name: str, items: list[dict]):
-    """items: [{"artist", "title", "duration" (секунды или None)}]"""
-    _set_entries(job, name, len(items))
+def _match_items(job: ImportJob, search_fn, name: str, items: list[dict], limit: int = MAX_TRACKS):
+    """items: [{"artist", "title", "duration" (секунды или None), "extra" — добавить к найденной паре}]"""
+    _set_entries(job, name, len(items), limit)
 
     def one(i, item):
         artist = (item.get("artist") or "").replace(" ", " ").strip()
@@ -273,6 +301,8 @@ def _match_items(job: ImportJob, search_fn, name: str, items: list[dict]):
             # исполнитель — один канал-загрузчик, и соавторы бы потерялись
             if artist:
                 found = {**found, "artists": artist, "origTitle": title}
+            if item.get("extra"):
+                found = {**found, **item["extra"]}
             job.step(i, found)
         else:
             job.step(i, None, label, "не нашлось пары")
@@ -473,6 +503,135 @@ def _run_yandex(job: ImportJob, search_fn, max_duration: int):
         if result.get("trackCount", 0) > len(raw):
             job.note = f"Яндекс отдал {len(raw)} треков из {result['trackCount']}"
     _match_items(job, search_fn, name, [_yandex_item(t) for t in raw if t.get("title")])
+
+
+# ---------- Вся медиатека Яндекс Музыки (переезд одним махом) ----------
+# По логину из любой ссылки на профиль (…/users/<логин>/…) без входа видно «Мне нравится», плейлисты
+# и любимых исполнителей — если человек не закрыл медиатеку. Сначала показываем, что нашлось
+# (yandex_profile), человек отмечает нужное, потом одна задача ищет пары всем трекам разом
+# (одинаковые треки из разных плейлистов — один раз) и раскладывает их по спискам.
+
+YA_API = "https://api.music.yandex.net"
+MAX_FULL = 3000      # треков за один переезд
+MAX_PLAYLISTS = 100
+YANDEX_CLOSED = ("Яндекс не показывает медиатеку этого пользователя: она закрыта или в ссылке ошибка. "
+                 "Откройте Яндекс Музыку → ваш профиль → настройки приватности и разрешите показывать "
+                 "медиатеку другим, перенесите музыку, а потом при желании снова закройте.")
+
+
+def yandex_login(url: str) -> str | None:
+    """Логин из ссылки на профиль/плейлист Яндекс Музыки (music.yandex.ru/users/<логин>/…) или сам логин."""
+    text = url.strip()
+    if re.fullmatch(r"[\w.@+-]{1,100}", text) and "yandex." not in text.lower().split("@")[0]:
+        return text.split("@")[0]   # вписали логин (или почту на Яндексе — логин до «@»)
+    parsed = urlparse(url.strip() if "://" in url else "https://" + url.strip())
+    if not YANDEX_HOST.search(parsed.netloc.lower()):
+        return None
+    m = re.search(r"/users/([^/?#]+)", parsed.path)
+    return m.group(1) if m else None
+
+
+def _ya(path: str) -> dict | list:
+    resp = requests.get(YA_API + path, headers=UA, timeout=15)
+    if resp.status_code in (401, 403, 404):
+        raise ValueError(YANDEX_CLOSED)
+    resp.raise_for_status()
+    return resp.json()["result"]
+
+
+def _ya_playlists(login: str) -> list[dict]:
+    own = [p for p in _ya(f"/users/{login}/playlists/list")
+           if (p.get("owner") or {}).get("login", login) == login and p.get("kind") != 3 and p.get("trackCount")]
+    return own[:MAX_PLAYLISTS]
+
+
+def yandex_profile(login: str) -> dict:
+    """Что можно перенести: сколько лайков, какие плейлисты, сколько исполнителей."""
+    with ThreadPoolExecutor(3) as pool:
+        likes = pool.submit(_ya, f"/users/{login}/likes/tracks")
+        playlists = pool.submit(_ya_playlists, login)
+        artists = pool.submit(_ya, f"/users/{login}/likes/artists")
+        # Закрыто может быть что-то одно (например, только «Мне нравится») — остальное всё равно показываем
+        def part(job, default):
+            try:
+                return job.result()
+            except ValueError:
+                return default
+        liked = len((part(likes, {}).get("library") or {}).get("tracks") or [])
+        lists = [{"kind": p["kind"], "title": p.get("title") or "Плейлист", "count": p.get("trackCount", 0),
+                  "cover": "https://" + p["cover"]["uri"].replace("%%", "200x200")
+                           if (p.get("cover") or {}).get("uri") else None}
+                 for p in part(playlists, [])]
+        try:
+            artist_count = len(artists.result())
+        except Exception:
+            artist_count = 0
+    if not liked and not lists and not artist_count:
+        raise ValueError(YANDEX_CLOSED)
+    return {"login": login, "liked": liked, "playlists": lists, "artists": artist_count}
+
+
+def _ya_tracks(ids: list[dict]) -> list[dict]:
+    """Полные данные треков по списку {id, albumId} (лайки отдаются только номерами) — по 200 за запрос."""
+    out = []
+    for i in range(0, len(ids), 200):
+        chunk = ",".join(f"{t['id']}:{t['albumId']}" if t.get("albumId") else str(t["id"]) for t in ids[i:i + 200])
+        resp = requests.post(f"{YA_API}/tracks", data={"track-ids": chunk}, headers=UA, timeout=20)
+        resp.raise_for_status()
+        out += resp.json()["result"]
+    return out
+
+
+def _yandex_full_item(t: dict) -> dict:
+    """Трек для поиска пары + то, что Яндекс знает о нём: обложка альбома, исполнители со ссылками,
+    альбом, metaId (как у трека «из базы» — Flow не повторит его и узнает исполнителя)."""
+    item = _yandex_item(t)
+    meta = artists_track(t)
+    item["extra"] = {k: v for k, v in {
+        "metaId": meta["id"], "artistId": meta["artistId"], "artistRefs": meta["artistRefs"],
+        "album": meta["album"], "albumId": meta["albumId"], "cover": meta["cover"], "coverLarge": meta["coverLarge"],
+    }.items() if v}
+    return item
+
+
+def _run_yandex_all(job: ImportJob, search_fn, max_duration: int):
+    want = job.yandex
+    login = want["login"]
+    collections = []   # [{name, kind: liked|playlist, ids: [номер трека Яндекса]}]
+    raw: dict[str, dict] = {}
+    if want.get("liked"):
+        try:
+            likes = (_ya(f"/users/{login}/likes/tracks").get("library") or {}).get("tracks") or []
+        except ValueError:   # «Мне нравится» закрыто — переносим остальное
+            likes = []
+        tracks = _ya_tracks(likes[:MAX_FULL])   # новые лайки — первыми, как в Яндексе
+        collections.append({"name": "Мне нравится", "kind": "liked", "ids": [str(t["id"]) for t in tracks]})
+        raw.update({str(t["id"]): t for t in tracks})
+    kinds = {int(k) for k in want.get("playlists") or [] if str(k).isdigit()}
+    for p in _ya_playlists(login):
+        if p["kind"] not in kinds or job.cancelled:
+            continue
+        result = _ya(f"/users/{login}/playlists/{p['kind']}")
+        tracks = [entry.get("track") or entry for entry in result.get("tracks") or []]
+        tracks = [t for t in tracks if t.get("id") and t.get("title")]
+        collections.append({"name": result.get("title") or p.get("title") or "Плейлист", "kind": "playlist",
+                            "ids": [str(t["id"]) for t in tracks]})
+        for t in tracks:
+            raw.setdefault(str(t["id"]), t)
+    if want.get("artists"):
+        try:
+            job.artists = [{"id": a["id"], "name": a["name"],
+                            "picture": "https://" + a["cover"]["uri"].replace("%%", "200x200")
+                                       if (a.get("cover") or {}).get("uri") else None}
+                           for a in _ya(f"/users/{login}/likes/artists") if a.get("id") and a.get("name")]
+        except Exception as e:
+            print(f"[import] исполнители {login}: {e}")
+    ids = list(raw)[:MAX_FULL]
+    if len(raw) > MAX_FULL:
+        job.note = f"Треков больше {MAX_FULL} — перенесены первые {MAX_FULL}"
+    job.collections = collections
+    job.order = ids
+    _match_items(job, search_fn, "Яндекс Музыка", [_yandex_full_item(raw[i]) for i in ids], limit=MAX_FULL)
 
 
 # ---------- Apple Music ----------

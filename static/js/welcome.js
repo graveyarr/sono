@@ -101,6 +101,13 @@ export function showWelcome() {
   }
 
   function importStep() {
+    // Большинство переезжает с Яндекс Музыки — для них отдельная кнопка: всё сразу
+    const yandex = el("button", "btn primary", "Всё из Яндекс Музыки");
+    yandex.type = "button";
+    yandex.addEventListener("click", () => {
+      close();
+      openImportDialog({ yandex: true, onOpen: (id) => openView(`playlist:${id}`) });
+    });
     const link = el("button", "btn ghost", "Плейлист по ссылке");
     link.type = "button";
     link.addEventListener("click", () => {
@@ -114,9 +121,10 @@ export function showWelcome() {
     restore.addEventListener("click", () => picker.click());
     picker.addEventListener("change", () => restoreBackup(picker));
     const actions = el("div", "welcome-actions");
-    actions.append(link, restore, picker);
+    actions.append(yandex, link, restore, picker);
     return [el("h2", "", "Перенесите свою музыку"),
-      el("p", "", "Плейлисты и альбомы можно перенести по ссылке из Spotify, Яндекс Музыки, Apple Music, Deezer, "
+      el("p", "", "С Яндекс Музыки можно переехать целиком: «Мне нравится», плейлисты и любимые исполнители — одной ссылкой. "
+        + "Отдельные плейлисты и альбомы переносятся по ссылке из Spotify, Яндекс Музыки, Apple Music, Deezer, "
         + "YouTube и SoundCloud — или просто списком «Исполнитель — Название» (например, из VK)."),
       el("p", "welcome-muted", "Если вы уже пользовались Sono на другом компьютере — восстановите копию медиатеки."),
       actions,

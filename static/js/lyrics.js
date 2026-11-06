@@ -108,6 +108,7 @@ function render(data) {
   } else {
     listEl.append(el("div", "lyrics-plain", data.plain), el("p", "lyrics-note", "У этого текста нет таймингов — он не прокручивается за песней."));
   }
+  if (data.source) listEl.append(el("p", "lyrics-note lyrics-source", `Текст — ${data.source}`));   // откуда текст
   // Человек крутит текст сам — несколько секунд не мешаем
   const userScroll = () => { userScrolledAt = Date.now(); };
   listEl.addEventListener("wheel", userScroll, { passive: true });

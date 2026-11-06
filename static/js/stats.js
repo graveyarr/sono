@@ -1,10 +1,12 @@
 // Статистика прослушивания: сколько вы слушаете каждого исполнителя и с какого дня.
 // Время копится, только пока трек действительно играет (перемотка и пауза не считаются).
 // У трека нескольких исполнителей («A, B feat. C») время засчитывается каждому.
-// Хранится в медиатеке, раздел stats: { since, total, artists: { ключ: { name, id, sec, plays, first, last } } }.
+// Хранится в медиатеке, раздел stats: { since, total, artists: { ключ: { name, id, sec, plays, first, last } },
+//   years: { "2026": { from, total, artists: {ключ: {name, id, sec, plays}}, tracks: {«источник:id»: {t, sec, plays}},
+//            months: [12 × сек], hours: [24 × сек], days: {«ММДД»: сек} } } } — по годам, для «Итогов года» (wrapped.js).
 // Показывается на экране «Ваша статистика» (из «Главной») и строкой на странице исполнителя.
 
-import { lib, statsChanged } from "./library.js";
+import { keyOf, lib, slim, statsChanged } from "./library.js";
 import { artistByName } from "./meta.js";
 import { openArtist, openView, splitArtists } from "./nav.js";
 import { onTrackChange, state } from "./player.js";
@@ -13,6 +15,38 @@ import { displayTrack, el, imgUrl, plural } from "./ui.js";
 const audio = document.getElementById("player");
 const PLAY_AFTER = 30;    // столько секунд трека — уже «прослушивание»
 const KEEP = 1000;        // столько исполнителей храним (самых слушаемых)
+const KEEP_TRACKS = 600;  // столько треков храним за год
+
+/** Раздел года (создаётся при первой секунде музыки в этом году) */
+export function yearData(year, create = false) {
+  const s = data();
+  if (!s.years) {
+    s.years = {};
+    // Статистика по годам появилась позже общей — то, что накопилось до неё, относим к году начала
+    // (треков, месяцев и часов там нет: их не записывали)
+    if (s.total > 0) {
+      const y = new Date(s.since).getFullYear();
+      const artists = {};
+      for (const [k, a] of Object.entries(s.artists)) artists[k] = { name: a.name, id: a.id, sec: a.sec, plays: a.plays };
+      s.years[y] = { from: s.since, total: s.total, artists, tracks: {}, months: Array(12).fill(0), hours: Array(24).fill(0), days: {}, early: s.total };
+    }
+  }
+  if (!s.years[year] && create) {
+    s.years[year] = { from: Date.now(), total: 0, artists: {}, tracks: {}, months: Array(12).fill(0), hours: Array(24).fill(0), days: {} };
+  }
+  const y = s.years[year];
+  if (!y || typeof y !== "object") return null;
+  // Год мог прийти из чужой/испорченной копии медиатеки — дополняем недостающее, чтобы «Итоги» не падали
+  const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
+  const arr = (v, n) => (Array.isArray(v) && v.length === n ? v.map((x) => +x || 0) : Array(n).fill(0));
+  y.total = +y.total || 0;
+  y.artists = obj(y.artists);
+  y.tracks = obj(y.tracks);
+  y.days = obj(y.days);
+  y.months = arr(y.months, 12);
+  y.hours = arr(y.hours, 24);
+  return y;
+}
 
 export const artistKey = (name) => (name || "").toLowerCase().replace(/ё/g, "е").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
@@ -37,6 +71,20 @@ function credit(seconds) {
   trackSec += seconds;
   const countPlay = !counted && trackSec >= PLAY_AFTER;
   if (countPlay) counted = true;
+
+  // По годам: трек, месяц, час, день
+  const date = new Date(now);
+  const y = yearData(date.getFullYear(), true);
+  y.total += seconds;
+  y.months[date.getMonth()] += seconds;
+  y.hours[date.getHours()] += seconds;
+  const day = String(date.getMonth() + 1).padStart(2, "0") + String(date.getDate()).padStart(2, "0");
+  y.days[day] = (y.days[day] || 0) + seconds;
+  const tk = keyOf(t);
+  const tr = y.tracks[tk] ?? (y.tracks[tk] = { t: slim(t), sec: 0, plays: 0 });
+  tr.sec += seconds;
+  if (countPlay) tr.plays += 1;
+
   for (const { name, id } of splitArtists(t, displayTrack(t).artist)) {
     const key = artistKey(name);
     if (!key || key === "неизвестный автор") continue;
@@ -45,6 +93,10 @@ function credit(seconds) {
     a.last = now;
     if (id && !a.id) a.id = id;
     if (countPlay) a.plays += 1;
+    const ya = y.artists[key] ?? (y.artists[key] = { name, id: null, sec: 0, plays: 0 });
+    ya.sec += seconds;
+    if (id && !ya.id) ya.id = id;
+    if (countPlay) ya.plays += 1;
   }
   statsChanged();
 }
@@ -65,6 +117,17 @@ function trim() {
   keys.sort((a, b) => s.artists[b].sec - s.artists[a].sec).slice(KEEP).forEach((k) => delete s.artists[k]);
 }
 
+/** За год храним самые слушаемые треки и исполнителей — чтобы раздел не рос бесконечно */
+function trimYear() {
+  const y = yearData(new Date().getFullYear());
+  if (!y) return;
+  for (const [field, keep] of [["tracks", KEEP_TRACKS], ["artists", KEEP]]) {
+    const keys = Object.keys(y[field]);
+    if (keys.length <= keep * 1.1) continue;
+    keys.sort((a, b) => y[field][b].sec - y[field][a].sec).slice(keep).forEach((k) => delete y[field][k]);
+  }
+}
+
 export function initStats() {
   audio.addEventListener("timeupdate", onTime);
   audio.addEventListener("seeking", () => { lastPos = null; });
@@ -78,6 +141,7 @@ export function initStats() {
     counted = false;
     lastPos = null;
     trim();
+    trimYear();
   });
 }
 
@@ -86,7 +150,7 @@ export function initStats() {
 /** «4 ч 12 мин», «37 мин», «меньше минуты» */
 export function formatListen(sec) {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
-  if (h) return `${h} ч ${m} мин`;
+  if (h) return m ? `${h} ч ${m} мин` : `${h} ч`;
   if (m) return `${m} мин`;
   return "меньше минуты";
 }
@@ -145,13 +209,14 @@ function avatar(a, box) {
     .catch(() => {});
 }
 
-/** Экран «Ваша статистика» */
-export function renderStats(box) {
+/** Экран «Ваша статистика»; extra — кнопка «Итоги года» (wrapped.js), если есть */
+export function renderStats(box, extra = null) {
   const s = data();
   const top = topArtists(50);
   const head = el("div", "stats-head");
   head.append(el("div", "pl-kind", "Ваша статистика"), el("h1", "pl-name", formatListen(s.total || 0)),
     el("div", "pl-meta", `музыки с ${formatDate(s.since)} · ${plural(Object.keys(s.artists).length, "исполнитель", "исполнителя", "исполнителей")}`));
+  if (extra) head.append(extra);
   const list = el("ol", "stats-list");
   const max = top[0]?.sec || 1;
   top.forEach((a, i) => {

@@ -381,13 +381,13 @@ function playbackSection() {
     "На YouTube одни треки тихие, другие громкие. Мягко подтягивает тихое и придерживает громкое — не нужно трогать ползунок.",
     normalizeEnabled(), (on) => setNormalize(on)));
 
-  // Плавные переходы: Выкл / 3 / 6 / 10 секунд
+  // Наложение треков: Выкл / 3 / 6 / 10 / 12 секунд
   const fadeRow = el("div", "set-switch set-choice");
   const text = el("span", "set-switch-text");
-  text.append(el("span", "set-switch-title", "Плавные переходы между треками"),
-    el("span", "set-switch-sub", "Трек мягко затихает в конце, следующий так же мягко начинается."));
+  text.append(el("span", "set-switch-title", "Наложение треков"),
+    el("span", "set-switch-sub", "Конец трека звучит вместе с началом следующего — без тишины между ними, как на радио. В конце очереди трек просто мягко затихает."));
   const seg = el("div", "seg");
-  for (const sec of [0, 3, 6, 10]) {
+  for (const sec of [0, 3, 6, 10, 12]) {
     const b = el("button", `seg-btn${fadeSeconds() === sec ? " on" : ""}`, sec ? `${sec} с` : "Выкл");
     b.type = "button";
     b.addEventListener("click", () => {

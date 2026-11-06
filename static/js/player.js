@@ -3,6 +3,7 @@
 // «Сейчас играет» и мини-плеер внизу), и оба обновляются одновременно.
 
 import { icons } from "./icons.js";
+import { setCrossfadeHandler } from "./audio.js";
 import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, setSetting } from "./library.js";
 import { isMeta, missingReason, resolveMeta, toReal } from "./meta.js";
 import { SOURCE_NAMES, artistLinks, compactNumber, coverUrl, displayTrack, formatTime, imageHsl, playsText, replay, toast, trackPath } from "./ui.js";
@@ -574,6 +575,11 @@ export function setMinibarLarge(on) {
 }
 
 export function initPlayer() {
+  // Наложение треков (audio.js): можно ли сейчас наложить следующий трек и как его включить
+  setCrossfadeHandler({
+    canStart: () => !!state.current && state.repeat !== "one" && nextPlayable(state.index, 1) >= 0,
+    start: () => playNext(),
+  });
   all("play").forEach((b) => b.addEventListener("click", togglePlay));
   all("prev").forEach((b) => b.addEventListener("click", playPrev));
   all("next").forEach((b) => b.addEventListener("click", playNext));

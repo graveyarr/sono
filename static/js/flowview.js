@@ -6,7 +6,7 @@
 // Поверх — запуск, режимы, Flow по исполнителю и по плейлисту, что Flow уже выучил.
 
 import { analyserNode } from "./audio.js";
-import { FLOW_MODES, flowMode, flowPlaying, hasTaste, learnedSummary, resetLearning, seedTaste, setFlowMode, startFlow,
+import { FLOW_MODES, FLOW_TUNE, flowTune, setFlowTune, tuneSummary, flowMode, flowPlaying, hasTaste, learnedSummary, resetLearning, seedTaste, setFlowMode, startFlow,
          tasteArtists } from "./flow.js";
 import { icons } from "./icons.js";
 import { lib, motionOff } from "./library.js";
@@ -63,16 +63,38 @@ function build() {
     modes.append(card);
   }
 
+  // Под занятие, настроение, язык — ряды «таблеток»
+  const tune = el("div", "flowv-tune");
+  for (const row of FLOW_TUNE) {
+    const line = el("div", "flowv-tune-row");
+    const seg = el("div", "flowv-tune-opts");
+    for (const [value, label] of row.options) {
+      const b = el("button", "flowv-tune-btn", label);
+      b.type = "button";
+      b.dataset.key = row.key;
+      b.dataset.value = value;
+      b.addEventListener("click", () => {
+        if ((flowTune()[row.key] ?? "any") === value) return;
+        setFlowTune(row.key, value);
+        if (flowPlaying() && state.context?.id === "main") toast(`Flow: ${tuneSummary() || "без настроек"} — со следующего трека`);
+        sync();
+      });
+      seg.append(b);
+    }
+    line.append(el("span", "flowv-tune-label", row.title), seg);
+    tune.append(line);
+  }
+
   const artists = el("div", "flowv-chips");
   const playlists = el("div", "flowv-chips");
   const learn = el("p", "flowv-learn");
   const starter = el("section", "flowv-starter");
   const content = el("div", "flowv");
-  content.append(hero, starter, modes,
+  content.append(hero, starter, modes, el("h2", "flowv-h", "Настроить Flow"), tune,
     el("h2", "flowv-h", "Flow по исполнителю"), artists,
     el("h2", "flowv-h", "Flow по плейлисту"), playlists, learn);
   box.replaceChildren(content);
-  ui = { sub, play, next, now, modes, artists, playlists, learn, starter };
+  ui = { sub, play, next, now, modes, tune, artists, playlists, learn, starter };
 }
 
 /** Аватар исполнителя в кружок; не нашёлся в базе — onMissing (обычно убрать карточку) */
@@ -164,8 +186,11 @@ function playlistChip(id, name, tracks) {
 function sync() {
   if (!ui) return;
   const mode = flowMode();
-  ui.sub.textContent = FLOW_MODES.find((m) => m.value === mode)?.hint ?? "";
+  const tuned = tuneSummary();
+  ui.sub.textContent = (FLOW_MODES.find((m) => m.value === mode)?.hint ?? "") + (tuned ? ` · ${tuned}` : "");
   ui.modes.querySelectorAll(".flowv-mode").forEach((c) => c.classList.toggle("on", c.dataset.mode === mode));
+  const tune = flowTune();
+  ui.tune.querySelectorAll(".flowv-tune-btn").forEach((b) => b.classList.toggle("on", (tune[b.dataset.key] ?? "any") === b.dataset.value));
   const playing = flowPlaying();
   ui.play.classList.toggle("is-playing", playing && isPlaying());
   ui.play.title = playing ? (isPlaying() ? "Пауза" : "Продолжить") : "Слушать Flow";

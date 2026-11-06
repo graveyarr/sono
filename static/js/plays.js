@@ -19,14 +19,23 @@ export function playsOf(track) {
   return canCount(real) ? known.get(keyOf(real)) : undefined;
 }
 
-/** Узнать прослушивания для списка треков. resolve — искать пары трекам из базы (дольше, по 4 сразу) */
-export async function loadPlays(tracks, { resolve = false } = {}) {
-  if (resolve) {
-    const metas = tracks.filter((t) => isMeta(t) && !resolvedOf(t));
-    for (let i = 0; i < metas.length; i += 4) {
-      await Promise.all(metas.slice(i, i + 4).map((t) => resolveMeta(t).catch(() => null)));
-    }
+/** Узнать прослушивания для списка треков. resolve — искать пары трекам из базы (дольше, по 4 сразу).
+ *  onUpdate — вызывается после каждой готовой порции, чтобы числа появлялись по мере готовности;
+ *  alive — пока true, продолжаем (ушли со страницы — пары остальным не ищем) */
+export async function loadPlays(tracks, { resolve = false, onUpdate, alive = () => true } = {}) {
+  await fetchPlays(tracks);   // сначала те, чьи пары уже известны
+  onUpdate?.();
+  if (!resolve) return;
+  const metas = tracks.filter((t) => isMeta(t) && !resolvedOf(t));
+  for (let i = 0; i < metas.length && alive(); i += 4) {
+    const part = metas.slice(i, i + 4);
+    await Promise.all(part.map((t) => resolveMeta(t).catch(() => null)));
+    await fetchPlays(part);
+    if (alive()) onUpdate?.();
   }
+}
+
+async function fetchPlays(tracks) {
   const want = tracks.map(realOf).filter((t) => canCount(t) && !known.has(keyOf(t)));
   const unique = [...new Map(want.map((t) => [keyOf(t), { source: t.source, id: t.id }])).values()];
   for (let i = 0; i < unique.length; i += 200) {

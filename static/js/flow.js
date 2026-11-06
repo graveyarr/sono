@@ -16,6 +16,19 @@ export const FLOW_MODES = [
   { value: "mix", title: "Микс", hint: "Любимое вперемешку с новым" },
   { value: "discover", title: "Открытия", hint: "Исполнители, которых вы ещё не слышали" },
 ];
+// Настройки Flow: под занятие, настроение, язык (settings.flowTune). Сервер подстраивает подборку
+// по жанрам — «any» значит без ограничений. Действуют на общий Flow, не на радио по треку/исполнителю
+export const FLOW_TUNE = [
+  { key: "activity", title: "Занятие", options: [["any", "Любое"], ["sport", "Спорт"], ["study", "Учёба и работа"],
+    ["party", "Вечеринка"], ["rest", "Отдых"]] },
+  { key: "mood", title: "Настроение", options: [["any", "Любое"], ["energy", "Бодрое"], ["calm", "Спокойное"]] },
+  { key: "lang", title: "Язык", options: [["any", "Любой"], ["ru", "Русское"], ["foreign", "Зарубежное"]] },
+];
+export const flowTune = () => getSetting("flowTune", {});
+/** Коротко, что выбрано: «Спорт · Русское» (пусто — ничего) */
+export const tuneSummary = () => FLOW_TUNE.map(({ key, options }) => options.find(([v]) => v === flowTune()[key] && v !== "any")?.[1])
+  .filter(Boolean).join(" · ");
+
 // Как часто вставлять трек прямо из избранного (каждый N-й)
 const LIKED_EVERY = { liked: 3, mix: 6, discover: 0 };
 const DAY = 864e5;
@@ -132,7 +145,13 @@ function tasteMap() {
   if (tasteCache && Date.now() - tasteAt < 10000) return tasteCache;   // пока печатают — не пересчитываем
   const map = new Map();
   const { all, banned } = taste();
-  all.forEach((a) => map.set(norm(a.name), a.weight));
+  all.forEach((a) => {
+    const key = norm(a.name);
+    map.set(key, a.weight);
+    // «Группа КИНО» и «КИНО» — один исполнитель (так пишут по-разному на YouTube и в Яндексе)
+    const bare = key.replace(/^группа /, "");
+    if (bare !== key && !map.has(bare)) map.set(bare, a.weight);
+  });
   banned.forEach((name) => map.set(norm(name), -5));
   tasteCache = map;
   tasteAt = Date.now();
@@ -142,7 +161,7 @@ function tasteMap() {
 /** Насколько исполнитель трека в вашем вкусе: 0 — незнаком, > 0 — слушаете, < 0 — не нравится */
 export function tasteOf(track) {
   const map = tasteMap();
-  const names = splitArtists(track, displayTrack(track).artist).map((a) => norm(a.name));
+  const names = splitArtists(track, displayTrack(track).artist).map((a) => norm(a.name).replace(/^группа /, ""));
   names.push(norm((track.channel || "").replace(/\s*-\s*topic$|vevo$/i, "")));
   let best = 0;
   for (const n of names) {
@@ -287,6 +306,7 @@ async function fetchBatch(size = 10, { quick = false } = {}) {
       avoid: [...avoidAll.values()],
       known: all.filter((a) => a.weight > 0).map((a) => a.name).slice(0, 2000),
       recent: session.recent, quick,
+      tune: session.artist || pl || one || mix ? {} : flowTune(),
     }),
   });
   const data = await res.json();
@@ -318,6 +338,34 @@ async function fetchBatch(size = 10, { quick = false } = {}) {
   }
   return list;
 }
+
+/** Подборка по вашему вкусу без Flow-сеанса — для «Собрано для вас» на «Главной» (picks.js).
+    mode — как у Flow (liked/mix/discover), tune — занятие/настроение/язык ({} — без них).
+    Вкуса нет — пусто (новичку подборки не показываем). Треки — «из базы», пары ищет picks.js */
+export async function tasteBatch({ mode = "mix", size = 25, tune = {}, exclude = [] } = {}) {
+  const { all, seeds, banned, avoid } = taste();
+  if (!seeds.length) return [];
+  const skip = new Set(exclude);
+  for (const t of [...lib.liked, ...lib.history.slice(0, 200), ...lib.disliked]) {
+    skip.add(songKey(t));
+    if (t.metaId) skip.add(t.metaId);
+  }
+  const res = await fetch("/api/flow", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      seeds, tracks: trackSeeds(null), mode, exclude: [...skip].slice(-3000), banned, size, avoid,
+      known: all.filter((a) => a.weight > 0).map((a) => a.name).slice(0, 2000), recent: [], tune,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Flow не ответил");
+  rememberIds(data.seedIds, data.artistIds);
+  return data.tracks;
+}
+
+/** Ключ «исполнитель|название» — для подборок (не повторять одну песню с разных загрузок) */
+export { songKey };
 
 /** Первый трек порции, у которого нашлась пара (ищем у трёх сразу) — чтобы старт не ждал ненайденный */
 function firstPlayable(tracks) {
@@ -381,14 +429,30 @@ export async function setFlowMode(mode) {
   setSetting("flowMode", mode);
   if (!session || !isFlow() || session.artist || session.playlist || session.track || session.mix) return;
   session.mode = mode;
+  rebuildUpcoming();
+}
+
+// Пересобрать то, что впереди. Нажали несколько кнопок подряд — берём только ответ на последнее нажатие
+// (иначе ответ на первое мог прийти позже и затереть второе)
+let rebuildSeq = 0;
+async function rebuildUpcoming() {
+  const mine = ++rebuildSeq;
   session.loading = true;
   try {
-    replaceUpcoming(await fetchBatch(10));
+    const batch = await fetchBatch(10);
+    if (mine === rebuildSeq) replaceUpcoming(batch);
   } catch (err) {
-    toast(err.message, { error: true });
+    if (mine === rebuildSeq) toast(err.message, { error: true });
   } finally {
-    session.loading = false;
+    if (mine === rebuildSeq) session.loading = false;
   }
+}
+
+/** Сменить настройку (занятие/настроение/язык). Играет общий Flow — впереди пересобирается под неё */
+export async function setFlowTune(key, value) {
+  setSetting("flowTune", { ...flowTune(), [key]: value });
+  if (!session || !isFlow() || session.artist || session.playlist || session.track || session.mix) return;
+  rebuildUpcoming();
 }
 
 // Пока играет — подкладываем следующую порцию и заранее ищем пары трекам впереди

@@ -3,11 +3,14 @@
 // Окно проходит три состояния: форма → прогресс → результат.
 // Импорт идёт на сервере; окно можно закрыть — по окончании придёт уведомление,
 // а плейлист появится в медиатеке.
+// Отдельно — «Переезд из Яндекс Музыки»: по ссылке на профиль переносим всё сразу — «Мне нравится»
+// в «Избранное», плейлисты, любимых исполнителей (подписка + вкус для Flow).
 
-import { sourceIcons } from "./icons.js";
-import { createPlaylist, getSetting, setSetting } from "./library.js";
+import { icons, sourceIcons } from "./icons.js";
+import { seedTaste } from "./flow.js";
+import { addLikedMany, createPlaylist, followMany, getSetting, setSetting } from "./library.js";
 import { decodeShared } from "./share.js";
-import { SOURCE_NAMES, el, openModal, plural, toast } from "./ui.js";
+import { SOURCE_NAMES, el, imgUrl, openModal, plural, toast } from "./ui.js";
 
 // needsMatch — сервис отдаёт только названия, пары ищем на YouTube или SoundCloud
 const KINDS = [
@@ -37,11 +40,14 @@ const MATCH_OPTIONS = [
     hint: "Треки стартуют быстрее, но музыки меньше: чаще попадаются перезаливы и ремиксы." },
 ];
 let match = "auto";
-let mode = "link";     // форма: "link" — по ссылке, "text" — списком
+let mode = "link";     // форма: "link" — по ссылке, "text" — списком, "share" — код/файл, "yandex" — переезд
+let yandexProfile = null;   // что нашлось в профиле Яндекса — экран выбора
 
-/** onOpen(playlistId) — что делать по кнопке «Открыть плейлист» */
-export function openImportDialog({ onOpen } = {}) {
+/** onOpen(playlistId) — что делать по кнопке «Открыть плейлист»; yandex — сразу открыть «Переезд из Яндекс Музыки» */
+export function openImportDialog({ onOpen, yandex = false } = {}) {
   onOpenPlaylist = onOpen;
+  if (yandex) { mode = "yandex"; yandexProfile = null; }
+  else if (mode === "yandex") mode = "link";   // в прошлый раз закрыли окно на переезде — обычный импорт с начала
   match = getSetting("importMatch", "auto");
   if (!MATCH_OPTIONS.some((o) => o.value === match)) match = "auto";
   const { box, close } = openModal({
@@ -64,6 +70,7 @@ export function openImportDialog({ onOpen } = {}) {
 function renderForm(box, close) {
   box.replaceChildren();
   box.onsubmit = null;
+  if (mode === "yandex") return yandexProfile ? renderYandexPick(box, close) : renderYandexForm(box, close);
 
   // Переключатель «По ссылке / Списком / Файл или код»
   const tabs = el("div", "seg import-tabs");
@@ -91,6 +98,13 @@ function renderForm(box, close) {
       services.append(s);
     }
     box.append(services);
+    // Тем, кто переезжает, — сразу весь Яндекс, а не по одному плейлисту
+    const move = el("button", "import-move");
+    move.type = "button";
+    move.innerHTML = `${sourceIcons.yandex}<span><b>Переезжаете с Яндекс Музыки?</b>`
+      + "<small>Перенесём «Мне нравится», все плейлисты и любимых исполнителей разом</small></span><i>→</i>";
+    move.addEventListener("click", () => { mode = "yandex"; yandexProfile = null; renderForm(box, close); });
+    box.append(move);
     field = el("input", "dialog-input");
     field.placeholder = "https://music.yandex.ru/users/…/playlists/…";
   } else {
@@ -226,7 +240,7 @@ function renderProgress(box, close) {
     box.replaceChildren();
     box.onsubmit = (e) => e.preventDefault();
     const head = el("div", "import-head");
-    head.innerHTML = `<span class="import-source">${sourceIcons[job.kind] ?? ""}</span><h2></h2>`;
+    head.innerHTML = `<span class="import-source">${sourceIcons[job.kind === "yandex_all" ? "yandex" : job.kind] ?? ""}</span><h2></h2>`;
     const progress = el("div", "import-bar");
     progress.append(el("i"));
     const row = el("div", "dialog-buttons");
@@ -241,9 +255,10 @@ function renderProgress(box, close) {
     box.append(head, el("p", "import-count"), progress, el("p", "import-hint import-wait"), row);
     bar = box.querySelector(".import-bar i");
   }
-  box.querySelector(".import-head h2").textContent = job.name ? `Импортирую «${job.name}»` : "Читаю плейлист…";
+  box.querySelector(".import-head h2").textContent = job.kind === "yandex_all" ? "Переношу музыку из Яндекса"
+    : job.name ? `Импортирую «${job.name}»` : "Читаю плейлист…";
   box.querySelector(".import-count").textContent = total ? `${job.done} из ${plural(total, "трека", "треков", "треков")}` : "Получаю список треков…";
-  const searching = job.kind === "text" || KINDS.find((k) => k.kind === job.kind)?.needsMatch;
+  const searching = job.kind === "text" || job.kind === "yandex_all" || KINDS.find((k) => k.kind === job.kind)?.needsMatch;
   box.querySelector(".import-wait").textContent = searching
     ? `Ищу каждый трек ${match === "auto" ? "на SoundCloud и YouTube" : "на " + SOURCE_NAMES[match]} — это займёт немного времени. Окно можно свернуть.`
     : "Окно можно свернуть — импорт продолжится.";
@@ -254,6 +269,7 @@ function renderProgress(box, close) {
 // ---------- Результат ----------
 
 function renderResult(box, close) {
+  if (result.moved) return renderYandexResult(box, close);
   const { job: done, playlist } = result;
   box.replaceChildren();
   box.onsubmit = (e) => e.preventDefault();
@@ -333,6 +349,18 @@ async function start(payload) {
     render?.();
   }
 
+  if (job.kind === "yandex_all") {
+    // Остановили — раскладываем то, что успело найтись
+    result = { job, moved: job.status === "done" || (job.status === "cancelled" && job.collections) ? applyYandex(job) : null };
+    job = null;
+    if (!render) {
+      const m = result.moved;
+      if (m && (m.liked || m.playlists.length || m.artists)) toast(`Переезд готов: ${movedText(m)}`);
+      else toast("Переезд не удался: " + (result.job.error || "треки не найдены"), { error: true });
+    }
+    render?.();
+    return;
+  }
   const playlist = job.status === "done" && job.tracks.length ? createPlaylist(job.name, job.tracks) : null;
   result = { job, playlist };
   job = null;
@@ -341,4 +369,200 @@ async function start(payload) {
     else toast("Импорт не удался: " + (result.job.error || "треки не найдены"), { error: true });
   }
   render?.();
+}
+
+// ---------- Переезд из Яндекс Музыки ----------
+
+function renderYandexForm(box, close) {
+  const head = el("div", "import-head");
+  head.innerHTML = `<span class="import-source">${sourceIcons.yandex}</span><h2>Переезд из Яндекс Музыки</h2>`;
+  box.append(head, el("p", "", "Перенесём «Мне нравится», ваши плейлисты и любимых исполнителей — по одной ссылке."));
+  const how = el("ol", "import-steps");
+  for (const step of [
+    "Откройте music.yandex.ru в браузере и перейдите в «Мне нравится» или в любой свой плейлист.",
+    "Скопируйте ссылку из адресной строки — в ней есть «/users/ваш-логин/». Можно просто вписать логин.",
+  ]) how.append(el("li", "", step));
+  box.append(how);
+  const field = el("input", "dialog-input");
+  field.placeholder = "https://music.yandex.ru/users/логин/playlists/3";
+  field.spellcheck = false;
+  const errorText = el("p", "import-error");
+  const row = el("div", "dialog-buttons");
+  const back = el("button", "btn ghost", "Назад");
+  back.type = "button";
+  back.addEventListener("click", () => { mode = "link"; renderForm(box, close); });
+  const ok = el("button", "btn primary", "Найти мою музыку");
+  ok.type = "submit";
+  const sync = () => { ok.disabled = !field.value.trim(); errorText.textContent = ""; };
+  field.addEventListener("input", sync);
+  sync();
+  row.append(back, ok);
+  box.append(field, errorText, row);
+  box.onsubmit = async (e) => {
+    e.preventDefault();
+    if (ok.disabled) return;
+    ok.disabled = true;
+    ok.textContent = "Ищу…";
+    try {
+      const res = await fetch(`/api/import/yandex-profile?url=${encodeURIComponent(field.value.trim())}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "сервер не ответил");
+      yandexProfile = { ...data, pick: { liked: data.liked > 0, artists: data.artists > 0,
+                                         playlists: new Set(data.playlists.map((p) => p.kind)) } };
+      renderForm(box, close);
+    } catch (err) {
+      errorText.textContent = err.message;
+      ok.disabled = false;
+      ok.textContent = "Найти мою музыку";
+    }
+  };
+  field.focus();
+}
+
+/** Что нашлось — человек снимает галочки с лишнего и запускает перенос */
+function renderYandexPick(box, close) {
+  const profile = yandexProfile;
+  const pick = profile.pick;
+  const head = el("div", "import-head");
+  head.innerHTML = `<span class="import-source">${sourceIcons.yandex}</span><h2>Нашёл вашу музыку</h2>`;
+  box.append(head, el("p", "", "Отметьте, что перенести. Медиатека Sono не сотрётся — всё добавится к ней."));
+
+  const list = el("div", "ya-pick");
+  const row = (title, sub, checked, onChange, cover = null) => {
+    const label = el("label", "ya-row");
+    const box = el("input");
+    box.type = "checkbox";
+    box.checked = checked;
+    box.addEventListener("change", () => { onChange(box.checked); summary(); });
+    const pic = el("span", "ya-cover");
+    if (cover) pic.style.backgroundImage = `url("${imgUrl(cover)}")`;
+    const text = el("span", "ya-text");
+    text.append(el("b", "", title), el("small", "", sub));
+    label.append(box, pic, text);
+    return label;
+  };
+  if (profile.liked) {
+    const r = row("Мне нравится", `${plural(profile.liked, "трек", "трека", "треков")} → в «Избранное»`, pick.liked, (v) => { pick.liked = v; });
+    Object.assign(r.querySelector(".ya-cover"), { className: "ya-cover liked", innerHTML: icons.heartFilled });
+    list.append(r);
+  }
+  if (profile.artists) {
+    const r = row("Любимые исполнители", `${plural(profile.artists, "исполнитель", "исполнителя", "исполнителей")} → подписка, и Flow сразу узнает ваш вкус`,
+      pick.artists, (v) => { pick.artists = v; });
+    Object.assign(r.querySelector(".ya-cover"), { className: "ya-cover artists", innerHTML: icons.artist });
+    list.append(r);
+  }
+  if (profile.playlists.length) {
+    const all = el("button", "ya-all", "");
+    all.type = "button";
+    const syncAll = () => { all.textContent = pick.playlists.size === profile.playlists.length ? "Снять все" : "Выбрать все"; };
+    all.addEventListener("click", () => {
+      const on = pick.playlists.size !== profile.playlists.length;
+      pick.playlists = new Set(on ? profile.playlists.map((p) => p.kind) : []);
+      list.querySelectorAll(".ya-row[data-kind] input").forEach((b) => { b.checked = on; });
+      syncAll();
+      summary();
+    });
+    syncAll();
+    const h = el("div", "ya-head");
+    h.append(el("span", "", `Плейлисты · ${profile.playlists.length}`), all);
+    list.append(h);
+    for (const p of profile.playlists) {
+      const r = row(p.title, plural(p.count, "трек", "трека", "треков"), pick.playlists.has(p.kind), (v) => {
+        if (v) pick.playlists.add(p.kind); else pick.playlists.delete(p.kind);
+        syncAll();
+      }, p.cover);
+      r.dataset.kind = p.kind;
+      list.append(r);
+    }
+  }
+  const total = el("p", "import-hint");
+  const buttons = el("div", "dialog-buttons");
+  const back = el("button", "btn ghost", "Назад");
+  back.type = "button";
+  back.addEventListener("click", () => { yandexProfile = null; renderForm(box, close); });
+  const ok = el("button", "btn primary", "Перенести");
+  ok.type = "submit";
+  buttons.append(back, ok);
+  const errorText = el("p", "import-error");
+
+  function summary() {
+    // Одинаковые треки в разных списках ищутся один раз — это оценка сверху
+    const count = (pick.liked ? profile.liked : 0)
+      + profile.playlists.filter((p) => pick.playlists.has(p.kind)).reduce((n, p) => n + p.count, 0);
+    const minutes = Math.max(1, Math.round(count / 250));   // замер: ~4 трека в секунду
+    total.textContent = count
+      ? `До ${plural(count, "трека", "треков", "треков")} — займёт около ${plural(minutes, "минуты", "минут", "минут")}. Окно можно свернуть, музыка будет играть.`
+      : pick.artists ? "Перенесём только исполнителей — это мгновенно." : "Ничего не выбрано.";
+    ok.disabled = !count && !pick.artists;
+  }
+  summary();
+  box.append(list, total, errorText, buttons);
+  box.onsubmit = (e) => {
+    e.preventDefault();
+    if (ok.disabled) return;
+    start({ yandex: { login: profile.login, liked: pick.liked, artists: pick.artists, playlists: [...pick.playlists] } })
+      .catch((err) => { errorText.textContent = err.message; });
+  };
+}
+
+/** Разложить найденное по медиатеке: «Мне нравится» → «Избранное», плейлисты, исполнители */
+function applyYandex(done) {
+  const moved = { liked: 0, playlists: [], artists: 0 };
+  for (const c of done.collections || []) {
+    if (!c.tracks.length) continue;
+    if (c.kind === "liked") moved.liked = addLikedMany(c.tracks);
+    else moved.playlists.push(createPlaylist(c.name, c.tracks));
+  }
+  if (done.artists?.length) {
+    moved.artists = followMany(done.artists);
+    seedTaste(done.artists);   // Flow сразу знает, что вы любите
+  }
+  yandexProfile = null;
+  mode = "link";
+  return moved;
+}
+
+const movedText = (m) => [
+  m.liked ? `${plural(m.liked, "трек", "трека", "треков")} в «Избранном»` : "",
+  m.playlists.length ? plural(m.playlists.length, "плейлист", "плейлиста", "плейлистов") : "",
+  m.artists ? plural(m.artists, "исполнитель", "исполнителя", "исполнителей") : "",
+].filter(Boolean).join(", ");
+
+function renderYandexResult(box, close) {
+  const { job: done, moved } = result;
+  box.replaceChildren();
+  box.onsubmit = (e) => e.preventDefault();
+  const head = el("div", "import-head");
+  head.innerHTML = `<span class="import-source">${sourceIcons.yandex}</span><h2></h2>`;
+  box.append(head);
+  const ok = moved && (moved.liked || moved.playlists.length || moved.artists);
+  const stopped = done.status === "cancelled";
+  head.querySelector("h2").textContent = stopped ? "Перенос остановлен" : ok ? "Добро пожаловать в Sono!" : "Не получилось";
+  if (ok) {
+    box.append(el("p", "", `${stopped ? "Успели перенести" : "Перенесено"}: ${movedText(moved)}.`
+      + (done.failed.length ? ` ${plural(done.failed.length, "трек не нашёлся", "трека не нашлись", "треков не нашлись")} на YouTube и SoundCloud.` : "")));
+    if (moved.artists) box.append(el("p", "import-hint", "Откройте Flow — он уже подстроился под ваших исполнителей."));
+  } else {
+    box.append(el("p", "import-error", done.error || (done.status === "cancelled" ? "Ничего не добавлено." : "Не удалось найти ни одного трека.")));
+  }
+  if (done.note) box.append(el("p", "import-hint", done.note));
+  if (done.failed.length) {
+    const details = el("details", "import-failed");
+    details.append(el("summary", "", `Не нашлись (${done.failed.length})`));
+    const list = el("ul");
+    for (const f of done.failed.slice(0, 300)) {
+      const li = el("li");
+      li.append(el("span", "", f.title), el("span", "import-reason", f.reason));
+      list.append(li);
+    }
+    details.append(list);
+    box.append(details);
+  }
+  const row = el("div", "dialog-buttons");
+  const closeBtn = el("button", "btn primary", "Готово");
+  closeBtn.type = "button";
+  closeBtn.addEventListener("click", () => { close(); result = null; });
+  row.append(closeBtn);
+  box.append(row);
 }

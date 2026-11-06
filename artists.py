@@ -85,6 +85,7 @@ def _track(t: dict, album: dict | None = None) -> dict:
         "duration": round((t.get("durationMs") or 0) / 1000) or None,
         "cover": _img(cover, "200x200"), "coverLarge": _img(cover, "600x600"),
         "album": album.get("title"), "albumId": album.get("id"), "year": album.get("year"),
+        "genre": album.get("genre"),   # rusrap, rock, ambient… — для настроек Flow (язык, настроение)
         "available": t.get("available", True),
         # Пометка 18+: в оригинале есть мат — пару без цензуры искать особенно важно
         "explicit": t.get("contentWarning") == "explicit",

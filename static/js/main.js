@@ -111,7 +111,7 @@ document.addEventListener("keyup", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.target.closest?.(".dialog-backdrop, .menu")) return;   // в диалоге и меню клавиши свои
   // По клавише (e.code), а не по букве: на русской раскладке Ctrl+K — это «Ctrl+Л», а «/» — это «.»
-  const typing = e.target.matches("input:not([type=range]), textarea, select, [contenteditable]");
+  const typing = e.target.matches?.("input:not([type=range]), textarea, select, [contenteditable]");
   if ((e.ctrlKey && e.code === "KeyK") || (e.code === "Slash" && !e.ctrlKey && !e.altKey && !typing)) {
     e.preventDefault();
     focusSearch();

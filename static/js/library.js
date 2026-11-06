@@ -2,7 +2,7 @@
 // Данные лежат на сервере (library.json). Здесь — копия в памяти и все операции над ней;
 // после каждого изменения раздел отправляется на сервер, а интерфейс получает событие.
 
-export const lib = { liked: [], disliked: [], playlists: [], history: [], settings: {}, downloads: [], stats: {} };
+export const lib = { liked: [], disliked: [], playlists: [], history: [], settings: {}, downloads: [], stats: {}, picks: {} };
 
 const HISTORY_LIMIT = 12;
 
@@ -182,6 +182,24 @@ const newId = () => (crypto.randomUUID?.() ?? `${Date.now().toString(36)}${Math.
 export const getPlaylist = (id) => lib.playlists.find((p) => p.id === id) ?? null;
 
 /** tracks — сразу положить треки (например, при импорте); повторы отбрасываются */
+/** Переезд из другого сервиса: много треков в «Избранное» сразу — сверху, в том же порядке, без повторов.
+ *  Возвращает, сколько добавилось */
+export function addLikedMany(tracks) {
+  const fresh = [...new Map(tracks.filter((t) => !has(lib.liked, t)).map((t) => [keyOf(t), slim(t)])).values()];
+  if (!fresh.length) return 0;
+  lib.liked = [...fresh, ...lib.liked];
+  changed("liked");
+  return fresh.length;
+}
+
+/** Подписаться сразу на многих исполнителей ({id, name, picture}); возвращает, на скольких новых */
+export function followMany(artists) {
+  const list = followedArtists();
+  const fresh = artists.filter((a) => a.id && !list.some((f) => String(f.id) === String(a.id)));
+  if (fresh.length) setSetting("followed", [...fresh.map(({ id, name, picture }) => ({ id, name, picture: picture || null })), ...list]);
+  return fresh.length;
+}
+
 export function createPlaylist(name, tracks = []) {
   const unique = [...new Map(tracks.map((t) => [keyOf(t), slim(t)])).values()];
   const playlist = { id: newId(), name: name.trim() || "Новый плейлист", created: Date.now(), tracks: unique };
@@ -351,6 +369,9 @@ export function markCensored(track) {
 // ---------- Статистика прослушивания ----------
 // Меняется каждую секунду, пока играет музыка, — поэтому сохраняем редко (раз в 15 с)
 // и никому не сообщаем: перерисовывать экраны из-за неё не нужно (stats.js сам знает, когда показать)
+
+/** Подборки «Собрано для вас» обновились (picks.js) — сохранить и перерисовать «Главную» */
+export const picksChanged = () => changed("picks");
 
 export function statsChanged() {
   if (timers.stats) return;

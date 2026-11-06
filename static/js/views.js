@@ -6,10 +6,12 @@ import { renderAlbum, renderArtist } from "./artist.js";
 import { FLOW_MODES, cachedMixes, flowMode, hasTaste, setFlowMode, startFlow, tasteMixes } from "./flow.js";
 import { renderFlowView } from "./flowview.js";
 import { renderStats, statsCard } from "./stats.js";
+import { wrappedButton, wrappedCard } from "./wrapped.js";
+import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
 import { setNavigator } from "./nav.js";
 import { openImportDialog } from "./import.js";
-import { addToPlaylist, getPlaylist, getSetting, isDisliked, keyOf, lib, moveInPlaylist, setSetting } from "./library.js";
+import { addToPlaylist, createPlaylist as createPlaylistFrom, getPlaylist, getSetting, isDisliked, keyOf, lib, moveInPlaylist, setSetting } from "./library.js";
 import { isLyricsVisible, setLyricsVisible } from "./lyrics.js";
 import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
@@ -60,6 +62,12 @@ function describe(key) {
   if (key === "local") {
     return { kind: "local", label: "С компьютера", name: "Мои файлы", tracks: localTracks(), context: { type: "local" },
       empty: "Добавьте папку с музыкой: Настройки → «Мои файлы»." };
+  }
+  if (key.startsWith("pick:")) {   // «Собрано для вас» (picks.js)
+    const pick = getPick(key.slice(5));
+    if (!pick) return null;
+    return { kind: "pick", label: "Собрано для вас", name: pick.name, desc: pick.desc, tracks: pick.tracks, pick,
+      context: { type: "pick", id: pick.id, name: pick.name }, empty: "" };
   }
   const playlist = getPlaylist(key.slice("playlist:".length));
   if (!playlist) return null;
@@ -124,7 +132,7 @@ export function showView(key, { back = false } = {}) {
   if (view === "now") renderUpNext();
   if (view === "settings" && changed) renderSettings();
   if (view === "flow") renderFlowView();
-  if (view === "stats") renderStats(viewStats);
+  if (view === "stats") renderStats(viewStats, wrappedButton());
   if (isMetaView(view)) { if (changed) renderMeta(); }
   else if (isList) renderList(changed);
   document.body.classList.toggle("on-flow", view === "flow");
@@ -269,6 +277,10 @@ function renderHome() {
   for (const p of lib.playlists.slice(-7).reverse()) tiles.append(collectionTile(`playlist:${p.id}`, describe(`playlist:${p.id}`)));
 
   const children = [tiles];
+  const wrapped = wrappedCard();   // «Ваш год в музыке» — в декабре и январе
+  if (wrapped) children.push(wrapped);
+  const made = picksRow();         // «Собрано для вас» — подборки по вкусу
+  if (made) children.push(...made);
   const stats = statsCard();   // «Ваша статистика» — есть, когда уже что-то послушали
   if (stats) children.push(stats);
   const recent = lib.history.filter((t) => !isDisliked(t)).slice(0, 10);
@@ -296,6 +308,43 @@ function renderHome() {
   homeRest.replaceChildren(...children);
   markCurrentRows(state.current ? keyOf(state.current) : null);
   syncPlayButtons();
+}
+
+// Цвет полосы с названием у каждой подборки
+const PICK_COLORS = { daily: "hsl(215 60% 42%)", moment: "hsl(28 70% 42%)", discover: "hsl(150 45% 32%)", forgotten: "hsl(340 45% 40%)" };
+
+/** «Собрано для вас»: плейлист дня, по времени суток, открытия недели, забытое (picks.js) */
+function picksRow() {
+  const list = picks();
+  if (!list.length && !picksBuilding()) return null;
+  const cards = el("div", "home-cards");
+  for (const p of list) {
+    const key = `pick:${p.id}`;
+    const card = el("button", "home-card pick-card");
+    card.type = "button";
+    card.dataset.collection = key;
+    card.style.setProperty("--pick", PICK_COLORS[p.id] ?? "hsl(250 40% 40%)");
+    const art = el("div", "home-card-art pick-art");
+    art.append(collectionCover("pick", { tracks: p.tracks }), el("span", "pick-name", p.name));
+    const playBtn = el("span", "tile-play");
+    playBtn.innerHTML = icons.play;
+    playBtn.title = "Слушать";
+    const info = describe(key);
+    playBtn.addEventListener("click", (e) => { e.stopPropagation(); if (!info) return; if (playingFrom(key)) togglePlay(); else playCollection(info); });
+    art.append(playBtn);
+    card.append(art, el("span", "home-card-title", p.name), el("span", "home-card-artist", p.desc));
+    card.title = p.desc;
+    card.addEventListener("click", () => showView(key));
+    card.addEventListener("mouseenter", () => info && prefetchCollection(info));
+    cards.append(card);
+  }
+  // Пока что-то собирается впервые — место под карточку, чтобы ряд не прыгал
+  if (picksBuilding() && list.length < 4) {
+    const ghost = el("div", "home-card pick-card building");
+    ghost.append(el("div", "home-card-art"), el("span", "home-card-title", "Собираем…"), el("span", "home-card-artist", "по вашему вкусу"));
+    cards.append(ghost);
+  }
+  return [el("h2", "home-h", "Собрано для вас"), cards];
 }
 
 /** «Ваши миксы»: Flow по группе похожих любимых исполнителей. Посчитанные — сразу, без мигания */
@@ -625,7 +674,9 @@ function renderList(fresh) {
     name.addEventListener("click", () => renamePlaylist(info.playlist));
   }
   const meta = info.tracks.length ? `${plural(info.tracks.length, "трек", "трека", "треков")} · ${formatTotal(info.tracks)}` : "Пусто";
-  text.append(el("div", "pl-kind", info.label), name, el("div", "pl-meta", meta));
+  text.append(el("div", "pl-kind", info.label), name);
+  if (info.desc) text.append(el("div", "pl-desc", info.desc));
+  text.append(el("div", "pl-meta", meta));
   const coverBox = collectionCover(info.kind, info, true);
   if (info.playlist) {   // щелчок по обложке — выбрать свою картинку (как в Spotify)
     coverBox.classList.add("editable");
@@ -661,6 +712,18 @@ function renderList(fresh) {
       flowBtn.addEventListener("click", () => startFlow({ playlist: { id: info.playlist?.id ?? info.kind, name: info.name, tracks: info.tracks } }));
       actions.append(flowBtn);
     }
+  }
+  if (info.pick && info.tracks.length) {   // подборка меняется сама — понравилась, можно оставить себе
+    const keep = el("button", "flow-pill");
+    keep.type = "button";
+    keep.innerHTML = `${icons.plus}<span>Сохранить в медиатеку</span>`;
+    keep.title = "Подборка обновится — а копия останется у вас";
+    keep.addEventListener("click", () => {
+      const date = new Date(info.pick.at).toLocaleDateString("ru", { day: "numeric", month: "long" });
+      const p = createPlaylistFrom(`${info.name} · ${date}`, info.tracks);
+      toast(`Плейлист «${p.name}» — в медиатеке`);
+    });
+    actions.append(keep);
   }
   if (info.playlist) {
     const more = iconButton(icons.more, "Ещё");

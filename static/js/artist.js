@@ -184,7 +184,8 @@ export async function renderArtist(box, id, stillHere) {
     let shown = 5;
     let byPlays = false;
     const order = () => (byPlays ? a.top.slice().sort((x, y) => (playsOf(y) ?? -1) - (playsOf(x) ?? -1)) : a.top);
-    const draw = () => {
+    let drawn = "";   // какие треки сейчас видны и в каком порядке — чтобы не перерисовывать зря
+    const render = () => {
       const tracks = order();
       const card = trackList(tracks, context, shown);
       holder.replaceChildren(card);
@@ -196,8 +197,21 @@ export async function renderArtist(box, id, stillHere) {
       }
       fillPlays(card, tracks);
       markCurrentRows(state.current ? keyOf(state.current) : null);
-      // Видимые треки: найти пары и прослушивания, вписать, когда будут
-      loadPlays(tracks.slice(0, shown), { resolve: true }).then(() => { if (stillHere() && card.isConnected) fillPlays(card, tracks); });
+      drawn = tracks.slice(0, shown).map(keyOf).join("|");
+      return card;
+    };
+    // Числа пришли: в порядке «по прослушиваниям» треки могли поменяться местами — тогда перерисовать,
+    // иначе просто вписать числа в строки
+    const refresh = () => {
+      if (!stillHere() || !holder.isConnected) return;
+      const tracks = order();
+      if (byPlays && tracks.slice(0, shown).map(keyOf).join("|") !== drawn) render();
+      else { const card = holder.querySelector(".tracklist-card"); if (card) fillPlays(card, tracks); }
+    };
+    const draw = () => {
+      render();
+      // Видимые треки: найти пары и прослушивания, вписывать по мере готовности
+      loadPlays(order().slice(0, shown), { resolve: true, alive: stillHere, onUpdate: refresh });
     };
     const sortSeg = el("div", "seg meta-sort");
     for (const [label, value] of [["По популярности", false], ["По прослушиваниям", true]]) {
@@ -207,13 +221,12 @@ export async function renderArtist(box, id, stillHere) {
         if (byPlays === value) return;
         byPlays = value;
         sortSeg.querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("on", x === b));
-        if (byPlays) {
-          b.classList.add("busy");
-          await loadPlays(a.top, { resolve: true });   // все популярные треки — до 50, по 4 сразу
-          b.classList.remove("busy");
-          if (!stillHere()) return;
-        }
-        draw();
+        draw();   // сразу — по уже известным числам
+        if (!byPlays) return;
+        // Остальным популярным (до 50) ищем пары по 4 сразу — список пересортировывается по мере готовности
+        b.classList.add("busy");
+        await loadPlays(a.top, { resolve: true, alive: () => stillHere() && byPlays, onUpdate: refresh });
+        b.classList.remove("busy");
       });
       sortSeg.append(b);
     }
@@ -371,7 +384,8 @@ export async function renderAlbum(box, id, stillHere) {
   box.replaceChildren(hero, body);
   markCurrentRows(state.current ? keyOf(state.current) : null);
   prefetchTop(al.tracks, stillHere);
-  loadPlays(al.tracks).then(() => { if (stillHere()) fillPlays(body, al.tracks); });   // у треков, чьи пары уже найдены
+  // Прослушивания: сразу — у треков с найденной парой, остальным пары ищутся по 4, числа появляются по мере готовности
+  loadPlays(al.tracks.slice(0, 40), { resolve: true, alive: stillHere, onUpdate: () => { if (stillHere()) fillPlays(body, al.tracks); } });
   // Пришли щелчком по названию трека — показываем, где он в альбоме
   const want = takeHighlight();
   const row = want && box.querySelector(`.track[data-key="${CSS.escape(want)}"]`);

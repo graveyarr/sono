@@ -63,6 +63,57 @@ JUNK = re.compile(r"fitness|\bbpm\b|karaoke|караоке|instrumental|инст
                   r"reverb|\bextended\b", re.I)
 
 
+# ---------- Настройки: занятие, настроение, язык ----------
+# Человек говорит «под спорт», «спокойное», «только русское» — подстраиваем вес кандидатов по жанрам
+# Яндекса (у трека — жанр альбома, у исполнителя — его жанры; у треков только из Deezer — по исполнителю,
+# если он встречался в «похожих» Яндекса) и по кириллице в названии. Не угадали жанр — трек не выкидываем,
+# а ставим реже: лучше чуть мимо, чем пустой Flow.
+
+ENERGY = ("rap", "hip", "trap", "phonk", "drill", "dance", "edm", "electr", "techno", "house", "trance", "dnb",
+          "drum", "dubstep", "breakbeat", "hardstyle", "metal", "punk", "hardrock", "hardcore", "club")
+CALM = ("ambient", "lounge", "chill", "relax", "jazz", "blues", "classic", "folk", "acoustic", "newage",
+        "soundtrack", "bard", "romance", "soul", "lofi", "lo-fi", "meditat", "easy", "singer", "dream")
+PARTY = ("dance", "pop", "edm", "house", "club", "disco", "electr", "rap", "hip", "reggaeton", "latin", "funk")
+STUDY = ("ambient", "lofi", "lo-fi", "classic", "jazz", "soundtrack", "newage", "lounge", "chill", "instrumental",
+         "postrock", "post-rock", "downtempo", "idm")
+LOUD = ("metal", "punk", "hardcore", "hardstyle", "drill", "phonk", "rap", "trap")
+# (что хотим, чего избегаем) для каждого варианта
+TUNE_MOOD = {"energy": (ENERGY, CALM), "calm": (CALM, ENERGY)}
+TUNE_ACTIVITY = {"sport": (ENERGY, CALM), "study": (STUDY, LOUD), "party": (PARTY, CALM), "rest": (CALM, LOUD)}
+RU_GENRES = ("rus", "local", "estrada", "shanson", "bard", "romances", "soviet")
+CYRILLIC = re.compile(r"[а-яё]", re.I)
+
+
+def _has(genres: set[str], words: tuple) -> bool:
+    return any(w in g for g in genres for w in words)
+
+
+def _tune_factor(tune: dict, genres: set[str], text: str) -> float:
+    """Во сколько раз чаще/реже ставить трек при выбранных настройках (1 — настройки не мешают)."""
+    factor = 1.0
+    for table, value in ((TUNE_MOOD, tune.get("mood")), (TUNE_ACTIVITY, tune.get("activity"))):
+        if value not in table:
+            continue
+        want, avoid = table[value]
+        if not genres:
+            factor *= 0.5          # жанр неизвестен
+        elif _has(genres, want) and not _has(genres, avoid):
+            factor *= 1.8
+        elif _has(genres, avoid) and not _has(genres, want):
+            factor *= 0.08
+        else:
+            factor *= 0.45
+    lang = tune.get("lang")
+    if lang in ("ru", "foreign"):
+        russian = bool(CYRILLIC.search(text)) or _has(genres, RU_GENRES)
+        foreign = not russian and bool(genres)          # жанр известен и он не русский
+        if lang == "ru":
+            factor *= 1.0 if russian else 0.02 if foreign else 0.15
+        else:
+            factor *= 1.0 if foreign else 0.02 if russian else 0.6
+    return factor
+
+
 # ---------- Источники ----------
 
 def _brief(artist_id: int) -> dict:
@@ -74,6 +125,9 @@ def _brief(artist_id: int) -> dict:
         "picture": artists._img((person.get("cover") or {}).get("uri"), "200x200"),
         "tracks": [artists._track(t) for t in info.get("popularTracks") or [] if t.get("available", True)],
         "similar": [(a["id"], a.get("name") or "") for a in info.get("similarArtists") or []],
+        # Жанры исполнителя и похожих — по ним настройки Flow понимают язык и настроение трека
+        "genres": person.get("genres") or [],
+        "simGenres": [(a.get("name") or "", a.get("genres") or []) for a in info.get("similarArtists") or []],
     }
 
 
@@ -198,7 +252,7 @@ def _norm_weights(items: list[dict]) -> list[tuple[dict, float]]:
 def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None,
           banned: list[str] | None = None, size: int = 10, tracks: list[dict] | None = None,
           avoid: list[dict] | None = None, known: list[str] | None = None,
-          recent: list[str] | None = None, quick: bool = False, ready=None) -> dict:
+          recent: list[str] | None = None, quick: bool = False, ready=None, tune: dict | None = None) -> dict:
     """Порция Flow.
     seeds   — исполнители [{name, id?, weight}] (чем больше вес, тем ближе ко вкусу);
     tracks  — любимые треки [{key, id?, artist, title, duration?, weight}] (от них — похожие треки);
@@ -207,7 +261,8 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
     known   — исполнители, которых человек уже слышал (для «знакомое / новое»);
     recent  — исполнители последних треков (чтобы не возвращаться к ним сразу);
     quick   — первая порция: без второго круга запросов (почти всё уже в кэше), чтобы Flow заиграл сразу;
-    ready   — ready(id) → True, если пара на YouTube/SoundCloud для трека уже найдена (такой ставим первым).
+    ready   — ready(id) → True, если пара на YouTube/SoundCloud для трека уже найдена (такой ставим первым);
+    tune    — настройки {activity: sport|study|party|rest, mood: energy|calm, lang: ru|foreign} (пусто — без них).
     Ответ: {tracks, seedIds: {key: "ya…"}} — seedIds страница запоминает, чтобы не искать треки снова."""
     started = time.time()
     share_known = MODES.get(mode, MODES["mix"])
@@ -215,6 +270,7 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
     banned_set = {_compact(b) for b in banned or [] if b}
     avoid_w = {_compact(str(a["name"])): _weight(a) for a in avoid or [] if isinstance(a, dict) and a.get("name")}
     recent_set = {_compact(r) for r in recent or [] if r}
+    tune = {k: v for k, v in (tune or {}).items() if isinstance(v, str) and v not in ("", "any")}
 
     # Каждый раз — лучшие 6 исполнителей и ещё 4 случайных из остальных: порции не одинаковые
     seeds = sorted([s for s in seeds or [] if isinstance(s, dict) and _weight(s) > 0 and isinstance(s.get("name"), str)
@@ -339,6 +395,15 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
         third = {}
 
     # ---- 4. Кандидаты ----
+    # Жанры исполнителей (из всего, что уже пришло от Яндекса) — для настроек
+    artist_genres: dict[str, set[str]] = {}
+    if tune:
+        for brief in [got.get(("brief", a["name"])) for a in own_list] + list(second.values()) + list(third.values()):
+            if not brief:
+                continue
+            artist_genres.setdefault(_compact(brief["name"]), set()).update(brief.get("genres") or [])
+            for name, genres in brief.get("simGenres") or []:
+                artist_genres.setdefault(_compact(name), set()).update(genres)
     cands: dict[str, dict] = {}
     year_now = time.gmtime().tm_year
 
@@ -361,13 +426,20 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
             score *= 0.4   # «Звезда (2025)», «Проснись (Remake 2024)», демо, 12" — не тот самый трек
         if str(track.get("year") or "").isdigit() and int(track["year"]) >= year_now - 1:
             score *= 1.15  # свежее — чуть чаще
+        fit = 1.0
+        if tune:
+            genres = ({track["genre"]} if track.get("genre") else set()) | artist_genres.get(names[0], set())
+            # Без скобок: Яндекс пишет «(из фильма «Трон»)» по-русски и у зарубежных треков
+            bare = re.sub(r"[(\[].*?[)\]]", "", track["title"] or "")   # не внутри f-строки: Python до 3.12 так не умеет
+            fit = _tune_factor(tune, genres, f"{track['artists']} {bare}")
+            score *= fit
         c = cands.get(key)
         if c:
             c["score"] += score * 0.5   # трек сразу из нескольких источников — сильнее
             if c["track"]["id"].startswith("dz") and track["id"].startswith("ya"):
                 c["track"] = track      # версия Яндекса — с обложкой
             return
-        cands[key] = {"track": track, "score": score, "artist": names[0], "because": because}
+        cands[key] = {"track": track, "score": score, "artist": names[0], "because": because, "fit": fit}
 
     def because_of(key: str) -> str:
         if key in own:
@@ -416,7 +488,15 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
             count -= 1
 
     n_known = round(size * share_known)
-    take(known_pool, n_known, 2)
+    if tune:
+        # С настройками сначала — только подходящие (или с неизвестным жанром, 0.5); остальные — если не хватило
+        fits = lambda pool: [c for c in pool if c["fit"] >= 0.5]
+        take(fits(known_pool), n_known, 2)
+        take(fits(new_pool), size - len(chosen), 1 if mode != "liked" else 2)
+        take(fits(known_pool + new_pool), size - len(chosen), 3)
+        if "lang" in tune:   # язык — строже всего: чужой язык ставим, только если иначе совсем нечего
+            take([c for c in known_pool + new_pool if c["fit"] > 0.03], size - len(chosen), 4)
+    take(known_pool, n_known - len(chosen), 2)
     take(new_pool, size - len(chosen), 1 if mode != "liked" else 2)
     take(known_pool + new_pool, size - len(chosen), 2)   # где-то не хватило — добираем откуда есть
     take(known_pool + new_pool, size - len(chosen), 4)

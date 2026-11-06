@@ -833,14 +833,17 @@ def queue_downloads(tracks: list[tuple[str, str]]) -> None:
 
 
 # ---------- Тексты песен ----------
-# Берём из LRCLIB (lrclib.net): бесплатная открытая база, без ключей. У многих песен там
-# есть «синхронизированный» текст — каждая строка с отметкой времени, как в Spotify.
+# Два источника, спрашиваем оба сразу:
+#  - LRCLIB (lrclib.net): бесплатная открытая база, без ключей, много «синхронизированных» текстов —
+#    каждая строка с отметкой времени, как в Spotify. Но русского андеграунда там мало;
+#  - YouTube Music: вкладка «Текст» у песни (тексты Musixmatch/LyricFind, часто с отметками времени), без входа.
 # Найденное (и «не найдено» — на сутки) храним в cache/lyrics/, чтобы не спрашивать снова.
 
 LRCLIB = "https://lrclib.net/api"
 LRCLIB_HEADERS = {"User-Agent": "Sono (open-source desktop music player)"}
 LYRICS_DIR = CACHE_DIR / "lyrics"
 LYRICS_DIR.mkdir(exist_ok=True)
+LYRICS_VERSION = 2   # 2 — добавился YouTube Music
 
 
 def _parse_lrc(text: str) -> list[list]:
@@ -862,7 +865,7 @@ def _norm(text: str) -> str:
     return re.sub(r"[\W_]+", " ", (text or "").lower().replace("ё", "е")).strip()
 
 
-def find_lyrics(artist: str, title: str, duration: float) -> dict:
+def _lrclib_lyrics(artist: str, title: str, duration: float) -> dict | None:
     # Каналы часто называются «Группа КИНО» — в базе же просто «Кино». Пробуем оба варианта
     artists = [artist]
     if (short := re.sub(r"^(группа|гр\.)\s+", "", artist, flags=re.I)) != artist:
@@ -886,7 +889,7 @@ def find_lyrics(artist: str, title: str, duration: float) -> dict:
     lines = lambda item: len([x for x in (item.get("plainLyrics") or item.get("syncedLyrics") or "").splitlines() if x.strip()])
     found = [item for item in found if item.get("instrumental") or lines(item) >= 5]   # пустышки — мимо
     if not found:
-        return {"found": False}
+        return None
 
     want_title, want_artist = _norm(title), set(_norm(artists[-1]).split())
     cyrillic = bool(re.search(r"[а-яё]", title.lower()))
@@ -906,7 +909,132 @@ def find_lyrics(artist: str, title: str, duration: float) -> dict:
         return s
 
     best = max(found, key=score)
-    return _lyrics_result(best) if score(best) > 0 else {"found": False}
+    return {**_lyrics_result(best), "source": "LRCLIB"} if score(best) > 0 else None
+
+
+YTM_API = "https://music.youtube.com/youtubei/v1/"
+YTM_WEB = {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20241023.01.00", "hl": "ru", "gl": "RU"}}
+# Отметки времени у строк YouTube Music отдаёт только «клиенту» приложения для Android
+YTM_ANDROID = {"client": {"clientName": "ANDROID_MUSIC", "clientVersion": "7.21.50", "androidSdkVersion": 30,
+                          "hl": "ru", "gl": "RU"}}
+YTM_SONGS = "EgWKAQIIAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D"   # поиск только в разделе «Песни»
+YTM_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                             "Chrome/130.0 Safari/537.36"}
+_LYRICS_POOL = ThreadPoolExecutor(4, thread_name_prefix="lyrics")
+
+
+def _ytm(path: str, body: dict, client: dict = YTM_WEB) -> dict:
+    resp = _http.post(YTM_API + path, params={"prettyPrint": "false"}, json={"context": client, **body},
+                      headers=YTM_HEADERS, timeout=8)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _walk(data, key: str):
+    """Все значения по ключу key на любой глубине ответа YouTube (там всё вложено очень глубоко)."""
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k == key:
+                yield v
+            yield from _walk(v, key)
+    elif isinstance(data, list):
+        for v in data:
+            yield from _walk(v, key)
+
+
+def _bare_title(text: str) -> str:
+    """Название без «(feat. …)», «[prod. …]» — так его пишут по-разному в разных базах."""
+    return _norm(re.sub(r"[(\[]\s*(feat|ft|prod|при уч)[^)\]]*[)\]]", " ", text or "", flags=re.I))
+
+
+def _ytm_song(artist: str, title: str, duration: float) -> tuple[str, bool] | None:
+    """Песня в YouTube Music с тем же названием и исполнителем → (id, совпадает ли длительность).
+    Поиск сам по себе часто выдаёт первым другой трек исполнителя — поэтому проверяем."""
+    data = _ytm("search", {"query": f"{artist} {title}", "params": YTM_SONGS})
+    want, who = _bare_title(title), _norm(artist)
+    for item in _walk(data, "musicResponsiveListItemRenderer"):
+        video_id = next(_walk(item, "videoId"), None)
+        cols = ["".join(r.get("text", "") for r in c["musicResponsiveListItemFlexColumnRenderer"]["text"].get("runs", []))
+                for c in item.get("flexColumns", []) if "musicResponsiveListItemFlexColumnRenderer" in c]
+        if not video_id or len(cols) < 2 or _bare_title(cols[0]) != want:
+            continue
+        parts = cols[1].split(" • ")
+        artists = _norm(parts[0])
+        if not (set(who.split()) & set(artists.split()) or who.replace(" ", "") in artists.replace(" ", "")):
+            continue
+        length = next((p.strip() for p in parts if re.fullmatch(r"\d+:\d\d", p.strip())), "")
+        seconds = int(length.split(":")[0]) * 60 + int(length.split(":")[1]) if length else 0
+        return video_id, bool(duration and seconds and abs(seconds - duration) <= 3)
+    return None
+
+
+def _ytm_lyrics(video_id: str) -> dict | None:
+    """Текст с вкладки «Текст» у видео/песни YouTube Music."""
+    tabs = _walk(_ytm("next", {"videoId": video_id}), "tabRenderer")
+    browse_id = next((b for t in tabs if (b := t.get("endpoint", {}).get("browseEndpoint", {}).get("browseId", ""))
+                      .startswith("MPLYt")), None)
+    if not browse_id:
+        return None
+    data = _ytm("browse", {"browseId": browse_id}, YTM_ANDROID)
+    source = next(_walk(data, "sourceMessage"), "") or ""
+    timed = next(_walk(data, "timedLyricsData"), None) or []
+    if timed and all("cueRange" in line for line in timed):
+        synced = [[int(line["cueRange"]["startTimeMilliseconds"]) / 1000, (line.get("lyricLine") or "").strip()]
+                  for line in timed]
+        return {"found": True, "instrumental": False, "synced": synced,
+                "plain": "\n".join(words for _, words in synced), "source": _lyrics_source(source)}
+    plain = "\n".join((line.get("lyricLine") or "") for line in timed)
+    if not plain.strip():   # Android-клиент текста не дал — обычный текст с веб-версии
+        shelf = next(_walk(_ytm("browse", {"browseId": browse_id}), "musicDescriptionShelfRenderer"), None)
+        if shelf:
+            plain = "".join(r.get("text", "") for r in shelf.get("description", {}).get("runs", []))
+            source = source or "".join(r.get("text", "") for r in shelf.get("footer", {}).get("runs", []))
+    if len([x for x in plain.splitlines() if x.strip()]) < 3:
+        return None
+    return {"found": True, "instrumental": False, "synced": [], "plain": plain.strip(), "source": _lyrics_source(source)}
+
+
+def _lyrics_source(text: str) -> str:
+    """«Источник: Musixmatch» → «Musixmatch» (страница сама подпишет «Текст — …»)."""
+    return re.sub(r"^\s*(Источник|Source)\s*:\s*", "", text or "", flags=re.I).strip() or "YouTube Music"
+
+
+def _youtube_music_lyrics(source: str, track_id: str, artist: str, title: str, duration: float) -> dict | None:
+    # Трек с YouTube — сначала само видео: тогда отметки времени точно совпадут с тем, что играет
+    direct = _ytm_lyrics(track_id) if source == "youtube" else None
+    if direct and direct["synced"]:
+        return direct
+    # У клипов (official video) YouTube Music отдаёт текст без отметок — пробуем ту же песню из раздела «Песни»
+    song = _ytm_song(artist, title, duration)
+    found = _ytm_lyrics(song[0]) if song else None
+    if found and found["synced"] and not song[1]:
+        # Длительность другая (клип со вступлением, другая версия) — строки разъедутся с музыкой, без отметок
+        found["synced"] = []
+    if direct and not (found and found["synced"]):
+        return direct
+    return found
+
+
+def find_lyrics(source: str, track_id: str, artist: str, title: str, duration: float) -> dict:
+    jobs = {"lrclib": _LYRICS_POOL.submit(_lrclib_lyrics, artist, title, duration),
+            "ytm": _LYRICS_POOL.submit(_youtube_music_lyrics, source, track_id, artist, title, duration)}
+    results, errors = {}, []
+    for name, job in jobs.items():
+        try:
+            results[name] = job.result(timeout=25)
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+    if errors:
+        print(f"[lyrics] {artist} — {title}: {'; '.join(errors)}")
+    if len(errors) == len(jobs):
+        raise RuntimeError(errors[0])
+    lrclib, ytm = results.get("lrclib"), results.get("ytm")
+    # Лучше всего — с отметками времени. Если есть у обоих — YouTube Music: там песня сверена по названию,
+    # исполнителю и длительности (или это само играющее видео), а LRCLIB иногда отдаёт текст чужой песни
+    for found in (ytm, lrclib):
+        if found and (found["synced"] or found["instrumental"]):
+            return found
+    return lrclib or ytm or {"found": False}
 
 
 # ---------- Обложки ----------
@@ -956,7 +1084,8 @@ def get_cover_file(source: str, track_id: str, size: str) -> Path | None:
 LIBRARY_FILE = DATA_DIR / "library.json"
 LIBRARY_SECTIONS = {"liked": list, "disliked": list, "playlists": list, "history": list, "settings": dict,
                     "downloads": list,   # треки, которые человек скачал
-                    "stats": dict}       # сколько слушали каждого исполнителя (static/js/stats.js)
+                    "stats": dict,       # сколько слушали каждого исполнителя (static/js/stats.js)
+                    "picks": dict}       # «Собрано для вас» на «Главной» — готовые подборки (static/js/picks.js)
 _library_lock = threading.Lock()
 
 
@@ -1012,12 +1141,29 @@ def api_import_start():
     match = data.get("match", "auto")
     if match not in SOURCES and match != "auto":
         return jsonify(error="Неизвестный источник"), 400
+    yandex = data.get("yandex")
     try:
         job = importer.start(str(data.get("url", "")), match, search, MAX_DURATION,
-                             text=str(data.get("text", ""))[:100_000])
+                             text=str(data.get("text", ""))[:100_000],
+                             yandex=yandex if isinstance(yandex, dict) else None)
     except ValueError as e:
         return jsonify(error=str(e)), 400
     return jsonify(job.snapshot())
+
+
+@app.get("/api/import/yandex-profile")
+def api_yandex_profile():
+    """Что можно перенести из Яндекс Музыки по ссылке на профиль или любой плейлист пользователя."""
+    login = importer.yandex_login(request.args.get("url", ""))
+    if not login:
+        return jsonify(error="Это не ссылка на профиль Яндекс Музыки (в ней должно быть /users/<логин>)"), 400
+    try:
+        return jsonify(importer.yandex_profile(login))
+    except ValueError as e:
+        return jsonify(error=str(e)), 404
+    except Exception as e:
+        print(f"[import] профиль {login}: {e}")
+        return jsonify(error="Яндекс Музыка не ответила — попробуйте ещё раз"), 502
 
 
 @app.get("/api/import/<job_id>")
@@ -1131,6 +1277,14 @@ def api_library_import():
             have["first"] = min(have.get("first") or a.get("first") or 0, a.get("first") or have.get("first") or 0)
         stats["total"] = max(stats.get("total", 0), (incoming["stats"].get("total") or 0))
         stats["since"] = min(stats.get("since") or time.time() * 1000, incoming["stats"].get("since") or time.time() * 1000)
+        # По годам («Итоги года»): год, которого нет, — берём как есть; есть у обоих — тот, где музыки больше
+        their_years = incoming["stats"].get("years")
+        if isinstance(their_years, dict):
+            years = stats.setdefault("years", {})
+            for year, y in their_years.items():
+                if isinstance(y, dict) and isinstance(y.get("total"), (int, float)) and str(year).isdigit():
+                    if y["total"] > (years.get(year) or {}).get("total", 0):
+                        years[year] = y
         save_library_section("stats", stats)
     return jsonify(added=added)
 
@@ -1640,7 +1794,8 @@ def api_flow():
     try:
         return jsonify(**flow.batch(seeds, mode, exclude, banned, size=size, tracks=tracks,
                                     avoid=avoid, known=known, recent=recent, quick=data.get("quick") is True,
-                                    ready=lambda meta_id: not (_resolved.get(meta_id) or {"missing": True}).get("missing")))
+                                    ready=lambda meta_id: not (_resolved.get(meta_id) or {"missing": True}).get("missing"),
+                                    tune=data.get("tune") if isinstance(data.get("tune"), dict) else None))
     except Exception as e:
         print(f"[flow] {e}")
         return jsonify(error="Нет связи с Яндекс Музыкой — Flow не может подобрать треки"), 502
@@ -1913,17 +2068,19 @@ def api_lyrics(source, track_id):
     cached = LYRICS_DIR / f"{cache_key(source, track_id)}.json"
     try:
         saved = json.loads(cached.read_text(encoding="utf-8"))
-        if saved.get("found") or time.time() - saved.get("checked", 0) < 24 * 3600:
+        # «Не найдено» из времён, когда был только LRCLIB (без "v"), — спрашиваем заново
+        if saved.get("found") or (saved.get("v", 1) >= LYRICS_VERSION and time.time() - saved.get("checked", 0) < 24 * 3600):
             return jsonify(saved)
     except (OSError, ValueError):
         pass
     try:
-        result = find_lyrics(request.args.get("artist", ""), request.args.get("title", ""),
+        result = find_lyrics(source, track_id, request.args.get("artist", ""), request.args.get("title", ""),
                              float(request.args.get("duration") or 0))
     except Exception as e:
         print(f"[lyrics] {source} {track_id}: {e}")
-        return jsonify(error="Не получилось загрузить текст — нет связи с lrclib.net"), 502
+        return jsonify(error="Не получилось загрузить текст — нет связи с базами текстов"), 502
     result["checked"] = time.time()
+    result["v"] = LYRICS_VERSION
     cached.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     return jsonify(result)
 
