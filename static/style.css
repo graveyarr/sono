@@ -2700,3 +2700,67 @@ body.mobile .wr-card { height: calc(100% - 24px); aspect-ratio: auto; width: cal
 @keyframes pick-wait { from { opacity: 0.45; } to { opacity: 0.9; } }
 .collection-cover.pick:not(.mosaic) { background: rgba(255, 255, 255, 0.06); }
 .pl-desc { margin-top: 4px; font-size: 14px; color: rgba(255, 255, 255, 0.82); }
+
+/* ---------- Таймер сна (sleep.js) и «Песня / Клип» (clip.js) ---------- */
+.clip-switch {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 3;
+  display: flex; padding: 3px; gap: 2px; border-radius: 999px;
+  background: rgba(10, 10, 10, 0.62); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.clip-switch[hidden] { display: none; }
+.clip-switch button {
+  border: 0; border-radius: 999px; padding: 5px 14px; background: transparent;
+  color: rgba(255, 255, 255, 0.75); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.clip-switch button:hover { color: #fff; }
+.clip-switch button.on { background: #fff; color: #0b0b0b; }
+.import-howto { margin: 6px 0; border: 1px solid var(--line, rgba(255, 255, 255, 0.1)); border-radius: 10px; padding: 8px 12px; }
+.import-howto summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
+.import-howto summary svg { width: 18px; height: 18px; flex: none; }
+.import-howto .import-steps { margin: 8px 0 2px; }
+
+/* Умное перемешивание: рекомендация в «Очереди» */
+.up-next-rec { color: var(--accent); }
+
+/* ---------- Медиатека: фильтры, поиск, сортировка, папки, подписки (libtools.js) ---------- */
+.lib-tools { display: flex; flex-direction: column; gap: 6px; padding: 2px 8px 6px; }
+.lib-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.lib-chip {
+  padding: 5px 12px; border-radius: 999px; border: 0;
+  background: rgba(255, 255, 255, 0.08); color: var(--text);
+  font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.lib-chip:hover { background: rgba(255, 255, 255, 0.14); }
+.lib-chip.on { background: #fff; color: #000; }
+.lib-bar { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 30px; }
+.lib-search { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; border-radius: 6px; transition: background 0.2s; }
+.lib-search input {
+  width: 0; min-width: 0; padding: 0; border: 0; outline: 0; background: none;
+  color: var(--text); font: inherit; font-size: 13px;
+  transition: width 0.25s var(--ease), padding 0.25s;
+}
+.lib-search.open { flex: 1 1 auto; background: rgba(255, 255, 255, 0.08); }
+.lib-search.open input { width: 100%; padding-right: 8px; }
+.lib-sort {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 4px 6px; border: 0; border-radius: 6px; background: none;
+  color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.lib-sort:hover { color: var(--text); }
+.lib-sort svg { width: 16px; height: 16px; }
+.lib-search.open + .lib-sort span { display: none; }
+.lib-empty { padding: 14px 12px; color: var(--muted); font-size: 13px; }
+.lib-folder .folder-cover { display: grid; place-items: center; background: rgba(255, 255, 255, 0.08); color: var(--muted); }
+.lib-folder .folder-cover svg { width: 22px; height: 22px; }
+.lib-folder-arrow { display: grid; place-items: center; color: var(--muted); transition: transform 0.25s var(--ease); }
+.lib-folder-arrow svg { width: 16px; height: 16px; }
+.lib-folder.open .lib-folder-arrow { transform: rotate(90deg); }
+.lib-item.in-folder { margin-left: 14px; }
+.lib-item.in-folder .collection-cover { width: 40px; }
+.lib-artist .lib-artist-pic {
+  display: grid; place-items: center; overflow: hidden; border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.08); color: #fff; font-weight: 700;
+}
+.lib-artist .lib-artist-pic img { width: 100%; height: 100%; object-fit: cover; }

@@ -3,7 +3,7 @@
 
 import { addToPlaylistItems, createPlaylist, openPlaylistMenu, openTrackMenu, pickPlaylistCover, removeTracksWithUndo, renamePlaylist, toggleDislike, toggleLike } from "./actions.js";
 import { renderAlbum, renderArtist } from "./artist.js";
-import { FLOW_MODES, cachedMixes, flowMode, hasTaste, setFlowMode, startFlow, tasteMixes } from "./flow.js";
+import { FLOW_MODES, cachedMixes, flowMode, hasTaste, setFlowMode, smartShuffle, startFlow, tasteMixes, warmFlow } from "./flow.js";
 import { renderFlowView } from "./flowview.js";
 import { renderStats, statsCard } from "./stats.js";
 import { wrappedButton, wrappedCard } from "./wrapped.js";
@@ -11,11 +11,12 @@ import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
 import { setNavigator } from "./nav.js";
 import { openImportDialog } from "./import.js";
-import { addToPlaylist, createPlaylist as createPlaylistFrom, getPlaylist, getSetting, isDisliked, keyOf, lib, moveInPlaylist, setSetting } from "./library.js";
+import { addToPlaylist, createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isDisliked, keyOf, lib, moveInPlaylist, setSetting } from "./library.js";
 import { isLyricsVisible, setLyricsVisible } from "./lyrics.js";
 import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
 import { newReleases } from "./releases.js";
+import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, recentOf, renameFolder, sidebarSignature, sortMenuItems, toggleFolder, toolsRow } from "./libtools.js";
 import { localTracks } from "./local.js";
 import { countDownloaded, download, removeDownload } from "./downloads.js";
 import { renderSettings } from "./settings.js";
@@ -238,6 +239,7 @@ function flowCard() {
   playBtn.title = "Слушать Flow";
   // Вкуса ещё нет — сначала выбрать исполнителей на вкладке Flow
   playBtn.addEventListener("click", () => (playingFrom("flow:main") ? togglePlay() : hasTaste() ? startFlow() : showView("flow")));
+  playBtn.addEventListener("pointerenter", () => warmFlow());   // «Открытия» соберутся, пока рука идёт к кнопке
   const seg = el("div", "seg flow-modes");
   for (const m of FLOW_MODES) {
     const btn = el("button", `seg-btn${m.value === mode ? " on" : ""}`, m.title);
@@ -415,7 +417,9 @@ async function newReleasesRow(box) {
     const when = r.date ? new Date(r.date).toLocaleDateString("ru", { day: "numeric", month: "long" }) : "";
     card.append(art, el("span", "home-card-title", r.title), el("span", "home-card-artist", `${r.artist} · ${when}`));
     card.title = `${r.artist} — ${r.title}`;
-    card.addEventListener("click", () => showView(`album:${r.id}`));
+    if (!r.track) card.dataset.warm = `album:${r.id}`;
+    // Новинка SoundCloud — это один трек: сразу играет; релиз Яндекса — страница альбома
+    card.addEventListener("click", () => (r.track ? play(r.track, list.filter((x) => x.track).map((x) => x.track), list.filter((x) => x.track).indexOf(r), { type: "releases", id: "sc", name: "Новинки ваших исполнителей" }) : showView(`album:${r.id}`)));
     cards.append(card);
   }
   box.replaceChildren(el("h2", "home-h", "Новинки ваших исполнителей"), cards);
@@ -447,6 +451,10 @@ function queueItem(track, i, { current = false } = {}) {
   text.append(el("div", "up-next-name", shown.title), el("div", "up-next-artist", shown.artist));
   li.append(img, text);
   li.title = track.title;
+  if (track.smart) {   // рекомендация умного перемешивания
+    text.querySelector(".up-next-artist").prepend(el("span", "up-next-rec", "✦ "));
+    li.title = track.because || "Рекомендация";
+  }
   if (current) {
     const eq = el("span", "eq");
     eq.innerHTML = "<i></i><i></i><i></i>";
@@ -588,26 +596,138 @@ function libItem(key, info, sub) {
   return li;
 }
 
-export function renderSidebar() {
+/** Подписка в медиатеке: круглое фото, «Исполнитель» */
+function artistItem(a) {
+  const key = `artist:${a.id}`;
+  const li = el("li", "lib-item lib-artist");
+  li.dataset.view = key;
+  li.dataset.warm = key;
+  li.classList.toggle("active", view === key);
+  li.tabIndex = 0;
+  const pic = el("div", "collection-cover lib-artist-pic");
+  if (a.picture) {
+    const img = el("img");
+    img.alt = "";
+    img.loading = "lazy";
+    img.src = /^https:\/\/(avatars\.yandex|[\w.-]+\.dzcdn|i\d*\.sndcdn)/.test(a.picture) ? imgUrl(a.picture) : a.picture;
+    img.onerror = () => { img.remove(); pic.textContent = (a.name || "?").slice(0, 1).toUpperCase(); };
+    pic.append(img);
+  } else {
+    pic.textContent = (a.name || "?").slice(0, 1).toUpperCase();
+    pic.style.background = `hsl(${nameHue(a.name || "")} 35% 30%)`;
+  }
+  const text = el("div", "lib-text");
+  text.append(el("div", "lib-name", a.name || "Исполнитель"), el("div", "lib-sub", String(a.id).startsWith("sc:") ? "Исполнитель · SoundCloud" : "Исполнитель"));
+  li.append(pic, text);
+  li.addEventListener("click", () => showView(key));
+  li.addEventListener("keydown", (e) => { if (e.key === "Enter") showView(key); });
+  return li;
+}
+
+/** Папка плейлистов: щелчок — раскрыть/свернуть, правая кнопка — переименовать/удалить */
+function folderItem(folder, count) {
+  const li = el("li", `lib-item lib-folder${folder.open ? " open" : ""}`);
+  li.tabIndex = 0;
+  const cover = el("div", "collection-cover folder-cover");
+  cover.innerHTML = icons.folder;
+  const text = el("div", "lib-text");
+  text.append(el("div", "lib-name", folder.name), el("div", "lib-sub", `Папка · ${plural(count, "плейлист", "плейлиста", "плейлистов")}`));
+  const arrow = el("span", "lib-folder-arrow");
+  arrow.innerHTML = icons.chevron;
+  li.append(cover, text, arrow);
+  const toggle = () => toggleFolder(folder);
+  li.addEventListener("click", toggle);
+  li.addEventListener("keydown", (e) => { if (e.key === "Enter") toggle(); });
+  li.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    openMenu({ x: e.clientX, y: e.clientY }, [
+      { label: "Переименовать", icon: icons.edit, action: () => renameFolder(folder) },
+      { label: "Удалить папку", icon: icons.trash, danger: true, action: () => deleteFolder(folder) },
+    ]);
+  });
+  return li;
+}
+
+const libText = (s) => String(s || "").toLowerCase().replace(/ё/g, "е");
+
+export function renderSidebar({ keepFocus = false } = {}) {
   navHome.classList.toggle("active", view === "home");
   navNow.classList.toggle("active", view === "now");
   navFlow.classList.toggle("active", view === "flow");
   navSettings.classList.toggle("active", view === "settings");
-  const items = [libItem("liked", describe("liked"), `Плейлист · ${plural(lib.liked.length, "трек", "трека", "треков")}`)];
-  for (const p of lib.playlists) {
-    items.push(libItem(`playlist:${p.id}`, describe(`playlist:${p.id}`), `Плейлист · ${plural(p.tracks.length, "трек", "трека", "треков")}`));
-  }
+  lastSidebarSig = sidebarSignature();
+  const tools = libToolsOn();
+  const playlistItem = (p) => libItem(`playlist:${p.id}`, describe(`playlist:${p.id}`), `Плейлист · ${plural(p.tracks.length, "трек", "трека", "треков")}`);
+  const pinned = [libItem("liked", describe("liked"), `Плейлист · ${plural(lib.liked.length, "трек", "трека", "треков")}`)];
   if (localTracks().length) {
-    items.push(libItem("local", describe("local"), `С компьютера · ${plural(localTracks().length, "трек", "трека", "треков")}`));
+    pinned.push(libItem("local", describe("local"), `С компьютера · ${plural(localTracks().length, "трек", "трека", "треков")}`));
   }
   if (lib.downloads.length) {
-    items.push(libItem("downloads", describe("downloads"), `Без интернета · ${plural(lib.downloads.length, "трек", "трека", "треков")}`));
+    pinned.push(libItem("downloads", describe("downloads"), `Без интернета · ${plural(lib.downloads.length, "трек", "трека", "треков")}`));
   }
   const disliked = libItem("disliked", describe("disliked"), plural(lib.disliked.length, "трек", "трека", "треков"));
   disliked.classList.add("muted-item");
-  items.push(el("li", "lib-sep"), disliked);
+
+  // Прежняя медиатека: плейлисты по порядку, без папок, фильтров и подписок
+  if (!tools) {
+    document.querySelector(".lib-tools")?.remove();
+    libList.replaceChildren(...pinned.slice(0, 1), ...lib.playlists.map(playlistItem), ...pinned.slice(1), el("li", "lib-sep"), disliked);
+    return;
+  }
+
+  // Строка фильтров — над списком (перерисовывается вместе с ним)
+  const artistsAll = followedArtists();
+  if (libFilter.chip === "artists" && !artistsAll.length) libFilter.chip = "all";
+  const row = toolsRow((opts) => renderSidebar(opts), (anchor) => openMenu(anchor, sortMenuItems()), artistsAll.length > 0);
+  const oldRow = document.querySelector(".lib-tools");
+  const hadFocus = keepFocus && oldRow?.contains(document.activeElement);
+  if (oldRow) oldRow.replaceWith(row); else libList.before(row);
+  if (hadFocus) {
+    const input = row.querySelector("input");
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  const sort = libSort();
+  const q = libText(libFilter.query.trim());
+  const match = (name) => !q || libText(name).includes(q);
+  const byName = (a, b) => a.name.localeCompare(b.name, "ru", { sensitivity: "base" });
+  const order = (list, keyOf, createdOf) => {
+    const out = list.slice();
+    if (sort === "alpha") out.sort(byName);
+    else if (sort === "added") out.sort((a, b) => createdOf(b) - createdOf(a));
+    else if (sort === "recent") out.sort((a, b) => (recentOf(keyOf(b)) || createdOf(b)) - (recentOf(keyOf(a)) || createdOf(a)));
+    return out;
+  };
+  const items = [];
+  if (libFilter.chip !== "artists") {
+    items.push(...pinned.filter((li) => match(li.querySelector(".lib-name").textContent)));
+    const playlists = order(lib.playlists, (p) => `playlist:${p.id}`, (p) => p.created || 0);
+    if (q) {
+      items.push(...playlists.filter((p) => match(p.name)).map(playlistItem));   // поиск — без папок
+    } else {
+      const inFolder = new Set();
+      for (const f of folders()) {
+        const inside = playlists.filter((p) => f.items.includes(p.id));
+        inside.forEach((p) => inFolder.add(p.id));
+        items.push(folderItem(f, inside.length));
+        if (f.open) inside.forEach((p) => { const li = playlistItem(p); li.classList.add("in-folder"); items.push(li); });
+      }
+      items.push(...playlists.filter((p) => !inFolder.has(p.id)).map(playlistItem));
+    }
+  }
+  if (libFilter.chip !== "playlists") {
+    // Подписки: «Добавлено» — порядок подписки (новые первыми)
+    const artists = order(artistsAll.map((a, i) => ({ ...a, n: artistsAll.length - i })), (a) => `artist:${a.id}`, (a) => a.n);
+    items.push(...artists.filter((a) => match(a.name)).map(artistItem));
+  }
+  if (!items.length) items.push(el("li", "lib-empty", q ? "Ничего не нашлось" : "Пусто"));
+  if (libFilter.chip === "all" && !q) items.push(el("li", "lib-sep"), disliked);
   libList.replaceChildren(...items);
 }
+
+let lastSidebarSig = "";
+addEventListener("sono:libtools", () => renderSidebar());
 
 // ---------- Кнопка «Скачать» в шапке плейлиста ----------
 // Стрелка: скачать все треки. Когда всё скачано — закрашенная; по щелчку предлагает удалить загрузки.
@@ -702,6 +822,13 @@ function renderList(fresh) {
     shuffle.disabled = info.tracks.length < 2;
     shuffle.addEventListener("click", () => playCollection(info, true));
     actions.append(playBtn, shuffle);
+    // Умное перемешивание: вперемешку + после каждых двух треков — похожий из рекомендаций
+    if (info.kind !== "pick") {
+      const smart = iconButton(icons.smartShuffle, "Умное перемешивание: список вперемешку и похожие треки между ними");
+      smart.disabled = !info.tracks.length;
+      smart.addEventListener("click", () => smartShuffle({ name: info.name, tracks: info.tracks, context: info.context }));
+      actions.append(smart);
+    }
     if (info.tracks.length) actions.append(downloadControl(info));
     // Flow по плейлисту: его исполнители и похожие на них — остальная медиатека не влияет
     if (info.tracks.length) {
@@ -1056,7 +1183,11 @@ export function syncPlayButtons() {
 
 /** Медиатека изменилась — перерисовать то, что от неё зависит */
 export function refreshViews(section) {
-  if (section === "settings") return;
+  if (section === "settings") {
+    // Папки, сортировка, подписки и выключатель лежат в настройках — перерисовать медиатеку, только если они менялись
+    if (sidebarSignature() !== lastSidebarSig) renderSidebar();
+    return;
+  }
   if (view === "home") renderHome();   // главная показывает и историю, и плейлисты
   if (section === "history") return;
   renderSidebar();
@@ -1103,6 +1234,7 @@ export function initViews() {
       const playlist = await createPlaylist();
       if (playlist) showView(`playlist:${playlist.id}`);
     } },
+    ...(libToolsOn() ? [{ label: "Новая папка", icon: icons.folder, action: () => createFolder() }] : []),
     { label: "Импорт по ссылке…", icon: icons.import, action: () => openImportDialog({
       onOpen: (id) => showView(`playlist:${id}`),
     }) },

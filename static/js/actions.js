@@ -8,6 +8,7 @@ import { icons, sourceIcons } from "./icons.js";
 import { sharePlaylist } from "./share.js";
 import * as library from "./library.js";
 import { keyOf, lib } from "./library.js";
+import { folderMenuItem } from "./libtools.js";
 import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
 import { openAlbumAt, openArtist, splitArtists } from "./nav.js";
 import { playNext, queueNext, returnToQueue, state } from "./player.js";
@@ -302,6 +303,7 @@ export function openPlaylistMenu(anchor, playlist, { onPlay, onDeleted } = {}) {
     { label: playlist.cover ? "Сменить обложку…" : "Своя обложка…", icon: icons.image, action: () => pickPlaylistCover(playlist) },
     ...(playlist.cover ? [{ label: "Убрать свою обложку", icon: icons.close, action: () => library.setPlaylistCover(playlist.id, null) }] : []),
     { label: "Поделиться", icon: icons.share, disabled: !playlist.tracks.length, action: () => sharePlaylist(playlist) },
+    ...folderMenuItem(playlist),
     { sep: true },
     { label: "Удалить плейлист", icon: icons.trash, danger: true, action: async () => { if (await deletePlaylist(playlist)) onDeleted?.(); } },
   ]);

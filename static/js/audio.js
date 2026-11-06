@@ -132,7 +132,8 @@ export function ensureAudioGraph() {
     n.reverb.connect(n.wet).connect(n.mix);
     n.reverbOn = false;   // вход реверба подключает applyFx — только когда он нужен
     n.comp.connect(n.level).connect(n.fade);
-    n.fade.connect(n.analyser).connect(ctx.destination);
+    n.sleep = ctx.createGain();   // таймер сна: затихание перед паузой (после анализатора — картинка не гаснет)
+    n.fade.connect(n.analyser).connect(n.sleep).connect(ctx.destination);
     n.direct = null;
     routeNormalize();
     applyFx();
@@ -141,6 +142,17 @@ export function ensureAudioGraph() {
     console.log("[audio] звуковая цепочка недоступна:", err.message);
     ctx = null;
   }
+}
+
+/** Таймер сна: плавно довести громкость до level (0…1) за seconds секунд. Без звуковой цепочки — false */
+export function sleepFade(level, seconds = 0) {
+  if (!ctx || !n.sleep) return false;
+  const g = n.sleep.gain, now = ctx.currentTime;
+  g.cancelScheduledValues(now);
+  g.setValueAtTime(g.value, now);
+  if (seconds > 0) g.linearRampToValueAtTime(level, now + seconds);
+  else g.setValueAtTime(level, now);
+  return true;
 }
 
 export function resumeAudio() {

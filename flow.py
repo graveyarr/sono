@@ -14,8 +14,11 @@
 3. Оценка трека = близость исполнителя × место трека (у исполнителя или в подборке) × свежесть.
 4. Отбор по режиму: «Любимое» — в основном знакомые исполнители, «Открытия» — в основном новые.
    Случайно, но с перевесом в сторону лучших; не больше 2 треков исполнителя за порцию и не подряд.
+   SoundCloud: на любимые треки оттуда — его «похожие треки», у артистов SoundCloud (id «sc:…») —
+   их популярное и похожее на него (андеграунд, которого нет в Яндексе и Deezer).
 У каждого трека — «почему он здесь» (because): «Похоже на Кино», «Вы слушаете Кино».
-Звука у треков нет (source: meta) — пару на YouTube/SoundCloud плеер ищет перед включением.
+Звука у треков из базы нет (source: meta) — пару на YouTube/SoundCloud плеер ищет перед включением;
+треки SoundCloud — сразу настоящие.
 """
 from __future__ import annotations
 
@@ -36,6 +39,12 @@ MODES = {
 _pool = ThreadPoolExecutor(12, thread_name_prefix="flow")
 # Вложенные запросы из задач _pool (похожие Deezer — вместе с радио). Сами они ничего не ждут — взаимной блокировки нет
 _side = ThreadPoolExecutor(8, thread_name_prefix="flow-side")
+
+# SoundCloud подставляет app.py: SC_API(path, **params) — запрос к API, SC_TRACK(t) — трек Sono или None
+SC_API = None
+SC_TRACK = None
+_sc_cache: dict[str, tuple[float, object]] = {}
+SC_TTL = 6 * 3600
 
 
 def _norm(text: str) -> str:
@@ -178,6 +187,48 @@ def _deezer(name: str) -> dict:
             "related": related.result()}
 
 
+def _sc_cached(key: str, fn):
+    hit = _sc_cache.get(key)
+    if hit and time.time() - hit[0] < SC_TTL:
+        return hit[1]
+    value = fn()
+    _sc_cache[key] = (time.time(), value)
+    if len(_sc_cache) > 500:
+        _sc_cache.pop(next(iter(_sc_cache)))
+    return value
+
+
+def _sc_flow_track(t: dict) -> dict | None:
+    """Трек SoundCloud → кандидат Flow. Исполнитель — из данных лейбла, «Исполнитель - Название» или автор загрузки."""
+    track = SC_TRACK(t) if SC_TRACK and isinstance(t, dict) else None
+    if not track:
+        return None
+    title = t.get("title") or ""
+    artist = (t.get("publisher_metadata") or {}).get("artist") or ""
+    if not artist and " - " in title:
+        artist, title = title.split(" - ", 1)
+    return {**track, "artists": artist or track.get("channel") or "", "keyTitle": title,
+            "year": (t.get("created_at") or "")[:4] or None}
+
+
+def _sc_related(track_id) -> list[dict]:
+    """«Похожие треки» SoundCloud на один трек."""
+    def load():
+        data = SC_API(f"/tracks/{int(track_id)}/related", limit=20) or {}
+        return [x for x in map(_sc_flow_track, data.get("collection") or []) if x]
+    return _sc_cached(f"rel{track_id}", load)
+
+
+def _sc_artist(uid: int) -> dict:
+    """Артист SoundCloud: его популярные треки (только свои загрузки) и похожие на самый популярный."""
+    def load():
+        top = [t for t in (SC_API(f"/users/{uid}/toptracks", limit=10) or {}).get("collection") or []
+               if (t.get("user") or {}).get("id") == uid]
+        return {"tracks": [x for x in map(_sc_flow_track, top) if x], "first": top[0]["id"] if top else None}
+    info = _sc_cached(f"user{uid}", load)
+    return {"tracks": info["tracks"], "related": _sc_related(info["first"]) if info["first"] else []}
+
+
 def _safe(fn, *args, default=None):
     try:
         return fn(*args)
@@ -285,6 +336,17 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
         if len(dz_names) < 4 and _compact(s["name"]) and _compact(s["name"]) not in dz_names:
             dz_names[_compact(s["name"])] = s["name"]
     dz_jobs = {name: _pool.submit(_safe, _deezer, name, default=None) for name in dz_names.values()}
+    # SoundCloud — тоже сразу: артисты «sc:<номер>» (до 3) и любимые треки оттуда (до 4)
+    sc_artist_jobs, sc_track_jobs = {}, {}
+    if SC_API:
+        for s in seeds:
+            uid = str(s.get("id") or "")
+            if uid.startswith("sc:") and uid[3:].isdigit() and len(sc_artist_jobs) < 3:
+                sc_artist_jobs[s["name"]] = _pool.submit(_safe, _sc_artist, int(uid[3:]), default=None)
+        for t in track_seeds:
+            sc_id = str(t.get("sc") or "")
+            if sc_id.isdigit() and len(sc_track_jobs) < 4:
+                sc_track_jobs[sc_id] = _pool.submit(_safe, _sc_related, sc_id, default=[])
     artist_jobs = [_pool.submit(_resolve_seed, s) for s in seeds]   # исполнители и треки — одновременно
     track_ids = list(_pool.map(_resolve_track, track_seeds))
     artist_ids = [f.result() for f in artist_jobs]
@@ -299,8 +361,9 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
             own[key] = {"name": seed.get("name") or "", "id": artist_id, "w": w}
     known_set = {_compact(k) for k in known or [] if k} | set(own)
     tseeds = [(t, w, tid) for (t, w), tid in zip(_norm_weights(track_seeds), track_ids) if tid]
+    sc_tseeds = [(t, w) for t, w in _norm_weights(track_seeds) if str(t.get("sc") or "") in sc_track_jobs]
 
-    if not own and not tseeds:   # вкуса ещё нет — чарт вперемешку
+    if not own and not tseeds and not sc_tseeds:   # вкуса ещё нет — чарт вперемешку
         chart = [t for t in _safe(_chart, default=[]) if t["id"] not in seen
                  and track_key(t["artists"], t["title"]) not in seen and _compact(_first_artist(t["artists"])) not in banned_set]
         random.shuffle(chart)
@@ -320,6 +383,8 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
     for t, w, tid in tseeds:
         jobs[("sim", tid)] = _pool.submit(_safe, _similar_tracks, tid, default=[])
     got = {k: f.result() for k, f in jobs.items()}
+    sc_got = {name: f.result() for name, f in sc_artist_jobs.items()}
+    sc_rel = {sc_id: f.result() for sc_id, f in sc_track_jobs.items()}
 
     # ---- 2. Близость исполнителей ко вкусу ----
     aff: dict[str, dict] = {}
@@ -349,6 +414,13 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
     for t, w, tid in tseeds:
         for rank, s in enumerate(got.get(("sim", tid)) or []):
             bump(_first_artist(s["artists"]), s.get("artistId"), w * 0.15 / (1 + rank * 0.1), "track", t.get("artist") or "")
+    # SoundCloud: похожее на артиста — как радио Deezer, похожее на трек — как похожие треки
+    for a in own_list:
+        for rank, s in enumerate((sc_got.get(a["name"]) or {}).get("related") or []):
+            bump(_first_artist(s["artists"]), None, a["w"] * 0.4 / (1 + rank * 0.1), "sc", a["name"])
+    for t, w in sc_tseeds:
+        for rank, s in enumerate(sc_rel.get(str(t["sc"])) or []):
+            bump(_first_artist(s["artists"]), None, w * 0.2 / (1 + rank * 0.1), "sc", t.get("artist") or "")
 
     def affinity(key: str) -> float:
         """Близость исполнителя: любимый — его вес (+ немного, если на него указывают другие любимые);
@@ -410,7 +482,7 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
     def offer(track: dict, score: float, because: str):
         if not track or score <= 0 or track["id"] in seen:
             return
-        key = track_key(track["artists"], track["title"])
+        key = track_key(track["artists"], track.get("keyTitle") or track["title"])
         if key in seen or JUNK.search(track["title"] or ""):
             return
         duration = track.get("duration") or 0
@@ -463,6 +535,20 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
             artist = _compact(_first_artist(s["artists"]))
             title = re.sub(r"\s*[(\[].*?[)\]]", "", t.get("title") or "").strip()
             offer(s, w * 0.3 / (1 + rank * 0.1) + affinity(artist) * 0.5, f"Похоже на «{title}»" if title else because_of(artist))
+    for a in own_list:   # артисты SoundCloud: свои треки и похожие
+        sc = sc_got.get(a["name"]) or {}
+        key = _compact(a["name"])
+        for rank, t in enumerate(sc.get("tracks") or []):
+            offer(t, affinity(key) / (1 + rank * 0.3), because_of(key))
+        for rank, t in enumerate(sc.get("related") or []):
+            artist = _compact(_first_artist(t["artists"]))
+            because = because_of(artist) if artist in own else f"Похоже на {a['name']}"
+            offer(t, (affinity(artist) * 0.6 + a["w"] * 0.5) / (1 + rank * 0.05), because)
+    for t, w in sc_tseeds:   # любимые треки со SoundCloud — его «похожие треки»
+        title = re.sub(r"\s*[(\[].*?[)\]]", "", t.get("title") or "").strip()
+        for rank, s in enumerate(sc_rel.get(str(t["sc"])) or []):
+            artist = _compact(_first_artist(s["artists"]))
+            offer(s, w * 0.4 / (1 + rank * 0.08) + affinity(artist) * 0.5, f"Похоже на «{title}»" if title else because_of(artist))
     for k, brief in second.items():
         for rank, t in enumerate((brief or {}).get("tracks", [])):
             offer(t, affinity(k) * 0.8 / (1 + rank * 0.35), because_of(k))
@@ -528,10 +614,12 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
         found = future.result() if future and future.done() else None
         if found and f"ya{found[0]['id']}" not in seen:
             t = artists._track(*found)
+        if t.get("source") == "soundcloud":   # настоящий трек — как в поиске (имя и название страница разберёт сама)
+            t = {k: v for k, v in t.items() if k not in ("artists", "keyTitle", "year")}
         result.append({**t, "because": c["because"], "flow": "known" if c["artist"] in known_set else "new"})
-    # Первым — трек, для которого звук уже найден раньше: старт без ожидания поиска
+    # Первым — трек, для которого звук уже есть (SoundCloud или пара найдена раньше): старт без ожидания поиска
     if ready:
-        hit = next((i for i, t in enumerate(result[:5]) if ready(t["id"])), 0)
+        hit = next((i for i, t in enumerate(result[:5]) if t.get("source") == "soundcloud" or ready(t["id"])), 0)
         result.insert(0, result.pop(hit))
     print(f"[flow] {mode}: {len(result)} из {len(cands)} кандидатов, {len(aff)} похожих исполнителей, "
           f"{time.time() - started:.1f} с")

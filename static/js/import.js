@@ -40,14 +40,36 @@ const MATCH_OPTIONS = [
     hint: "Треки стартуют быстрее, но музыки меньше: чаще попадаются перезаливы и ремиксы." },
 ];
 let match = "auto";
-let mode = "link";     // форма: "link" — по ссылке, "text" — списком, "share" — код/файл, "yandex" — переезд
-let yandexProfile = null;   // что нашлось в профиле Яндекса — экран выбора
+let mode = "link";     // форма: "link" — по ссылке, "text" — списком, "share" — код/файл, "yandex" — переезд, "files" — выгрузки
+let yandexProfile = null;   // что нашлось в профиле (Яндекс или SoundCloud) — экран выбора
+// Переезд целиком: Яндекс Музыка или SoundCloud — одно окно, разные тексты и адреса
+const MOVES = {
+  yandex: {
+    icon: "yandex", title: "Переезд из Яндекс Музыки", api: "yandex-profile", payload: "yandex",
+    intro: "Перенесём «Мне нравится», ваши плейлисты и любимых исполнителей — по одной ссылке.",
+    steps: ["Откройте music.yandex.ru в браузере и перейдите в «Мне нравится» или в любой свой плейлист.",
+      "Скопируйте ссылку из адресной строки — в ней есть «/users/ваш-логин/». Можно просто вписать логин."],
+    placeholder: "https://music.yandex.ru/users/логин/playlists/3",
+    liked: "Мне нравится", artists: "Любимые исполнители", artistsSub: "подписка, и Flow сразу узнает ваш вкус",
+    key: (pl) => pl.kind, perMinute: 250, progress: "Переношу музыку из Яндекса",
+  },
+  soundcloud: {
+    icon: "soundcloud", title: "Переезд со SoundCloud", api: "soundcloud-profile", payload: "soundcloud",
+    intro: "Перенесём ваши лайки, плейлисты и подписки. Треки останутся теми же загрузками SoundCloud — ремиксы, бутлеги и всё, чего нет на других сервисах.",
+    steps: ["Откройте soundcloud.com, нажмите на свой аватар → «Profile».",
+      "Скопируйте ссылку из адресной строки — вида soundcloud.com/ваш-ник. Можно просто вписать ник."],
+    placeholder: "https://soundcloud.com/ваш-ник",
+    liked: "Лайки", artists: "Подписки", artistsSub: "подписка — в медиатеке, и Flow сразу узнает ваш вкус",
+    key: (pl) => pl.id, perMinute: 1500, progress: "Переношу музыку со SoundCloud",
+  },
+};
+let moveSvc = "yandex";
 
 /** onOpen(playlistId) — что делать по кнопке «Открыть плейлист»; yandex — сразу открыть «Переезд из Яндекс Музыки» */
 export function openImportDialog({ onOpen, yandex = false } = {}) {
   onOpenPlaylist = onOpen;
-  if (yandex) { mode = "yandex"; yandexProfile = null; }
-  else if (mode === "yandex") mode = "link";   // в прошлый раз закрыли окно на переезде — обычный импорт с начала
+  if (yandex) { mode = "yandex"; moveSvc = "yandex"; yandexProfile = null; }
+  else if (mode === "yandex" || mode === "files") mode = "link";   // в прошлый раз закрыли окно на переезде — обычный импорт с начала
   match = getSetting("importMatch", "auto");
   if (!MATCH_OPTIONS.some((o) => o.value === match)) match = "auto";
   const { box, close } = openModal({
@@ -71,6 +93,7 @@ function renderForm(box, close) {
   box.replaceChildren();
   box.onsubmit = null;
   if (mode === "yandex") return yandexProfile ? renderYandexPick(box, close) : renderYandexForm(box, close);
+  if (mode === "files") return renderFilesForm(box, close);
 
   // Переключатель «По ссылке / Списком / Файл или код»
   const tabs = el("div", "seg import-tabs");
@@ -103,13 +126,34 @@ function renderForm(box, close) {
     move.type = "button";
     move.innerHTML = `${sourceIcons.yandex}<span><b>Переезжаете с Яндекс Музыки?</b>`
       + "<small>Перенесём «Мне нравится», все плейлисты и любимых исполнителей разом</small></span><i>→</i>";
-    move.addEventListener("click", () => { mode = "yandex"; yandexProfile = null; renderForm(box, close); });
-    box.append(move);
+    move.addEventListener("click", () => { mode = "yandex"; moveSvc = "yandex"; yandexProfile = null; renderForm(box, close); });
+    const fromSc = el("button", "import-move");
+    fromSc.type = "button";
+    fromSc.innerHTML = `${sourceIcons.soundcloud}<span><b>Переезжаете со SoundCloud?</b>`
+      + "<small>Лайки, плейлисты и подписки по ссылке на профиль</small></span><i>→</i>";
+    fromSc.addEventListener("click", () => { mode = "yandex"; moveSvc = "soundcloud"; yandexProfile = null; renderForm(box, close); });
+    // Spotify без входа отдаёт только открытые плейлисты до 100 треков — остальное через выгрузку файлом
+    const fromFiles = el("button", "import-move");
+    fromFiles.type = "button";
+    fromFiles.innerHTML = `${icons.import}<span><b>Выгрузка из Spotify или YouTube Music</b>`
+      + "<small>«Любимые треки» и большие плейлисты — из файла, без ограничения в 100 треков</small></span><i>→</i>";
+    fromFiles.addEventListener("click", () => { mode = "files"; renderForm(box, close); });
+    box.append(move, fromSc, fromFiles);
     field = el("input", "dialog-input");
     field.placeholder = "https://music.yandex.ru/users/…/playlists/…";
   } else {
-    box.append(el("p", "", "По строке на трек: «Исполнитель — Название». Так можно перенести музыку "
-      + "из VK Музыки или любого другого сервиса: скопируй список и вставь сюда."));
+    box.append(el("p", "", "По строке на трек: «Исполнитель — Название». Или вставьте целиком страницу с музыкой — "
+      + "Sono сам найдёт в ней названия, исполнителей и длительность."));
+    // VK без входа треки не отдаёт, Звук и МТС Музыка закрыты капчей — но свою страницу с музыкой можно скопировать
+    const vk = el("details", "import-howto");
+    const sum = el("summary");
+    sum.innerHTML = `${sourceIcons.vk ?? icons.note}<span>Как перенести из VK Музыки, Звука или МТС Музыки</span>`;
+    const steps = el("ol", "import-steps");
+    for (const step of ["Откройте свою музыку в браузере (vk.com/audio, zvuk.com, music.mts.ru) и прокрутите список до конца — чтобы загрузились все треки.",
+      "Нажмите Ctrl+A, потом Ctrl+C — скопируется вся страница.",
+      "Вставьте сюда (Ctrl+V) — лишнее Sono пропустит сам."]) steps.append(el("li", "", step));
+    vk.append(sum, steps);
+    box.append(vk);
     field = el("textarea", "dialog-input import-textarea");
     field.placeholder = "Кино — Группа крови\nМонеточка — Каждый раз\n…";
     field.rows = 7;
@@ -240,7 +284,8 @@ function renderProgress(box, close) {
     box.replaceChildren();
     box.onsubmit = (e) => e.preventDefault();
     const head = el("div", "import-head");
-    head.innerHTML = `<span class="import-source">${sourceIcons[job.kind === "yandex_all" ? "yandex" : job.kind] ?? ""}</span><h2></h2>`;
+    const kindIcon = { files: icons.import, yandex_all: sourceIcons.yandex, sc_all: sourceIcons.soundcloud }[job.kind] ?? sourceIcons[job.kind];
+    head.innerHTML = `<span class="import-source">${kindIcon ?? ""}</span><h2></h2>`;
     const progress = el("div", "import-bar");
     progress.append(el("i"));
     const row = el("div", "dialog-buttons");
@@ -256,9 +301,11 @@ function renderProgress(box, close) {
     bar = box.querySelector(".import-bar i");
   }
   box.querySelector(".import-head h2").textContent = job.kind === "yandex_all" ? "Переношу музыку из Яндекса"
+    : job.kind === "files" ? "Переношу музыку из файлов"
+    : job.kind === "sc_all" ? MOVES.soundcloud.progress
     : job.name ? `Импортирую «${job.name}»` : "Читаю плейлист…";
   box.querySelector(".import-count").textContent = total ? `${job.done} из ${plural(total, "трека", "треков", "треков")}` : "Получаю список треков…";
-  const searching = job.kind === "text" || job.kind === "yandex_all" || KINDS.find((k) => k.kind === job.kind)?.needsMatch;
+  const searching = job.kind === "text" || job.kind === "yandex_all" || job.kind === "files" || KINDS.find((k) => k.kind === job.kind)?.needsMatch;
   box.querySelector(".import-wait").textContent = searching
     ? `Ищу каждый трек ${match === "auto" ? "на SoundCloud и YouTube" : "на " + SOURCE_NAMES[match]} — это займёт немного времени. Окно можно свернуть.`
     : "Окно можно свернуть — импорт продолжится.";
@@ -349,7 +396,7 @@ async function start(payload) {
     render?.();
   }
 
-  if (job.kind === "yandex_all") {
+  if (job.kind === "yandex_all" || job.kind === "files" || job.kind === "sc_all") {
     // Остановили — раскладываем то, что успело найтись
     result = { job, moved: job.status === "done" || (job.status === "cancelled" && job.collections) ? applyYandex(job) : null };
     job = null;
@@ -371,20 +418,100 @@ async function start(payload) {
   render?.();
 }
 
+// ---------- Выгрузки из Spotify, YouTube Music и других (файлы) ----------
+
+const FILE_HOWTO = [
+  { icon: "spotify", name: "Spotify — за пару минут",
+    steps: ["Откройте exportify.net, нажмите «Get Started» и войдите через Spotify (на их сайте, не в Sono).",
+      "Нажмите «Export All» — скачается архив .zip со всеми плейлистами и «Любимыми треками».",
+      "Выберите этот архив здесь — распаковывать не нужно."] },
+  { icon: "spotify", name: "Spotify — официально",
+    steps: ["spotify.com → Профиль → Аккаунт → «Конфиденциальность» → «Скачать данные» → «Данные аккаунта».",
+      "Письмо со ссылкой придёт в течение нескольких дней — скачайте архив.",
+      "Выберите архив или файлы YourLibrary.json и Playlist1.json."] },
+  { icon: "youtube", name: "YouTube и YouTube Music",
+    steps: ["Откройте takeout.google.com → «Отменить выбор» → отметьте только «YouTube и YouTube Music».",
+      "«Выбраны все данные» → оставьте только «плейлисты» и «музыка»; формат — CSV.",
+      "Когда архив будет готов, выберите его здесь."] },
+];
+
+function readFile(file) {
+  // Архив — целиком (сервер распакует сам), таблицы и JSON — текстом
+  if (/\.zip$/i.test(file.name)) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, zip: String(reader.result).split(",", 2)[1] || "" });
+      reader.onerror = () => reject(new Error(`Не получилось прочитать «${file.name}»`));
+      reader.readAsDataURL(file);
+    });
+  }
+  return file.text().then((text) => ({ name: file.name, text }));
+}
+
+function renderFilesForm(box, close) {
+  const head = el("div", "import-head");
+  head.innerHTML = `<span class="import-source">${icons.import}</span><h2>Перенос из файлов</h2>`;
+  box.append(head, el("p", "", "Сервисы не отдают «Любимые треки» без входа, а Spotify — больше 100 треков плейлиста. "
+    + "Но любой сервис даёт скачать свою музыку файлом — выберите его, и Sono разложит всё по местам."));
+  for (const how of FILE_HOWTO) {
+    const d = el("details", "import-howto");
+    const sum = el("summary");
+    sum.innerHTML = `${sourceIcons[how.icon] ?? ""}<span></span>`;
+    sum.querySelector("span").textContent = how.name;
+    const ol = el("ol", "import-steps");
+    how.steps.forEach((step) => ol.append(el("li", "", step)));
+    d.append(sum, ol);
+    box.append(d);
+  }
+  box.append(el("p", "import-hint", "Подойдёт и любой CSV с колонками «исполнитель» и «название» — например, из TuneMyMusic или Soundiiz. "
+    + "«Любимые треки» попадут в «Избранное», плейлисты — в медиатеку."));
+  const errorText = el("p", "import-error");
+  const picker = el("input");
+  picker.type = "file";
+  picker.multiple = true;
+  picker.accept = ".zip,.csv,.json,application/zip,text/csv,application/json";
+  picker.hidden = true;
+  const row = el("div", "dialog-buttons");
+  const back = el("button", "btn ghost", "Назад");
+  back.type = "button";
+  back.addEventListener("click", () => { mode = "link"; renderForm(box, close); });
+  const pick = el("button", "btn primary", "Выбрать файлы…");
+  pick.type = "button";
+  pick.addEventListener("click", () => picker.click());
+  picker.addEventListener("change", async () => {
+    const chosen = [...picker.files];
+    picker.value = "";
+    if (!chosen.length) return;
+    errorText.textContent = "";
+    pick.disabled = true;
+    pick.textContent = "Читаю…";
+    try {
+      await start({ files: await Promise.all(chosen.map(readFile)) });
+    } catch (err) {
+      errorText.textContent = err.message;
+    } finally {
+      pick.disabled = false;
+      pick.textContent = "Выбрать файлы…";
+    }
+  });
+  row.append(back, pick, picker);
+  box.onsubmit = (e) => e.preventDefault();
+  box.append(errorText, row);
+}
+
 // ---------- Переезд из Яндекс Музыки ----------
 
 function renderYandexForm(box, close) {
+  const cfg = MOVES[moveSvc];
   const head = el("div", "import-head");
-  head.innerHTML = `<span class="import-source">${sourceIcons.yandex}</span><h2>Переезд из Яндекс Музыки</h2>`;
-  box.append(head, el("p", "", "Перенесём «Мне нравится», ваши плейлисты и любимых исполнителей — по одной ссылке."));
+  head.innerHTML = `<span class="import-source">${sourceIcons[cfg.icon]}</span><h2></h2>`;
+  head.querySelector("h2").textContent = cfg.title;
+  box.append(head, el("p", "", cfg.intro));
   const how = el("ol", "import-steps");
-  for (const step of [
-    "Откройте music.yandex.ru в браузере и перейдите в «Мне нравится» или в любой свой плейлист.",
-    "Скопируйте ссылку из адресной строки — в ней есть «/users/ваш-логин/». Можно просто вписать логин.",
-  ]) how.append(el("li", "", step));
+  for (const step of cfg.steps) how.append(el("li", "", step));
   box.append(how);
   const field = el("input", "dialog-input");
-  field.placeholder = "https://music.yandex.ru/users/логин/playlists/3";
+  field.placeholder = cfg.placeholder;
   field.spellcheck = false;
   const errorText = el("p", "import-error");
   const row = el("div", "dialog-buttons");
@@ -404,11 +531,11 @@ function renderYandexForm(box, close) {
     ok.disabled = true;
     ok.textContent = "Ищу…";
     try {
-      const res = await fetch(`/api/import/yandex-profile?url=${encodeURIComponent(field.value.trim())}`);
+      const res = await fetch(`/api/import/${cfg.api}?url=${encodeURIComponent(field.value.trim())}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "сервер не ответил");
       yandexProfile = { ...data, pick: { liked: data.liked > 0, artists: data.artists > 0,
-                                         playlists: new Set(data.playlists.map((p) => p.kind)) } };
+                                         playlists: new Set(data.playlists.map(cfg.key)) } };
       renderForm(box, close);
     } catch (err) {
       errorText.textContent = err.message;
@@ -423,8 +550,9 @@ function renderYandexForm(box, close) {
 function renderYandexPick(box, close) {
   const profile = yandexProfile;
   const pick = profile.pick;
+  const cfg = MOVES[moveSvc];
   const head = el("div", "import-head");
-  head.innerHTML = `<span class="import-source">${sourceIcons.yandex}</span><h2>Нашёл вашу музыку</h2>`;
+  head.innerHTML = `<span class="import-source">${sourceIcons[cfg.icon]}</span><h2>Нашёл вашу музыку</h2>`;
   box.append(head, el("p", "", "Отметьте, что перенести. Медиатека Sono не сотрётся — всё добавится к ней."));
 
   const list = el("div", "ya-pick");
@@ -442,12 +570,12 @@ function renderYandexPick(box, close) {
     return label;
   };
   if (profile.liked) {
-    const r = row("Мне нравится", `${plural(profile.liked, "трек", "трека", "треков")} → в «Избранное»`, pick.liked, (v) => { pick.liked = v; });
+    const r = row(cfg.liked, `${plural(profile.liked, "трек", "трека", "треков")} → в «Избранное»`, pick.liked, (v) => { pick.liked = v; });
     Object.assign(r.querySelector(".ya-cover"), { className: "ya-cover liked", innerHTML: icons.heartFilled });
     list.append(r);
   }
   if (profile.artists) {
-    const r = row("Любимые исполнители", `${plural(profile.artists, "исполнитель", "исполнителя", "исполнителей")} → подписка, и Flow сразу узнает ваш вкус`,
+    const r = row(cfg.artists, `${plural(profile.artists, "исполнитель", "исполнителя", "исполнителей")} → ${cfg.artistsSub}`,
       pick.artists, (v) => { pick.artists = v; });
     Object.assign(r.querySelector(".ya-cover"), { className: "ya-cover artists", innerHTML: icons.artist });
     list.append(r);
@@ -458,7 +586,7 @@ function renderYandexPick(box, close) {
     const syncAll = () => { all.textContent = pick.playlists.size === profile.playlists.length ? "Снять все" : "Выбрать все"; };
     all.addEventListener("click", () => {
       const on = pick.playlists.size !== profile.playlists.length;
-      pick.playlists = new Set(on ? profile.playlists.map((p) => p.kind) : []);
+      pick.playlists = new Set(on ? profile.playlists.map(cfg.key) : []);
       list.querySelectorAll(".ya-row[data-kind] input").forEach((b) => { b.checked = on; });
       syncAll();
       summary();
@@ -468,11 +596,11 @@ function renderYandexPick(box, close) {
     h.append(el("span", "", `Плейлисты · ${profile.playlists.length}`), all);
     list.append(h);
     for (const p of profile.playlists) {
-      const r = row(p.title, plural(p.count, "трек", "трека", "треков"), pick.playlists.has(p.kind), (v) => {
-        if (v) pick.playlists.add(p.kind); else pick.playlists.delete(p.kind);
+      const r = row(p.title, plural(p.count, "трек", "трека", "треков"), pick.playlists.has(cfg.key(p)), (v) => {
+        if (v) pick.playlists.add(cfg.key(p)); else pick.playlists.delete(cfg.key(p));
         syncAll();
       }, p.cover);
-      r.dataset.kind = p.kind;
+      r.dataset.kind = cfg.key(p);
       list.append(r);
     }
   }
@@ -489,8 +617,8 @@ function renderYandexPick(box, close) {
   function summary() {
     // Одинаковые треки в разных списках ищутся один раз — это оценка сверху
     const count = (pick.liked ? profile.liked : 0)
-      + profile.playlists.filter((p) => pick.playlists.has(p.kind)).reduce((n, p) => n + p.count, 0);
-    const minutes = Math.max(1, Math.round(count / 250));   // замер: ~4 трека в секунду
+      + profile.playlists.filter((p) => pick.playlists.has(cfg.key(p))).reduce((n, p) => n + p.count, 0);
+    const minutes = Math.max(1, Math.round(count / cfg.perMinute));   // замер: Яндекс ~4 трека в секунду, SoundCloud — сразу
     total.textContent = count
       ? `До ${plural(count, "трека", "треков", "треков")} — займёт около ${plural(minutes, "минуты", "минут", "минут")}. Окно можно свернуть, музыка будет играть.`
       : pick.artists ? "Перенесём только исполнителей — это мгновенно." : "Ничего не выбрано.";
@@ -501,7 +629,7 @@ function renderYandexPick(box, close) {
   box.onsubmit = (e) => {
     e.preventDefault();
     if (ok.disabled) return;
-    start({ yandex: { login: profile.login, liked: pick.liked, artists: pick.artists, playlists: [...pick.playlists] } })
+    start({ [cfg.payload]: { login: profile.login, liked: pick.liked, artists: pick.artists, playlists: [...pick.playlists] } })
       .catch((err) => { errorText.textContent = err.message; });
   };
 }
@@ -534,7 +662,7 @@ function renderYandexResult(box, close) {
   box.replaceChildren();
   box.onsubmit = (e) => e.preventDefault();
   const head = el("div", "import-head");
-  head.innerHTML = `<span class="import-source">${sourceIcons.yandex}</span><h2></h2>`;
+  head.innerHTML = `<span class="import-source">${done.kind === "files" ? icons.import : sourceIcons[done.kind === "sc_all" ? "soundcloud" : "yandex"]}</span><h2></h2>`;
   box.append(head);
   const ok = moved && (moved.liked || moved.playlists.length || moved.artists);
   const stopped = done.status === "cancelled";

@@ -241,6 +241,7 @@ export function artistLinks(track, text) {
   splitArtists(track, text).forEach(({ name, id }, i) => {
     if (i) box.append(", ");
     const link = el("span", "t-artist", name);
+    if (id) link.dataset.warm = `artist:${id}`;   // наведение — страница начинает грузиться (artist.js)
     link.addEventListener("click", (e) => {
       e.stopPropagation();   // строка трека и мини-плеер сами реагируют на щелчок
       openArtist({ id, name }).then((ok) => { if (!ok) toast(`Не нашёл страницу «${name}»`); });

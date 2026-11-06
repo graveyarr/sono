@@ -88,6 +88,7 @@ function showArtist(artist) {
   const text = el("span", "panel-artist-text");
   text.append(el("span", "panel-artist-name", artist.name), el("span", "panel-artist-kind", "Исполнитель · открыть страницу"));
   card.append(photo, text);
+  card.dataset.warm = `artist:${artist.id}`;
   card.addEventListener("click", () => {
     closePanel();
     queryInput.blur();
@@ -160,7 +161,7 @@ function pick(i) {
 // ---------- Поиск ----------
 
 // Поиск идёт сам, пока печатают: через TYPE_PAUSE мс после последней буквы
-const TYPE_PAUSE = 450;
+const TYPE_PAUSE = 300;   // было 450 — результаты появлялись заметно позже, чем человек переставал печатать
 let typeTimer = 0;
 let lastSearch = "";   // «источник|запрос», который уже показан (или ищется) — второй раз не ищем
 let searchAbort = null;

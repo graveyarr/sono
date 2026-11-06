@@ -9,6 +9,7 @@ import { initNowBackground } from "./nowbg.js";
 import { initClips } from "./clip.js";
 import { initAudio } from "./audio.js";
 import { initFxButton } from "./fx.js";
+import { initSleepButton } from "./sleep.js";
 import { initFlowView } from "./flowview.js";
 import { initStats } from "./stats.js";
 import { maybeWelcome } from "./welcome.js";
@@ -18,9 +19,10 @@ import { maybeWhatsNew } from "./whatsnew.js";
 import { loadLocal, onLocalChange } from "./local.js";
 import { announceNewReleases } from "./releases.js";
 import { flush, getSetting, loadLibrary, onChange, onSaveError } from "./library.js";
+import { markRecent } from "./libtools.js";
 import { initLyrics } from "./lyrics.js";
 import { initMobile } from "./mobile.js";
-import { initPlayer, isPlaying, onPlayState, onTrackChange, playNext, playPrev, seekBy, state, syncLikeButtons, togglePlay } from "./player.js";
+import { initPlayer, isPlaying, restoreSession, onPlayState, onTrackChange, playNext, playPrev, seekBy, state, syncLikeButtons, togglePlay } from "./player.js";
 import { focusSearch, initSearch, refreshHistory } from "./search.js";
 import { displayTrack, syncAllRows, toast } from "./ui.js";
 import { initViews, refreshDownloads, refreshPlaying, refreshViews, syncPlayButtons } from "./views.js";
@@ -45,9 +47,11 @@ initViz();
 initNowBackground();   // фон «Сейчас играет»: свет / тихий / градиент / линии
 initClips();   // клип вместо обложки, где он есть
 initFxButton();
+initSleepButton();
 initFlowView();
 initStats();
 initTitlebar();   // своя полоска заголовка окна (в программе; в браузере её нет)
+restoreSession();   // что играло в прошлый раз — на паузе и уже подгружается (после всех init: они слушают смену трека)
 maybeWelcome();   // первый запуск — приветствие и экскурсия
 setTimeout(maybeWhatsNew, 1200);
 
@@ -90,6 +94,14 @@ onSaveError((err) => toast("Не удалось сохранить медиат�
 addEventListener("pagehide", flush);
 
 onTrackChange(refreshPlaying);
+// «Недавние» в медиатеке: из какого списка включали музыку (порядок обновится при следующей перерисовке —
+// чтобы строка не прыгала вверх прямо под курсором)
+let recentKey = "";
+onTrackChange(() => {
+  const c = state.context;
+  const key = !c ? "" : c.type === "playlist" ? `playlist:${c.id}` : c.type === "artist" ? `artist:${c.id}` : c.type;
+  if (key && key !== recentKey) { recentKey = key; markRecent(key); }
+});
 onPlayState(syncPlayButtons);
 
 // Кнопки у текущего трека (на большом экране и в мини-плеере)

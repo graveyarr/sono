@@ -4,7 +4,7 @@
 
 import { icons } from "./icons.js";
 import { setCrossfadeHandler } from "./audio.js";
-import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, setSetting } from "./library.js";
+import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, lib, sessionChanged, setSetting, slim } from "./library.js";
 import { isMeta, missingReason, resolveMeta, toReal } from "./meta.js";
 import { SOURCE_NAMES, artistLinks, compactNumber, coverUrl, displayTrack, formatTime, imageHsl, playsText, replay, toast, trackPath } from "./ui.js";
 
@@ -25,6 +25,7 @@ export const state = {
   shuffle: false,  // перемешивание
   repeat: "off",   // повтор: off | all (всю очередь) | one (один трек)
   original: null,  // очередь в исходном порядке — чтобы вернуть его, когда перемешивание выключат
+  stopAfterTrack: null,   // таймер сна «до конца трека»: функция — вызвать, когда трек доиграет (дальше не идём)
 };
 
 const shuffled = (list) => {
@@ -157,7 +158,25 @@ function playAt(track, queue, index, context) {
   state.index = index;
   state.current = track;
   state.context = context;
+  restored = null;
 
+  showTrackInfo(track, 0);
+  setStatus("");
+  all("play").forEach((b) => b.classList.add("loading"));
+
+  pendingSeek = null;
+  audio.dataset.trackDuration = track.duration || "";   // для плавного затухания в конце (audio.js)
+  audio.src = trackPath("stream", track);
+  audio.play().catch(() => {});   // ошибки показывает обработчик "error" ниже
+  warnIfSlow(track);
+
+  addToHistory(track);
+  updateMediaSession(track);
+  trackListeners.forEach((fn) => fn());
+}
+
+/** Название, исполнитель, обложка, ползунок (на месте at секунд) — всё, кроме самого звука */
+function showTrackInfo(track, at) {
   const shown = displayTrack(track);
   all("title").forEach((n) => { n.textContent = shown.title; n.title = track.title; });
   all("artist").forEach((n) => n.replaceChildren(artistLinks(track, shown.artist)));
@@ -167,23 +186,64 @@ function playAt(track, queue, index, context) {
   replay(infoEl, "swap");
   showCover(track);
 
-  setStatus("");
-  all("play").forEach((b) => { b.classList.add("loading"); b.disabled = false; });
-  all("seek").forEach((r) => { r.disabled = false; r.value = 0; setFill(r, 0); });
-  all("time-current").forEach((n) => { n.textContent = "0:00"; });
+  const fraction = track.duration ? Math.min(at / track.duration, 1) : 0;
+  all("play").forEach((b) => { b.disabled = false; });
+  all("seek").forEach((r) => { r.disabled = false; r.value = fraction * 1000; setFill(r, fraction); });
+  all("time-current").forEach((n) => { n.textContent = formatTime(at); });
   all("time-total").forEach((n) => { n.textContent = formatTime(track.duration); });
   ["like", "dislike", "add", "lyrics"].forEach((role) => all(role).forEach((b) => { b.disabled = false; }));
   syncLikeButtons();
   updateNavButtons();
   document.body.classList.add("has-track");
+}
 
-  pendingSeek = null;
-  audio.dataset.trackDuration = track.duration || "";   // для плавного затухания в конце (audio.js)
-  audio.src = trackPath("stream", track);
-  audio.play().catch(() => {});   // ошибки показывает обработчик "error" ниже
-  warnIfSlow(track);
+// ---------- Прошлый сеанс ----------
+// Запоминаем, что играло (трек, до 100 треков очереди, место) — при следующем запуске трек уже стоит
+// в плеере на паузе и подгружается заранее: ▶ играет сразу и с того же места, без тишины и поиска.
 
-  addToHistory(track);
+let restored = null;   // { failed } — трек вернули из прошлого сеанса, но ещё не включали
+
+/** Только простые поля откуда включили (в контексте Flow бывают списки треков — их не храним) */
+const plainContext = (ctx) => (ctx && typeof ctx === "object"
+  ? Object.fromEntries(Object.entries(ctx).filter(([, v]) => ["string", "number", "boolean"].includes(typeof v)))
+  : null);
+
+function saveSession(soon) {
+  const t = state.current;
+  if (!t || isMeta(t)) return;   // трек из базы, которому ещё ищут пару, — подождём настоящий
+  const start = Math.max(0, state.index - 20);
+  lib.session = {
+    track: slim(t),
+    queue: state.queue.slice(start, start + SESSION_QUEUE).map(slim),
+    index: state.index - start,
+    pos: Math.round(sessionPos()),
+    context: plainContext(state.context),
+    shuffle: state.shuffle,
+    at: Date.now(),
+  };
+  sessionChanged(soon);
+}
+const SESSION_QUEUE = 100;
+const sessionPos = () => (restored && pendingSeek !== null ? pendingSeek : audio.currentTime || 0);
+
+/** Вернуть трек прошлого сеанса — на паузе, звук подгружается сразу (main.js — после всех init…) */
+export function restoreSession() {
+  const s = lib.session;
+  const track = s?.track;
+  if (state.current || !track?.source || !track.id || isMeta(track)) return;
+  let queue = Array.isArray(s.queue) ? s.queue.filter((t) => t?.source && t.id) : [];
+  let index = queue.findIndex((t) => keyOf(t) === keyOf(track));
+  if (index < 0) { queue = [track]; index = 0; }
+  const pos = Number(s.pos) > 1 && Number(s.pos) < (track.duration || Infinity) - 5 ? Number(s.pos) : 0;
+  Object.assign(state, { current: track, queue, index, original: null,
+    context: s.context && typeof s.context === "object" ? { ...s.context, restored: true } : null });
+  restored = { failed: false };
+
+  showTrackInfo(track, pos);
+  pendingSeek = pos || null;
+  audio.dataset.trackDuration = track.duration || "";
+  // SoundCloud перематывается только в готовый файл — сразу просим его (сервер докачает за 1–3 с)
+  audio.src = trackPath("stream", track) + (track.source === "soundcloud" && pos ? "?full=1" : "");
   updateMediaSession(track);
   trackListeners.forEach((fn) => fn());
 }
@@ -260,6 +320,16 @@ function updateNavButtons() {
 
 export function togglePlay() {
   if (!state.current) return;
+  if (restored) {
+    // Трек прошлого сеанса: подгруженный — просто играем; не подгрузился (ссылка устарела, файл удалён) —
+    // включаем заново, с того же места
+    const { failed } = restored;
+    const at = sessionPos();
+    restored = null;
+    addToHistory(state.current);
+    if (failed) { playAt(state.current, state.queue, state.index, state.context); resumeAt = at > 1 ? at : null; return; }
+    warnIfSlow(state.current);
+  }
   if (audio.paused) audio.play().catch(() => {});
   else audio.pause();
 }
@@ -577,7 +647,7 @@ export function setMinibarLarge(on) {
 export function initPlayer() {
   // Наложение треков (audio.js): можно ли сейчас наложить следующий трек и как его включить
   setCrossfadeHandler({
-    canStart: () => !!state.current && state.repeat !== "one" && nextPlayable(state.index, 1) >= 0,
+    canStart: () => !!state.current && !state.stopAfterTrack && state.repeat !== "one" && nextPlayable(state.index, 1) >= 0,
     start: () => playNext(),
   });
   all("play").forEach((b) => b.addEventListener("click", togglePlay));
@@ -623,7 +693,12 @@ export function initPlayer() {
   audio.addEventListener("playing", () => { loading(false); setStatus(""); prefetchNext(); });
   audio.addEventListener("canplay", () => loading(false));
   audio.addEventListener("ended", () => {
-    if (state.repeat === "one") {   // повтор трека — с начала
+    if (state.stopAfterTrack) {   // таймер сна «до конца трека» — дальше не играем
+      const done = state.stopAfterTrack;
+      state.stopAfterTrack = null;
+      syncPlaying();
+      done();
+    } else if (state.repeat === "one") {   // повтор трека — с начала
       audio.currentTime = 0;
       audio.play().catch(() => {});
     } else if (!playNext()) {
@@ -633,6 +708,7 @@ export function initPlayer() {
   });
   audio.addEventListener("error", async () => {
     if (!state.current) return;
+    if (restored) { restored.failed = true; return; }   // трек прошлого сеанса — молча, включим заново по ▶
     loading(false);
     const src = audio.src;
     let msg = "не получилось воспроизвести трек";
@@ -687,6 +763,15 @@ export function initPlayer() {
   all("repeat").forEach((b) => b.addEventListener("click", cycleRepeat));
   syncModeButtons();
   setMinibarLarge(getSetting("minibarLarge", false));
+
+  // Прошлый сеанс: запоминаем при смене трека/очереди и паузе (через 2 с), место — пока играет (раз в 15 с)
+  trackListeners.add(() => saveSession(true));
+  audio.addEventListener("pause", () => saveSession(true));
+  audio.addEventListener("timeupdate", () => {
+    if (audio.paused || !lib.session?.track || !state.current || keyOf(lib.session.track) !== keyOf(state.current)) return;
+    lib.session.pos = Math.round(audio.currentTime);
+    sessionChanged();
+  });
 
   if ("mediaSession" in navigator) {
     navigator.mediaSession.setActionHandler("play", togglePlay);

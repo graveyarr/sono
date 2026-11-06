@@ -5,6 +5,7 @@
 
 import { followedArtists, getSetting, setSetting } from "./library.js";
 import { openView } from "./nav.js";
+import { play } from "./player.js";
 import { toast } from "./ui.js";
 
 let cache = null, cacheAt = 0, cacheFor = "";
@@ -37,6 +38,7 @@ export async function announceNewReleases() {
   if (!seen) return;   // первый раз — просто запоминаем, что уже вышло, без потока уведомлений
   const fresh = list.filter((r) => !seen.includes(r.id));
   fresh.slice(0, 2).forEach((r, i) => setTimeout(() => toast(`Новый релиз у ${r.artist}: «${r.title}»`, {
-    action: { label: "Открыть", run: () => openView(`album:${r.id}`) },
+    action: r.track ? { label: "Слушать", run: () => play(r.track, [r.track], 0) }
+      : { label: "Открыть", run: () => openView(`album:${r.id}`) },
   }), i * 700));
 }

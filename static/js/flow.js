@@ -5,7 +5,7 @@
 // Внутри сеанса Flow подстраивается сразу: два пропуска подряд — всё, что впереди, пересобирается.
 // Сервер (/api/flow) по вкусу собирает порцию треков из базы; пока играет — подкладываем следующую.
 
-import { getPlaylist, getSetting, keyOf, lib, setSetting } from "./library.js";
+import { getPlaylist, getSetting, isDisliked, keyOf, lib, setSetting } from "./library.js";
 import { isMeta, resolveMeta } from "./meta.js";
 import { splitArtists } from "./nav.js";
 import { extendQueue, onQueueEnd, onTrackChange, play, replaceUpcoming, state } from "./player.js";
@@ -97,7 +97,8 @@ function trackSeeds(source = null) {
     const key = songKey(t);
     const shown = displayTrack(t);
     const item = items.get(key) ?? { key, id: t.metaId || (isMeta(t) ? t.id : null), artist: firstArtist(t) || shown.artist,
-                                     title: t.origTitle || shown.title, duration: t.duration, weight: 0 };
+                                     title: t.origTitle || shown.title, duration: t.duration, weight: 0,
+                                     sc: t.source === "soundcloud" ? t.id : null };   // от него — «похожие» SoundCloud
     item.weight += w;
     items.set(key, item);
   };
@@ -278,35 +279,36 @@ const mixTracks = (mix) => {
   return lib.liked.filter((t) => splitArtists(t, displayTrack(t).artist).some((a) => names.has(norm(a.name))));
 };
 
-async function fetchBatch(size = 10, { quick = false } = {}) {
+// s — сеанс, для которого порция (по умолчанию — текущий; заготовка warmFlow — свой, временный)
+async function fetchBatch(size = 10, { quick = false, s = session } = {}) {
   const { all, seeds, banned, avoid } = taste();
-  const pl = session.playlist, one = session.track, mix = session.mix;
+  const pl = s.playlist, one = s.track, mix = s.mix;
   // Flow по исполнителю — только он и похожие; по плейлисту — только его исполнители и похожие на них;
   // радио по треку — его исполнители и похожие на сам трек; микс — его исполнители (вес — из вкуса)
   const weightOf = new Map(all.map((a) => [norm(a.name), a.weight]));
-  const ownSeeds = session.artist ? [{ name: session.artist.name, id: session.artist.id, weight: 30 }]
+  const ownSeeds = s.artist ? [{ name: s.artist.name, id: s.artist.id, weight: 30 }]
     : one ? listSeeds([one]).map((s) => ({ ...s, weight: 30 }))
     : mix ? mix.artists.map((a) => ({ name: a.name, id: a.id, weight: Math.max(1, weightOf.get(norm(a.name)) ?? 1) }))
     : pl ? listSeeds(pl.tracks) : seeds;
-  const tracks = session.artist ? [] : trackSeeds(one ? [one] : mix ? mixTracks(mix) : pl ? pl.tracks : null);
-  const exclude = new Set(session.played);
+  const tracks = s.artist ? [] : trackSeeds(one ? [one] : mix ? mixTracks(mix) : pl ? pl.tracks : null);
+  const exclude = new Set(s.played);
   for (const t of [...lib.liked, ...lib.history, ...lib.disliked, ...(pl?.tracks ?? [])]) {
     exclude.add(songKey(t));
     if (t.metaId) exclude.add(t.metaId);
   }
   const avoidAll = new Map(avoid.map((a) => [norm(a.name), a]));
-  session.avoid.forEach((a, k) => avoidAll.set(k, { name: a.name, weight: (avoidAll.get(k)?.weight ?? 0) + a.weight }));
+  s.avoid.forEach((a, k) => avoidAll.set(k, { name: a.name, weight: (avoidAll.get(k)?.weight ?? 0) + a.weight }));
   const res = await fetch("/api/flow", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       seeds: ownSeeds, tracks,
-      mode: session.artist || pl || one || mix ? "mix" : session.mode,
+      mode: s.artist || pl || one || mix ? "mix" : s.mode,
       exclude: [...exclude].slice(-3000), banned, size,
       avoid: [...avoidAll.values()],
       known: all.filter((a) => a.weight > 0).map((a) => a.name).slice(0, 2000),
-      recent: session.recent, quick,
-      tune: session.artist || pl || one || mix ? {} : flowTune(),
+      recent: s.recent, quick,
+      tune: s.artist || pl || one || mix ? {} : flowTune(),
     }),
   });
   const data = await res.json();
@@ -314,22 +316,22 @@ async function fetchBatch(size = 10, { quick = false } = {}) {
   rememberIds(data.seedIds, data.artistIds);
   let list = data.tracks;
   list.forEach((t) => {
-    session.played.add(t.id);
-    session.played.add(songKey(t));
+    s.played.add(t.id);
+    s.played.add(songKey(t));
     // В радио по исполнителю/треку/плейлисту «Вы слушаете X» звучит странно — там это просто «Ещё X»
-    if ((session.artist || one || pl || mix) && t.because) t.because = t.because.replace(/^Вы слушаете /, "Ещё ");
+    if ((s.artist || one || pl || mix) && t.because) t.because = t.because.replace(/^Вы слушаете /, "Ещё ");
   });
   // Иногда — трек прямо из избранного (или из самого плейлиста): он уже с YouTube/SoundCloud и стартует сразу
   const own = pl ? pl.tracks : mix ? mixTracks(mix) : lib.liked;
-  const every = session.artist || one ? 0 : pl ? 4 : mix ? 5 : LIKED_EVERY[session.mode];
+  const every = s.artist || one ? 0 : pl ? 4 : mix ? 5 : LIKED_EVERY[s.mode];
   if (every && own.length) {
     const out = [];
     for (const t of list) {
       out.push(t);
-      if (++session.likedPos % every === 0) {
+      if (++s.likedPos % every === 0) {
         const fav = own[Math.floor(Math.random() * own.length)];
-        if (!session.played.has(keyOf(fav))) {
-          session.played.add(keyOf(fav));
+        if (!s.played.has(keyOf(fav))) {
+          s.played.add(keyOf(fav));
           out.push({ ...fav, because: pl ? `Из «${pl.name}»` : "Из избранного" });
         }
       }
@@ -364,8 +366,88 @@ export async function tasteBatch({ mode = "mix", size = 25, tune = {}, exclude =
   return data.tracks;
 }
 
+/** Умное перемешивание (как в Spotify): список вперемешку, а после каждых двух его треков — рекомендация
+    в его духе (исполнители и треки списка → /api/flow, как Flow по плейлисту). Играет сразу, рекомендации
+    вставляются, когда придут. В очереди они помечены «✦», у трека — «because»: «Рекомендация · похоже на …» */
+export async function smartShuffle({ name, tracks, context }) {
+  const own = tracks.filter((t) => !isDisliked(t));
+  if (!own.length) return;
+  const mixed = own.slice();
+  for (let i = mixed.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [mixed[i], mixed[j]] = [mixed[j], mixed[i]];
+  }
+  const ctx = { ...context, smart: true };
+  play(mixed[0], mixed, 0, ctx);
+  toast(`Умное перемешивание: «${name}» и похожие треки`);
+  const exclude = new Set();
+  for (const t of [...own, ...lib.liked, ...lib.disliked, ...lib.history.slice(0, 200)]) {
+    exclude.add(songKey(t));
+    if (t.metaId) exclude.add(t.metaId);
+  }
+  try {
+    const res = await fetch("/api/flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        seeds: listSeeds(own), tracks: trackSeeds(own), mode: "mix", exclude: [...exclude].slice(-3000),
+        banned: taste().banned, size: Math.min(25, Math.max(4, Math.ceil(own.length / 2))), known: [], recent: [], tune: {},
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    if (state.context !== ctx) return;   // пока подбирали, включили другое
+    const recs = data.tracks.map((t) => ({
+      ...t, smart: true,
+      because: `Рекомендация${t.because ? ` · ${t.because.replace(/^Вы слушаете /, "ещё ").replace(/^Похоже/, "похоже")}` : ""}`,
+    }));
+    const out = [];
+    let r = 0;
+    state.queue.slice(state.index + 1).forEach((t, i) => {
+      out.push(t);
+      if (i % 2 === 1 && r < recs.length) out.push(recs[r++]);
+    });
+    if (!out.length && recs.length) out.push(recs[r++]);   // в списке один трек — хоть одна рекомендация после него
+    replaceUpcoming(out);
+  } catch {
+    if (state.context === ctx) toast("Не получилось подобрать похожие треки — играет просто вперемешку");
+  }
+}
+
 /** Ключ «исполнитель|название» — для подборок (не повторять одну песню с разных загрузок) */
 export { songKey };
+
+// ---------- Заготовка Flow ----------
+// Обычный Flow стартует мгновенно с любимого трека. А «Открытия» (и Flow без избранного) ждали порцию
+// и пару для первого трека — 2–5 с тишины. Поэтому порцию собираем заранее: через 8 с после запуска,
+// при наведении на ▶ Flow и при смене режима/настроек. Звук первого трека тоже готовится (prefetch).
+// Заготовка годна 10 минут и только для того же режима и настроек.
+
+let warm = null;   // { key, at, job: обещание { tracks, first, played } }
+const WARM_TTL = 10 * 60 * 1000;
+const warmKey = (mode) => `${mode}|${JSON.stringify(flowTune())}|${lib.liked.length}`;
+/** Начнётся ли обычный Flow без ожидания (с любимого трека) */
+const startsInstantly = (mode) => mode !== "discover" && lib.liked.some((t) => !isMeta(t));
+
+export function warmFlow(mode = flowMode()) {
+  if (startsInstantly(mode) || !hasTaste() || (session && isFlow())) return;
+  const key = warmKey(mode);
+  if (warm && warm.key === key && Date.now() - warm.at < WARM_TTL) return;
+  const s = { mode, played: new Set(), likedPos: 0, avoid: new Map(), recent: [] };
+  const job = fetchBatch(8, { quick: true, s }).then(async (tracks) => {
+    if (!tracks.length) throw new Error("пусто");
+    return { tracks, first: await firstPlayable(tracks), played: s.played };
+  });
+  warm = { key, at: Date.now(), job };
+  job.catch(() => { if (warm?.job === job) warm = null; });
+}
+
+/** Взять заготовку (один раз), если она для этого режима и ещё свежая */
+function takeWarm(mode) {
+  const w = warm;
+  warm = null;
+  return w && w.key === warmKey(mode) && Date.now() - w.at < WARM_TTL ? w.job.catch(() => null) : null;
+}
 
 /** Первый трек порции, у которого нашлась пара (ищем у трёх сразу) — чтобы старт не ждал ненайденный */
 function firstPlayable(tracks) {
@@ -407,12 +489,16 @@ export async function startFlow({ mode = flowMode(), artist = null, playlist = n
     play(instant, [instant], 0, context);
   }
   try {
+    // Заготовка (warmFlow) — порция и пара первого трека уже есть: играет сразу
+    const ready = !instant && context.id === "main" ? await takeWarm(mode) : null;
+    if (session !== mine) return;
+    if (ready) ready.played.forEach((k) => session.played.add(k));
     // Первая порция — быстрая (без второго круга запросов): Flow заиграет быстрее, следующие — полные
-    const tracks = await fetchBatch(instant ? 10 : 8, { quick: !instant });
+    const tracks = ready ? ready.tracks : await fetchBatch(instant ? 10 : 8, { quick: !instant });
     if (session !== mine) return;
     if (instant) return extendQueue(tracks);
     if (!tracks.length) return toast("Flow не нашёл, что включить — послушайте и полайкайте что-нибудь", { error: true });
-    const first = await firstPlayable(tracks);
+    const first = ready ? ready.first : await firstPlayable(tracks);
     if (session !== mine) return;
     // Перемешивание во Flow не нужно — порция и так случайная
     const queue = [tracks[first], ...tracks.filter((_, i) => i !== first)];
@@ -427,6 +513,7 @@ export async function startFlow({ mode = flowMode(), artist = null, playlist = n
 /** Сменить режим. Если Flow уже играет — всё, что впереди, пересобирается */
 export async function setFlowMode(mode) {
   setSetting("flowMode", mode);
+  warmFlow(mode);   // Flow не играет — заготовим порцию нового режима (иначе вернётся сразу)
   if (!session || !isFlow() || session.artist || session.playlist || session.track || session.mix) return;
   session.mode = mode;
   rebuildUpcoming();
@@ -451,6 +538,7 @@ async function rebuildUpcoming() {
 /** Сменить настройку (занятие/настроение/язык). Играет общий Flow — впереди пересобирается под неё */
 export async function setFlowTune(key, value) {
   setSetting("flowTune", { ...flowTune(), [key]: value });
+  warmFlow();
   if (!session || !isFlow() || session.artist || session.playlist || session.track || session.mix) return;
   rebuildUpcoming();
 }
@@ -510,7 +598,8 @@ export function tasteMixes() {
 export const autoFlowEnabled = () => getSetting("autoFlow", true) !== false;
 
 function continueWithFlow() {
-  if (!autoFlowEnabled() || isFlow() || !state.queue.length) return;
+  // Flow из прошлого сеанса (restored) сам больше не подкладывает треки — продолжаем его так же, как плейлист
+  if (!autoFlowEnabled() || (isFlow() && !state.context.restored) || !state.queue.length) return;
   const ctx = state.context ?? {};
   const name = ctx.name || (ctx.type === "playlist" && getPlaylist(ctx.id)?.name)
     || (ctx.type === "liked" && "Избранное") || "продолжение";
@@ -523,6 +612,7 @@ function continueWithFlow() {
 let current = null;   // { track, maxPos } — сколько прослушали текущий трек
 export function initFlow() {
   onQueueEnd(continueWithFlow);
+  setTimeout(() => warmFlow(), 8000);   // после запуска, когда всё уже загрузилось
   audio.addEventListener("timeupdate", () => {
     if (current && audio.currentTime > current.maxPos) current.maxPos = audio.currentTime;
   });

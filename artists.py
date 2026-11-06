@@ -7,12 +7,17 @@
 
 Здесь только сведения о музыке. Самого звука у этих треков нет: при включении плеер
 ищет пару на YouTube или SoundCloud (/api/resolve в app.py).
-Ответы кэшируются на диске на сутки — повторное открытие страницы мгновенное.
+Ответы кэшируются на диске на сутки — повторное открытие страницы мгновенное. Устаревший ответ
+(до 30 дней) тоже отдаётся сразу, а свежий скачивается в фоне — к следующему разу.
+Все запросы идут через одно постоянное соединение (_http): без него каждый запрос заново
+«здоровался» с сервером (~0,3–0,5 с, через обход блокировок и VPN — дольше).
 """
 import hashlib
 import json
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import requests
@@ -21,7 +26,15 @@ YANDEX = "https://api.music.yandex.net"
 DEEZER = "https://api.deezer.com"
 UA = {"User-Agent": "Sono/0.2 (open-source desktop music player)"}
 TTL = 24 * 3600
+STALE = 30 * 24 * 3600   # устаревший ответ ещё годится, чтобы показать сразу (свежий — в фоне)
 _dir: Path | None = None
+
+_http = requests.Session()
+_http.mount("https://", requests.adapters.HTTPAdapter(pool_connections=16, pool_maxsize=32))
+_pool = ThreadPoolExecutor(12, thread_name_prefix="artists")          # части одной страницы — разом
+_refresh_pool = ThreadPoolExecutor(3, thread_name_prefix="meta-refresh")   # фоновое обновление кэша
+_refreshing: set[str] = set()
+_refresh_lock = threading.Lock()
 
 
 def init(cache_dir: Path) -> None:
@@ -31,18 +44,43 @@ def init(cache_dir: Path) -> None:
 
 
 def _get(url: str, params: dict | None = None) -> dict:
-    """GET с кэшем на диске на сутки."""
+    """GET с кэшем на диске: сутки — как есть; старше (до 30 дней) — тоже сразу, а свежий ответ
+    скачивается в фоне. Так страница исполнителя открывается мгновенно и назавтра."""
     key = hashlib.sha1(f"{url}?{json.dumps(params or {}, sort_keys=True)}".encode()).hexdigest()
     path = _dir / f"{key}.json"
     try:
-        if time.time() - path.stat().st_mtime < TTL:
+        age = time.time() - path.stat().st_mtime
+        if age < STALE:
             data = json.loads(path.read_text(encoding="utf-8"))
+            if age >= TTL:
+                _refresh_later(key, url, params, path)
             if isinstance(data, dict) and data.get("_notFound"):
                 raise LookupError("не найдено")
             return data
     except (OSError, ValueError):
         pass
-    resp = requests.get(url, params=params, headers=UA, timeout=12)
+    return _fetch(url, params, path)
+
+
+def _refresh_later(key: str, url: str, params: dict | None, path: Path):
+    with _refresh_lock:
+        if key in _refreshing:
+            return
+        _refreshing.add(key)
+
+    def run():
+        try:
+            _fetch(url, params, path)
+        except Exception:
+            pass   # не вышло — остаётся старый ответ, попробуем в следующий раз
+        finally:
+            with _refresh_lock:
+                _refreshing.discard(key)
+    _refresh_pool.submit(run)
+
+
+def _fetch(url: str, params: dict | None, path: Path) -> dict:
+    resp = _http.get(url, params=params, headers=UA, timeout=12)
     if resp.status_code == 404:
         # «Нет такой страницы» тоже запоминаем: иначе, например, у исполнителя без статьи в Википедии
         # каждое открытие страницы заново ждало три ответа «не найдено» (2–4 с)
@@ -181,13 +219,19 @@ def match_track(artist: str, title: str, duration: float | None) -> tuple[dict, 
 
 
 def artist(artist_id: int) -> dict:
+    # Три запроса к Яндексу — одновременно; как только известно имя — сразу Deezer и биография
+    # (раньше всё шло по очереди: 3–9 с на незнакомого исполнителя, теперь ~1 с)
+    tracks_job = _pool.submit(_get, f"{YANDEX}/artists/{artist_id}/tracks", {"page": 0, "page-size": 50})
+    albums_job = _pool.submit(_get, f"{YANDEX}/artists/{artist_id}/direct-albums",
+                              {"page": 0, "page-size": 200, "sort-by": "year"})
     info = _get(f"{YANDEX}/artists/{artist_id}/brief-info").get("result") or {}
     a = info.get("artist") or {}
-    tracks = _get(f"{YANDEX}/artists/{artist_id}/tracks", {"page": 0, "page-size": 50}).get("result") or {}
-    albums = _get(f"{YANDEX}/artists/{artist_id}/direct-albums",
-                  {"page": 0, "page-size": 200, "sort-by": "year"}).get("result") or {}
+    deezer_job = _pool.submit(_deezer_releases, a.get("name") or "")
+    bio_job = _pool.submit(_bio, a)
+    tracks = tracks_job.result().get("result") or {}
+    albums = albums_job.result().get("result") or {}
     releases = [_release(r) for r in albums.get("albums") or []]
-    releases += _deezer_extra_releases(a.get("name") or "", releases)
+    releases += _deezer_extra(deezer_job.result(), releases)
     releases.sort(key=lambda r: r.get("date") or r["year"] or "0", reverse=True)   # новые сверху
     stats = info.get("stats") or {}
     return {**_artist_card(a), "likes": a.get("likesCount"),
@@ -200,7 +244,7 @@ def artist(artist_id: int) -> dict:
             # Новый релиз за последние 3 месяца — карточкой наверху страницы
             "newRelease": next((r for r in releases if r.get("date") and r["date"] >= time.strftime(
                 "%Y-%m-%d", time.localtime(time.time() - 90 * 86400))), None),
-            **_bio(a)}
+            **bio_job.result()}
 
 
 # ---------- Биография ----------
@@ -224,12 +268,18 @@ def wiki_bio(name: str) -> dict | None:
     """Краткая статья из Википедии (сначала русская, потом английская), если она о музыканте."""
     if not name:
         return None
-    for lang, title in (("ru", name), (f"ru", f"{name} (группа)"), ("ru", f"{name} (музыкант)"), ("en", name)):
+
+    def summary(lang_title):
+        lang, title = lang_title
         try:
-            page = _get(f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(title.replace(' ', '_'))}")
+            return _get(f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(title.replace(' ', '_'))}")
         except Exception:
-            continue
-        if page.get("type") != "standard":
+            return None
+    # Четыре варианта статьи спрашиваем одновременно (раньше — по очереди, до 4 ожиданий)
+    with ThreadPoolExecutor(4) as wiki:
+        pages = list(wiki.map(summary, (("ru", name), ("ru", f"{name} (группа)"), ("ru", f"{name} (музыкант)"), ("en", name))))
+    for page in pages:
+        if not page or page.get("type") != "standard":
             continue   # «неоднозначность» (страница со списком тёзок) — не то
         about = f"{page.get('description') or ''} {(page.get('extract') or '')[:200]}"
         if MUSIC_WORDS.search(about) and len(page.get("extract") or "") > 80:
@@ -244,12 +294,17 @@ def new_releases(artist_ids: list[int], days: int = 90) -> list[dict]:
     """Релизы за последние days дней у этих исполнителей — новые сверху. Кэш ответов Яндекса — сутки."""
     since = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
     out, seen = [], set()
-    for artist_id in artist_ids[:60]:
+
+    def albums_of(artist_id):
         try:
-            albums = _get(f"{YANDEX}/artists/{int(artist_id)}/direct-albums",
-                          {"page": 0, "page-size": 10, "sort-by": "year"}).get("result") or {}
+            return _get(f"{YANDEX}/artists/{int(artist_id)}/direct-albums",
+                        {"page": 0, "page-size": 10, "sort-by": "year"}).get("result") or {}
         except Exception:
-            continue
+            return {}
+    # Раньше — по одному исполнителю (60 подписок с пустым кэшем — полминуты), теперь по 8 сразу
+    with ThreadPoolExecutor(8) as job:
+        found = list(job.map(albums_of, artist_ids[:60]))
+    for artist_id, albums in zip(artist_ids[:60], found):
         for a in albums.get("albums") or []:
             r = _release(a)
             if r["date"] and r["date"] >= since and r["id"] not in seen:
@@ -275,16 +330,22 @@ def album(album_id: str) -> dict:
 
 # ---------- Дополнение из Deezer ----------
 
-def _deezer_extra_releases(name: str, have: list[dict]) -> list[dict]:
-    """Релизы из Deezer, которых нет в Яндексе (сравниваем по названию)."""
+def _deezer_releases(name: str) -> list[dict]:
+    """Все релизы исполнителя на Deezer (только при точном совпадении имени)."""
+    if not name:
+        return []
     try:
         found = _get(f"{DEEZER}/search/artist", {"q": name, "limit": 3}).get("data") or []
         match = next((a for a in found if _norm(a.get("name")) == _norm(name)), None)
         if not match:
             return []
-        data = _get(f"{DEEZER}/artist/{match['id']}/albums", {"limit": 200}).get("data") or []
+        return _get(f"{DEEZER}/artist/{match['id']}/albums", {"limit": 200}).get("data") or []
     except Exception:
         return []
+
+
+def _deezer_extra(data: list[dict], have: list[dict]) -> list[dict]:
+    """Релизы из Deezer, которых нет в Яндексе (сравниваем по названию)."""
     known = {_norm(r["title"]) for r in have}
     extra = []
     for r in data:

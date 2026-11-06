@@ -1,5 +1,7 @@
 // Страницы исполнителя и альбома. Данные — с сервера (/api/artist, /api/album: Яндекс Музыка + Deezer).
 // Треки здесь «из базы» (source: "meta"): при включении плеер сам найдёт им пару на YouTube/SoundCloud.
+// Исполнители SoundCloud (id «sc:<номер>», source: "soundcloud") — андеграунд, которого нет в Яндексе:
+// у них треки сразу настоящие, вместо слушателей за месяц — подписчики, вместо дискографии — «Новые треки».
 
 import { openTrackMenu, toggleLike } from "./actions.js";
 import { startFlow } from "./flow.js";
@@ -11,16 +13,41 @@ import { isFollowing, keyOf, toggleFollow } from "./library.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
 import { artistStatsLine } from "./stats.js";
 
-const cache = new Map();   // адрес → ответ сервера (на время работы программы)
+const cache = new Map();   // адрес → ответ сервера (обещание; на время работы программы)
 
-async function load(url) {
-  if (cache.has(url)) return cache.get(url);
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Не нашлось");
-  cache.set(url, data);
-  return data;
+function load(url) {
+  if (!cache.has(url)) {
+    // Храним само обещание: наведение мыши и щелчок по той же ссылке ждут один и тот же запрос
+    const job = fetch(url).then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Не нашлось");
+      return data;
+    });
+    job.catch(() => cache.delete(url));   // ошибка — в следующий раз спросим заново
+    cache.set(url, job);
+  }
+  return cache.get(url);
 }
+
+// ---------- Подготовка заранее ----------
+// Ссылки на исполнителя/альбом помечены data-warm="artist:<id>" | "album:<id>". Мышь задержалась на ссылке
+// дольше 150 мс — начинаем загружать страницу: пока рука дойдёт до щелчка, данные уже готовы или почти
+// (незнакомый исполнитель — 0,5–2 с, а между наведением и щелчком обычно 0,3–1 с).
+
+export function warmPage(key) {
+  const [kind, id] = String(key).split(/:(.+)/);
+  if (!id || (kind !== "artist" && kind !== "album")) return;
+  load(`/api/${kind}/${id}`).catch(() => {});
+}
+
+let warmTimer = 0, warmFor = null;
+document.addEventListener("pointerover", (e) => {
+  const target = e.target.closest?.("[data-warm]");
+  if (target === warmFor) return;
+  warmFor = target;
+  clearTimeout(warmTimer);
+  if (target) warmTimer = setTimeout(() => warmPage(target.dataset.warm), 150);
+});
 
 const TYPE_NAMES = { album: "Альбом", single: "Сингл", ep: "EP", compilation: "Сборник" };
 const contextKey = (ctx) => `${ctx.type}:${ctx.id}`;
@@ -141,12 +168,21 @@ export async function renderArtist(box, id, stillHere) {
     line.title = "По данным Яндекс Музыки";
     info.append(line);
   }
-  info.append(el("div", "pl-meta", facts + (facts ? " · Яндекс Музыка" : "")));
+  const fromSc = a.source === "soundcloud";
+  if (fromSc && a.followers) {
+    const line = el("div", "artist-listeners");
+    const [num, ...word] = countText(a.followers, "подписчик", "подписчика", "подписчиков").split(" ");
+    const big = a.followers >= 1e4;
+    line.append(el("b", "", big ? `${num} ${word.shift()}` : num), ` ${word.join(" ")} на SoundCloud`);
+    info.append(line);
+  }
+  info.append(el("div", "pl-meta", facts + (facts ? (fromSc ? " · SoundCloud" : " · Яндекс Музыка") : "")));
   // Сколько вы сами слушаете этого исполнителя и с какого дня
   const mine = artistStatsLine({ id: a.id, name: a.name });
   if (mine) info.append(el("div", "artist-mine", mine));
   header.append(picture(a.pictureLarge, "artist-photo", a.name), info);
-  const actions = playButtons(a.top, context);
+  // У артиста SoundCloud популярные могут быть только отрывками (их убираем) — тогда ▶ включает новые треки
+  const actions = playButtons(a.top.length ? a.top : a.latest || [], context);
   // Flow по исполнителю: он сам и похожие на него — бесконечно
   const flowBtn = el("button", "flow-pill");
   flowBtn.type = "button";
@@ -176,6 +212,13 @@ export async function renderArtist(box, id, stillHere) {
 
   // Новый релиз (за последние 3 месяца) — крупной карточкой первым
   if (a.newRelease) body.append(section("Новинка", newReleaseCard(a.newRelease)));
+  // SoundCloud: загрузки за последние 3 месяца
+  if (a.latest?.length) {
+    const latestCtx = { type: "artist", id: `${a.id}-new`, name: `${a.name} · новые треки` };
+    const card = trackList(a.latest, latestCtx, 5);
+    body.append(section("Новые треки", card));
+    loadPlays(a.latest.slice(0, 5), { alive: stillHere, onUpdate: () => { if (stillHere()) fillPlays(card, a.latest); } });
+  }
 
   // Популярные треки: 5, по кнопке — все. Порядок — как в Яндексе (по популярности) или по прослушиваниям
   // на YouTube/SoundCloud: для этого трекам ищутся пары (по 4 сразу), числа приходят по мере готовности
@@ -239,9 +282,10 @@ export async function renderArtist(box, id, stillHere) {
   }
 
   // Дискография: вкладки «Альбомы» / «Синглы и EP»
+  a.releases ||= [];
   const albums = a.releases.filter((r) => r.type === "album" || r.type === "compilation");
   const singles = a.releases.filter((r) => r.type === "single" || r.type === "ep");
-  if (a.releases.length) {
+  if (a.releases?.length) {
     const grid = el("div", "release-grid");
     const tabs = el("div", "seg meta-tabs");
     const showTab = (list) => grid.replaceChildren(...list.map(releaseCard));
@@ -261,12 +305,13 @@ export async function renderArtist(box, id, stillHere) {
   }
 
   // Похожие исполнители
-  if (a.related.length) {
+  if (a.related?.length) {
     const grid = el("div", "artist-grid");
     for (const r of a.related) {
       const card = el("button", "artist-card");
       card.type = "button";
       card.append(picture(r.picture, "artist-card-photo", r.name), el("span", "artist-card-name", r.name));
+      card.dataset.warm = `artist:${r.id}`;
       card.addEventListener("click", () => openView(`artist:${r.id}`));
       grid.append(card);
     }
@@ -319,6 +364,7 @@ function newReleaseCard(r) {
     } catch {}
   });
   card.append(art, text, playBtn);
+  card.dataset.warm = `album:${r.id}`;
   card.addEventListener("click", () => openView(`album:${r.id}`));
   return card;
 }
@@ -341,6 +387,7 @@ function releaseCard(r) {
   card.append(art, el("span", "home-card-title", r.title),
     el("span", "home-card-artist", [r.year, TYPE_NAMES[r.type] ?? "Альбом"].filter(Boolean).join(" · ")));
   card.title = r.title;
+  card.dataset.warm = `album:${r.id}`;
   card.addEventListener("click", () => openView(`album:${r.id}`));
   return card;
 }
@@ -364,6 +411,7 @@ export async function renderAlbum(box, id, stillHere) {
   const info = el("div", "pl-info");
   const artistLink = el("button", "meta-artist-link", al.artist.name || "");
   artistLink.type = "button";
+  if (al.artist.id) artistLink.dataset.warm = `artist:${al.artist.id}`;
   artistLink.addEventListener("click", () => {
     if (al.artist.id) openView(`artist:${al.artist.id}`);
   });

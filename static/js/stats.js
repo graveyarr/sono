@@ -232,6 +232,7 @@ export function renderStats(box, extra = null) {
     info.append(el("div", "stats-name", a.name), bar,
       el("div", "stats-sub", `с ${formatDate(a.first)} · ${plural(a.plays, "прослушивание", "прослушивания", "прослушиваний")}`));
     li.append(el("span", "stats-rank", String(i + 1)), pic, info, el("span", "stats-time", formatListen(a.sec)));
+    if (a.id) li.dataset.warm = `artist:${a.id}`;
     li.addEventListener("click", () => openArtist({ id: a.id, name: a.name }));
     list.append(li);
   });

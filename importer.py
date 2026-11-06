@@ -12,6 +12,7 @@
   Spotify — со встроенного плеера (без аккаунта, до 100 треков); Яндекс и Deezer — через
   их открытый API; Apple — данные лежат прямо на странице плейлиста.
 """
+import io
 import json
 import re
 import threading
@@ -24,6 +25,9 @@ import requests
 import yt_dlp
 
 from artists import _track as artists_track   # трек Яндекса → данные трека «из базы» (обложка, исполнители, альбом)
+
+# Одно постоянное соединение на сайт: без него каждый запрос заново «здоровается» с сервером (~0,3–0,5 с)
+_http = requests.Session()
 
 MAX_TRACKS = 500   # больше за раз не импортируем
 WORKERS = 6        # сколько треков обрабатываем одновременно
@@ -98,6 +102,8 @@ class ImportJob:
         self.collections: list[dict] = []   # [{name, kind, ids}] — ids по порядку списка
         self.order: list[str] = []          # номер трека Яндекса для каждого места в self.tracks
         self.artists: list[dict] = []
+        self.files: list[dict] = []          # импорт из файлов: [{name, kind, items}]
+        self.soundcloud: dict = {}            # переезд со SoundCloud: {login, liked, playlists, artists}
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -109,7 +115,7 @@ class ImportJob:
                 "tracks": [t for t in self.tracks if t] if done else [],
                 "failed": list(self.failed),
             }
-            if self.kind == "yandex_all":
+            if self.kind in ("yandex_all", "files", "sc_all"):
                 data["tracks"] = []   # треки — внутри списков
                 # Остановили на полпути — отдаём то, что уже нашлось (переезд бывает на тысячи треков)
                 if done or (self.status == "cancelled" and self.order):
@@ -132,7 +138,8 @@ _jobs: dict[str, ImportJob] = {}
 _jobs_lock = threading.Lock()
 
 
-def start(url: str, match: str, search_fn, max_duration: int, text: str = "", yandex: dict | None = None) -> ImportJob:
+def start(url: str, match: str, search_fn, max_duration: int, text: str = "", yandex: dict | None = None,
+          files: list | None = None, soundcloud: dict | None = None) -> ImportJob:
     """Запускает импорт по ссылке url, по списку треков text (если он не пустой) или переезд всей
     медиатеки Яндекса yandex = {login, liked, playlists: [номера], artists}.
 
@@ -141,6 +148,13 @@ def start(url: str, match: str, search_fn, max_duration: int, text: str = "", ya
         if not re.fullmatch(r"[\w.@+-]{1,100}", str(yandex.get("login", ""))):
             raise ValueError("Не понял логин Яндекса — вставьте ссылку на свой профиль или плейлист")
         kind, clean_url = "yandex_all", ""
+    elif soundcloud:
+        if not soundcloud_user(str(soundcloud.get("login", ""))):
+            raise ValueError("Не понял ник SoundCloud — вставьте ссылку на свой профиль")
+        kind, clean_url = "sc_all", ""
+    elif files:
+        parsed = parse_files(files)   # ошибка в файле — сразу, до запуска задачи
+        kind, clean_url = "files", ""
     elif text.strip():
         kind, clean_url = "text", ""
     else:
@@ -148,6 +162,12 @@ def start(url: str, match: str, search_fn, max_duration: int, text: str = "", ya
     job = ImportJob(clean_url, match)
     job.kind = kind
     job.text = text
+    if kind == "files":
+        job.files = parsed
+    if kind == "sc_all":
+        job.soundcloud = {"login": soundcloud_user(str(soundcloud["login"])), "liked": bool(soundcloud.get("liked")),
+                          "playlists": list(soundcloud.get("playlists") or [])[:MAX_PLAYLISTS],
+                          "artists": bool(soundcloud.get("artists"))}
     if yandex:
         job.yandex = {"login": str(yandex["login"]), "liked": bool(yandex.get("liked")),
                       "playlists": list(yandex.get("playlists") or [])[:MAX_PLAYLISTS],
@@ -158,7 +178,7 @@ def start(url: str, match: str, search_fn, max_duration: int, text: str = "", ya
         _jobs[job.id] = job
     worker = {"spotify": _run_spotify, "yandex": _run_yandex, "apple": _run_apple, "deezer": _run_deezer,
               "text": _run_text, "youtube": _run_youtube, "soundcloud": _run_soundcloud,
-              "yandex_all": _run_yandex_all}[kind]
+              "yandex_all": _run_yandex_all, "files": _run_files, "sc_all": _run_sc_all}[kind]
 
     def run():
         try:
@@ -287,6 +307,16 @@ def _match_items(job: ImportJob, search_fn, name: str, items: list[dict], limit:
     _set_entries(job, name, len(items), limit)
 
     def one(i, item):
+        if item.get("video_id"):   # номер видео YouTube (Google Takeout) — искать пару не нужно
+            try:
+                found = _youtube_by_id(search_fn, item["video_id"])
+            except Exception:
+                found = None
+            if found:
+                job.step(i, found)
+            else:
+                job.step(i, None, item.get("title") or item["video_id"], "видео удалено, закрыто или длиннее 20 минут")
+            return
         artist = (item.get("artist") or "").replace(" ", " ").strip()
         title = (item.get("title") or "").strip()
         label = f"{artist} — {title}" if artist else title
@@ -454,7 +484,7 @@ def _sc_playable(track_id: str) -> bool:
 
 
 def _get_json(url: str) -> dict:
-    resp = requests.get(url, headers=UA, timeout=15)
+    resp = _http.get(url, headers=UA, timeout=15)
     resp.raise_for_status()
     return resp.json()
 
@@ -462,7 +492,7 @@ def _get_json(url: str) -> dict:
 # ---------- Spotify ----------
 
 def _run_spotify(job: ImportJob, search_fn, max_duration: int):
-    resp = requests.get(job.url, headers=UA, timeout=15)
+    resp = _http.get(job.url, headers=UA, timeout=15)
     resp.raise_for_status()
     m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>', resp.text)
     try:
@@ -532,7 +562,7 @@ def yandex_login(url: str) -> str | None:
 
 
 def _ya(path: str) -> dict | list:
-    resp = requests.get(YA_API + path, headers=UA, timeout=15)
+    resp = _http.get(YA_API + path, headers=UA, timeout=15)
     if resp.status_code in (401, 403, 404):
         raise ValueError(YANDEX_CLOSED)
     resp.raise_for_status()
@@ -637,7 +667,7 @@ def _run_yandex_all(job: ImportJob, search_fn, max_duration: int):
 # ---------- Apple Music ----------
 
 def _run_apple(job: ImportJob, search_fn, max_duration: int):
-    resp = requests.get(job.url, headers=UA, timeout=15)
+    resp = _http.get(job.url, headers=UA, timeout=15)
     resp.raise_for_status()
     resp.encoding = "utf-8"
     m = re.search(r'<script type="application/json" id="serialized-server-data">(.+?)</script>', resp.text, re.S)
@@ -691,10 +721,73 @@ def _run_deezer(job: ImportJob, search_fn, max_duration: int):
 
 # ---------- Список текстом ----------
 # По строке на трек: «Исполнитель - Название» (или просто название). Номера в начале строк убираем.
+# Ещё — текст, скопированный со страницы музыки (VK, Яндекс, Spotify в браузере: Ctrl+A, Ctrl+C):
+# там на трек несколько строк — название, исполнитель, длительность «3:45» отдельной строкой.
+
+DURATION_LINE = re.compile(r"^\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\s*$")
+# Надписи кнопок и пометки, которые попадают в копию страницы
+PAGE_JUNK = re.compile(r"^(e|explicit|18\+|hq|lyrics|текст|добавить|ещё|еще|слушать|воспроизвести|поделиться|"
+                       r"скачать|удалить|в плейлист|play|pause|more|add|\d+|[•·|–—-]+)$", re.I)
+
+
+def _seconds(m) -> int:
+    return int(m[1] or 0) * 3600 + int(m[2]) * 60 + int(m[3])
+
+
+def _page_blocks(lines: list[str]) -> list[dict] | None:
+    """Копия страницы: строки трека разделены длительностями. Нет такого — None (обычный список)."""
+    durations = [i for i, line in enumerate(lines) if DURATION_LINE.match(line)]
+    if len(durations) < 2 or len(durations) < len([x for x in lines if x.strip()]) / 6:
+        return None
+    meaningful = [i for i, line in enumerate(lines) if line.strip() and not PAGE_JUNK.match(line.strip())]
+    # Где длительность: после строк трека (обычно) или перед ними. Перед — если с неё всё начинается
+    # или после последней длительности ещё есть название и исполнитель
+    head = len([i for i in meaningful if i < durations[0]])
+    tail = len([i for i in meaningful if i > durations[-1]])
+    starts = head == 0 or (tail >= 2 and head <= 1)
+    groups: list[tuple[list[str], int]] = []   # (строки трека, длительность)
+    block: list[str] = []
+    pending = None   # длительность, которая стоит перед строками трека
+    for line in lines:
+        m = DURATION_LINE.match(line)
+        if not m:
+            text = line.strip()
+            if text and not PAGE_JUNK.match(text):
+                block.append(text)
+            continue
+        if starts:
+            if pending is not None:
+                groups.append((block, pending))
+            pending = _seconds(m)
+        else:
+            groups.append((block, _seconds(m)))
+        block = []
+    if starts and pending is not None:
+        groups.append((block, pending))
+    out = []
+    for block, seconds in groups:
+        # Лишние строки (шапка страницы, подписи) — с той стороны, где нет длительности
+        block = block[:2] if starts else block[-2:]
+        if not block:
+            continue
+        if len(block) == 1:
+            parts = re.split(r"\s+[-–—]\s+", block[0], maxsplit=1)
+            out.append({"artist": parts[0], "title": parts[1], "either_order": True, "duration": seconds} if len(parts) == 2
+                       else {"artist": "", "title": block[0], "duration": seconds})
+        else:   # обычно «название», потом «исполнитель»; если наоборот — проверим по Яндексу и паре
+            out.append({"artist": block[1], "title": block[0], "either_order": True, "duration": seconds})
+    return out
+
 
 def _run_text(job: ImportJob, search_fn, max_duration: int):
+    lines = job.text.splitlines()
+    items = _page_blocks(lines)
+    if items:
+        if _list_is_swapped(items):
+            items = [{**it, "artist": it["title"], "title": it["artist"]} if it["artist"] else it for it in items]
+        return _match_items(job, search_fn, "Импорт из списка", items)
     items = []
-    for line in job.text.splitlines():
+    for line in lines:
         line = re.sub(r"^\s*(\d+[.)]\s*|[-•*]\s+)", "", line).strip()   # «1. », «- », «• »
         if not line:
             continue
@@ -880,3 +973,354 @@ def _ranked(results: list[dict], want_duration: float | None, artist: str, title
         return s
 
     return [r for _, r in sorted(enumerate(results), key=score, reverse=True)]
+
+
+# ---------- Файлы из других сервисов ----------
+# Spotify без входа отдаёт только открытые плейлисты и не больше 100 треков, «Любимые треки» — никак.
+# Зато есть выгрузки: Exportify (CSV по плейлисту), официальная «Скачать мои данные» Spotify
+# (YourLibrary.json — любимые треки, Playlist1.json — все плейлисты), Google Takeout YouTube/YouTube Music
+# (CSV с номерами видео — пару искать не нужно), TuneMyMusic/Soundiiz и любой CSV с колонками
+# «исполнитель» и «название». Каждый файл (или плейлист внутри файла) → свой список; «любимое» → в «Избранное».
+
+MAX_FILES_BYTES = 8_000_000
+LIKED_NAMES = re.compile(r"liked|понрав|любим|music library songs|yourlibrary|избранн|favou?rite", re.I)
+YT_ID = re.compile(r"^[\w-]{11}$")
+TITLE_COLS = ("track name", "song title", "title", "track", "song", "название", "название трека", "трек")
+ARTIST_COLS = ("artist name(s)", "artist name", "artist names", "artist", "artists", "artist name 1",
+               "исполнитель", "исполнители", "имя исполнителя")
+VIDEO_COLS = ("video id", "идентификатор видео", "id видео")
+PLAYLIST_COLS = ("playlist name", "playlist", "плейлист", "название плейлиста")
+
+
+def _file_title(name: str) -> str:
+    """«liked_songs.csv» → «liked songs», «Мой плейлист-videos.csv» → «Мой плейлист»."""
+    base = re.sub(r"\.(csv|json|txt)$", "", (name or "").rsplit("/", 1)[-1].rsplit("\\", 1)[-1], flags=re.I)
+    base = re.sub(r"[-_ ]?videos$", "", base, flags=re.I).replace("_", " ").strip()
+    return base or "Импорт"
+
+
+def _collection_kind(name: str) -> str:
+    return "liked" if LIKED_NAMES.search(name or "") else "playlist"
+
+
+def _csv_rows(text: str) -> tuple[list[str], list[list[str]]]:
+    """Заголовок и строки CSV. В старых выгрузках Takeout перед таблицей есть «шапка» плейлиста —
+    ищем строку, где есть колонка с названием трека или номером видео."""
+    import csv
+    import io
+    rows = [r for r in csv.reader(io.StringIO(text.lstrip("﻿"))) if any(c.strip() for c in r)]
+    # Сначала — строка с номером видео: в «шапке» старого Takeout есть колонка Title (это название плейлиста)
+    for known in (set(VIDEO_COLS), set(TITLE_COLS)):
+        for i, row in enumerate(rows[:20]):
+            if {c.strip().lower() for c in row} & known:
+                return [c.strip().lower() for c in row], rows[i + 1:]
+    return [], rows
+
+
+def _pick_col(header: list[str], names: tuple) -> int:
+    return next((header.index(n) for n in names if n in header), -1)
+
+
+def _parse_csv(name: str, text: str) -> list[dict]:
+    """→ [{name, kind, items: [{artist, title, duration} | {video_id, title}]}]"""
+    header, rows = _csv_rows(text)
+    get = lambda row, i: row[i].strip() if 0 <= i < len(row) else ""
+    vid, title, artist = _pick_col(header, VIDEO_COLS), _pick_col(header, TITLE_COLS), _pick_col(header, ARTIST_COLS)
+    if vid < 0 and not header and rows and all(YT_ID.match(get(r, 0)) for r in rows[:5]):
+        vid = 0   # таблица без заголовка, в первой колонке — номера видео
+    # У YouTube Music исполнители разложены по колонкам «Artist Name 1», «Artist Name 2»…
+    extra_artists = [i for i, c in enumerate(header) if re.fullmatch(r"artist name [2-9]", c)]
+    duration = _pick_col(header, ("duration (ms)", "duration_ms"))
+    duration_sec = _pick_col(header, ("duration", "длительность"))
+    playlist = _pick_col(header, PLAYLIST_COLS)
+    if vid < 0 and title < 0:
+        raise ValueError(f"«{name}»: не нашёл колонок с названием трека или номером видео")
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        group = get(row, playlist) or _file_title(name)
+        if vid >= 0 and YT_ID.match(get(row, vid)):
+            item = {"video_id": get(row, vid), "title": get(row, title)}
+        elif title >= 0 and get(row, title):
+            who = ", ".join(a for a in [get(row, artist)] + [get(row, i) for i in extra_artists] if a)
+            seconds = None
+            if duration >= 0 and get(row, duration).isdigit():
+                seconds = int(get(row, duration)) / 1000
+            elif duration_sec >= 0 and (m := re.fullmatch(r"(?:(\d+):)?(\d+):(\d\d)", get(row, duration_sec))):
+                seconds = int(m[1] or 0) * 3600 + int(m[2]) * 60 + int(m[3])
+            item = {"artist": who, "title": get(row, title), "duration": seconds}
+        else:
+            continue
+        groups.setdefault(group, []).append(item)
+    return [{"name": g, "kind": _collection_kind(g if playlist >= 0 else name), "items": items}
+            for g, items in groups.items()]
+
+
+def _parse_json(name: str, text: str) -> list[dict]:
+    """Официальная выгрузка Spotify: YourLibrary.json (любимые треки) и Playlist*.json (все плейлисты)."""
+    data = json.loads(text.lstrip("﻿"))
+    out = []
+    if isinstance(data, dict) and isinstance(data.get("tracks"), list):
+        items = [{"artist": str(t.get("artist") or ""), "title": str(t.get("track") or "")}
+                 for t in data["tracks"] if isinstance(t, dict) and t.get("track")]
+        out.append({"name": "Любимые треки", "kind": "liked", "items": items})
+    if isinstance(data, dict) and isinstance(data.get("playlists"), list):
+        for p in data["playlists"]:
+            if not isinstance(p, dict):
+                continue
+            items = []
+            for entry in p.get("items") or []:
+                t = (entry or {}).get("track") if isinstance(entry, dict) else None
+                if isinstance(t, dict) and t.get("trackName"):
+                    items.append({"artist": str(t.get("artistName") or ""), "title": str(t["trackName"])})
+            if items:
+                out.append({"name": str(p.get("name") or "Плейлист"), "kind": "playlist", "items": items})
+    if not out:
+        raise ValueError(f"«{name}»: это не выгрузка Spotify (нужны YourLibrary.json или Playlist1.json)")
+    return out
+
+
+MAX_ZIP_BYTES = 40_000_000
+
+
+def _unzip(name: str, data: str) -> list[dict]:
+    """Архив Exportify или Google Takeout (base64) → его .csv/.json. Из Takeout берём только плейлисты и
+    музыку: там же лежат подписки, комментарии и список своих видео — их в плейлисты превращать не надо."""
+    import base64
+    import zipfile
+    raw = base64.b64decode(data, validate=False)
+    if len(raw) > MAX_ZIP_BYTES:
+        raise ValueError(f"«{name}»: архив слишком большой. В Google Takeout выберите только «YouTube и YouTube Music» → «Плейлисты»")
+    out, total = [], 0
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile:
+        raise ValueError(f"«{name}»: архив повреждён")
+    for info in archive.infolist():
+        path = info.filename.replace("\\", "/")
+        low = path.lower()
+        if info.is_dir() or not low.endswith((".csv", ".json")) or info.file_size > 6_000_000:
+            continue
+        # Takeout/<«YouTube и YouTube Music»>/<папка>/файл — смотрим на папку и имя, а не на название сервиса
+        inner = "/".join(low.split("/")[2:]) if low.startswith("takeout/") else low
+        if low.startswith("takeout/") and not re.search(r"playlist|плейлист|music library|музык", inner):
+            continue
+        total += info.file_size
+        if total > MAX_FILES_BYTES:
+            break
+        out.append({"name": path.rsplit("/", 1)[-1], "text": archive.read(info).decode("utf-8", "replace")})
+    return out
+
+
+def parse_files(files: list) -> list[dict]:
+    """Файлы со страницы [{name, text} или {name, zip: base64}] → списки треков.
+    Ошибка — если ни один файл не подошёл."""
+    if not isinstance(files, list) or not files:
+        raise ValueError("Выберите файл")
+    if sum(len(str((f or {}).get("text", ""))) for f in files if isinstance(f, dict)) > MAX_FILES_BYTES:
+        raise ValueError("Файлы слишком большие — выберите поменьше за раз")
+    collections, errors = [], []
+    unpacked = []
+    for f in files[:200]:
+        if isinstance(f, dict) and f.get("zip"):
+            try:
+                unpacked += _unzip(str(f.get("name") or "архив"), str(f["zip"]))
+            except ValueError as e:
+                errors.append(str(e))
+        else:
+            unpacked.append(f)
+    for f in unpacked[:500]:
+        if not isinstance(f, dict):
+            continue
+        name, text = str(f.get("name") or "файл"), str(f.get("text") or "")
+        try:
+            found = _parse_json(name, text) if name.lower().endswith(".json") else _parse_csv(name, text)
+            collections += [c for c in found if c["items"]]
+        except json.JSONDecodeError:   # (сам он тоже ValueError — проверяем первым)
+            errors.append(f"«{name}»: файл повреждён")
+        except ValueError as e:
+            errors.append(str(e))
+    if not collections:
+        raise ValueError(errors[0] if errors else "В файлах нет ни одного трека")
+    return collections
+
+
+def _file_key(item: dict) -> str:
+    if item.get("video_id"):
+        return "yt:" + item["video_id"]
+    return f"{_norm(item.get('artist', ''))}|{_norm(item.get('title', ''))}"
+
+
+def _run_files(job: ImportJob, search_fn, max_duration: int):
+    unique: dict[str, dict] = {}
+    collections = []
+    for c in job.files:
+        keys = []
+        for item in c["items"]:
+            key = _file_key(item)
+            if key.strip("|"):
+                unique.setdefault(key, item)
+                keys.append(key)
+        collections.append({"name": c["name"], "kind": c["kind"], "ids": keys})
+    ids = list(unique)[:MAX_FULL]
+    if len(unique) > MAX_FULL:
+        job.note = f"Треков больше {MAX_FULL} — перенесены первые {MAX_FULL}"
+    job.collections = collections
+    job.order = ids
+    _match_items(job, search_fn, collections[0]["name"] if len(collections) == 1 else "Импорт из файлов",
+                 [unique[k] for k in ids], limit=MAX_FULL)
+
+
+def _youtube_by_id(search_fn, video_id: str) -> dict | None:
+    """Видео YouTube по номеру (из Takeout): поиск по номеру отдаёт само видео — с названием и длительностью."""
+    for t in search_fn("youtube", video_id, 3):
+        if t.get("id") == video_id:
+            return t
+    return None
+
+
+# ---------- Переезд со SoundCloud (по нику) ----------
+# Открытый профиль SoundCloud без входа отдаёт лайки, плейлисты и подписки. Звук там же — пару искать
+# не нужно: треки сразу настоящие. Подписки → «Мои исполнители» (id вида «sc:<номер>») и вкус Flow.
+# SC_API(path, **params) и SC_ART(id, url) подставляет app.py (ключ SoundCloud, обход блокировок, обложки).
+
+SC_API = None
+SC_ART = None
+SC_RESERVED = {"discover", "search", "stream", "you", "charts", "upload", "messages", "settings", "pages",
+               "people", "tags", "terms-of-use", "jobs", "mobile", "popular", "signin", "logout", "notifications"}
+SC_CLOSED = ("SoundCloud не нашёл такой профиль. Откройте soundcloud.com, нажмите на свой аватар → «Profile» "
+             "и скопируйте ссылку из адресной строки — вида soundcloud.com/ваш-ник.")
+MAX_SC_FOLLOWINGS = 300
+
+
+def soundcloud_user(url: str) -> str | None:
+    """Ник из ссылки на профиль (или из любой ссылки внутри профиля), или сам ник."""
+    text = (url or "").strip()
+    m = re.match(r"^(?:https?://)?(?:www\.|m\.)?soundcloud\.com/([\w-]+)", text, re.I)
+    nick = m[1] if m else text if re.fullmatch(r"[\w-]{2,100}", text) else None
+    return nick if nick and nick.lower() not in SC_RESERVED else None
+
+
+def _sc_pages(path: str, limit: int, **params) -> list[dict]:
+    """Все страницы списка SoundCloud (next_href), но не больше limit записей."""
+    out = []
+    data = SC_API(path, limit=min(200, limit), linked_partitioning=1, **params)
+    while True:
+        out += data.get("collection") or []
+        nxt = data.get("next_href")
+        if not nxt or len(out) >= limit:
+            return out[:limit]
+        data = SC_API(nxt)
+
+
+def soundcloud_profile(nick: str) -> dict:
+    try:
+        user = SC_API("/resolve", url=f"https://soundcloud.com/{nick}")
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            raise ValueError(SC_CLOSED)
+        raise
+    if user.get("kind") != "user":
+        raise ValueError("Это ссылка не на профиль, а на трек или плейлист. Нужна ссылка вида soundcloud.com/ваш-ник")
+    playlists = []
+    for p in _sc_pages(f"/users/{user['id']}/playlists_without_albums", MAX_PLAYLISTS):
+        if p.get("track_count"):
+            playlists.append({"id": p["id"], "title": p.get("title") or "Плейлист", "count": p["track_count"],
+                              "cover": p.get("artwork_url") or ((p.get("tracks") or [{}])[0] or {}).get("artwork_url")})
+    return {"login": user.get("permalink") or nick, "name": user.get("username") or nick,
+            "avatar": user.get("avatar_url"), "liked": user.get("likes_count") or 0,
+            "playlists": playlists, "artists": min(user.get("followings_count") or 0, MAX_SC_FOLLOWINGS)}
+
+
+def _sc_full_tracks(ids: list) -> dict:
+    """Полные данные треков по номерам: у плейлистов SoundCloud отдаёт целиком только первые несколько."""
+    out = {}
+    for i in range(0, len(ids), 50):
+        for t in SC_API("/tracks", ids=",".join(str(x) for x in ids[i:i + 50])) or []:
+            out[t["id"]] = t
+    return out
+
+
+def _sc_track(t: dict, max_duration: int) -> tuple[dict | None, str]:
+    """Трек SoundCloud из API → трек Sono (или None и причина)."""
+    protocols = {x.get("format", {}).get("protocol", "") for x in (t.get("media") or {}).get("transcodings") or []}
+    if t.get("policy") == "BLOCK" or not t.get("streamable", True):
+        return None, "недоступен в вашей стране"
+    if protocols and all("encrypted" in p for p in protocols):
+        return None, "защищён от копирования (DRM)"
+    if t.get("policy") == "SNIP":   # без подписки Go+ — только 30-секундный отрывок
+        return None, "на SoundCloud — только отрывок (нужна подписка)"
+    duration = (t.get("duration") or 0) / 1000
+    if not duration or duration > max_duration:
+        return None, f"длиннее {max_duration // 60} минут"
+    art = t.get("artwork_url") or (t.get("user") or {}).get("avatar_url")
+    if art and SC_ART:
+        SC_ART(str(t["id"]), art)
+    return {"source": "soundcloud", "id": str(t["id"]), "title": t.get("title"),
+            "channel": (t.get("user") or {}).get("username"), "duration": duration,
+            "plays": t.get("playback_count"), "likes": t.get("likes_count")}, ""
+
+
+def _run_sc_all(job: ImportJob, search_fn, max_duration: int):
+    want = job.soundcloud
+    user = SC_API("/resolve", url=f"https://soundcloud.com/{want['login']}")
+    uid = user["id"]
+    collections, raw = [], {}
+    if want.get("liked"):
+        likes = [x["track"] for x in _sc_pages(f"/users/{uid}/track_likes", MAX_FULL) if x.get("track")]
+        collections.append({"name": "Лайки SoundCloud", "kind": "liked", "ids": [t["id"] for t in likes]})
+        raw.update({t["id"]: t for t in likes})
+    chosen = {int(x) for x in want.get("playlists") or [] if str(x).isdigit()}
+    for p in _sc_pages(f"/users/{uid}/playlists_without_albums", MAX_PLAYLISTS):
+        if p.get("id") not in chosen or job.cancelled:
+            continue
+        ids = [t["id"] for t in p.get("tracks") or [] if t.get("id")]
+        collections.append({"name": p.get("title") or "Плейлист", "kind": "playlist", "ids": ids})
+        for t in p.get("tracks") or []:
+            if t.get("id") and t.get("title"):
+                raw.setdefault(t["id"], t)
+        for i in ids:
+            raw.setdefault(i, None)   # дочитаем ниже
+    if want.get("artists"):
+        try:
+            job.artists = [{"id": f"sc:{a['id']}", "name": a.get("username"), "picture": a.get("avatar_url")}
+                           for a in _sc_pages(f"/users/{uid}/followings", MAX_SC_FOLLOWINGS) if a.get("username")]
+        except Exception as e:
+            print(f"[import] подписки SoundCloud {want['login']}: {e}")
+    order = list(raw)[:MAX_FULL]
+    if len(raw) > MAX_FULL:
+        job.note = f"Треков больше {MAX_FULL} — перенесены первые {MAX_FULL}"
+    missing = [i for i in order if not raw.get(i)]
+    if missing:
+        raw.update(_sc_full_tracks(missing))
+    job.collections = [{**c, "ids": [str(i) for i in c["ids"]]} for c in collections]
+    job.order = [str(i) for i in order]
+    _set_entries(job, user.get("username") or "SoundCloud", len(order), MAX_FULL)
+    fallback = []   # защищённые (DRM), закрытые в стране и отрывки — ищем ту же песню на YouTube
+    for i, tid in enumerate(order[:job.total]):
+        t = raw.get(tid)
+        if not t:
+            job.step(i, None, str(tid), "трек удалён или закрыт")
+            continue
+        track, reason = _sc_track(t, max_duration)
+        if track:
+            job.step(i, track)
+        elif "DRM" in reason or "стране" in reason or "отрывок" in reason:
+            fallback.append((i, t, reason))
+        else:
+            job.step(i, None, t.get("title") or str(tid), reason)
+
+    def pair(_, item):
+        i, t, reason = item
+        # У крупных лейблов исполнитель — в metadata, а загрузил трек лейбл
+        artist = (t.get("publisher_metadata") or {}).get("artist") or (t.get("user") or {}).get("username") or ""
+        title = t.get("title") or ""
+        try:
+            found = _find_pair("youtube", search_fn, artist, title, (t.get("duration") or 0) / 1000 or None)
+        except Exception:
+            found = None
+        if found:
+            job.step(i, {**found, "artists": artist, "origTitle": title})
+        else:
+            job.step(i, None, title, reason + ", на YouTube не нашёлся")
+
+    _parallel(job, fallback, pair)

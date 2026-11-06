@@ -2,7 +2,7 @@
 // Данные лежат на сервере (library.json). Здесь — копия в памяти и все операции над ней;
 // после каждого изменения раздел отправляется на сервер, а интерфейс получает событие.
 
-export const lib = { liked: [], disliked: [], playlists: [], history: [], settings: {}, downloads: [], stats: {}, picks: {} };
+export const lib = { liked: [], disliked: [], playlists: [], history: [], settings: {}, downloads: [], stats: {}, picks: {}, session: {} };
 
 const HISTORY_LIMIT = 12;
 
@@ -372,6 +372,14 @@ export function markCensored(track) {
 
 /** Подборки «Собрано для вас» обновились (picks.js) — сохранить и перерисовать «Главную» */
 export const picksChanged = () => changed("picks");
+
+/** Что играет сейчас (player.js) — чтобы при следующем запуске вернуть трек, очередь и место.
+    Тоже тихо: soon — сохранить через 2 с (сменился трек, пауза), иначе не чаще раза в 15 с */
+export function sessionChanged(soon = false) {
+  if (timers.session && !soon) return;
+  clearTimeout(timers.session);
+  timers.session = setTimeout(() => { delete timers.session; send("session"); }, soon ? 2000 : 15000);
+}
 
 export function statsChanged() {
   if (timers.stats) return;

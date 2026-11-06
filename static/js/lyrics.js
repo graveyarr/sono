@@ -66,18 +66,40 @@ function showLoading() {
   box.replaceChildren(head(), skeleton);
 }
 
+// Тексты, которые уже спрашивали (обещания): следующий трек очереди спрашиваем заранее, пока открыт текст, —
+// при переключении он появляется сразу, а не через 0,5–1 с «скелета»
+const fetched = new Map();
+function fetchLyrics(track) {
+  const key = keyOf(track);
+  if (!fetched.has(key)) {
+    const shown = displayTrack(track);
+    const params = new URLSearchParams({ artist: shown.artist, title: shown.title, duration: track.duration || 0 });
+    const job = fetch(`/api/lyrics/${track.source}/${track.id}?${params}`).then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "сервер не ответил");
+      return data;
+    });
+    job.catch(() => fetched.delete(key));
+    fetched.set(key, job);
+    if (fetched.size > 30) fetched.delete(fetched.keys().next().value);
+  }
+  return fetched.get(key);
+}
+
+function prefetchNextLyrics() {
+  const next = state.queue[state.index + 1];
+  if (visible && next && next.source !== "meta") fetchLyrics(next).catch(() => {});
+}
+
 async function load() {
   const track = state.current;
   if (!track || loadedKey === keyOf(track)) return;
   const key = loadedKey = keyOf(track);
   showLoading();
-  const shown = displayTrack(track);
-  const params = new URLSearchParams({ artist: shown.artist, title: shown.title, duration: track.duration || 0 });
   let data;
   try {
-    const res = await fetch(`/api/lyrics/${track.source}/${track.id}?${params}`);
-    data = await res.json();
-    if (!res.ok) throw new Error(data.error || "сервер не ответил");
+    data = await fetchLyrics(track);
+    setTimeout(prefetchNextLyrics, 3000);   // следующий — чуть позже: сначала звук текущего
   } catch (err) {
     if (loadedKey === key) { loadedKey = null; showMessage(err.message); }   // null — чтобы можно было повторить
     return;

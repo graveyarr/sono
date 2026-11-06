@@ -3,6 +3,8 @@
 // «audio/lyrics») или официальный клип той же длительности (±3 с — иначе картинка разойдётся с музыкой).
 // Видео без звука идёт через сервер (/api/video/youtube/<id>, тот же обход блокировок) и подстраивается под
 // звук: пауза, перемотка, скорость. Качаем видео, только пока открыт «Сейчас играет», — меньше интернета.
+// Переключатель «Песня / Клип» над обложкой (как в YouTube Music) — виден, когда у трека есть клип;
+// выбор запоминается (settings.clipMode) и действует на все треки, пока его не сменят.
 
 import { getSetting, setSetting } from "./library.js";
 import { isMeta } from "./meta.js";
@@ -19,6 +21,14 @@ let forKey = "";       // для какого трека clipId
 let token = 0;
 
 export const clipsEnabled = () => getSetting("clips", true) !== false;
+const wantClip = () => getSetting("clipMode", "clip") !== "song";
+let switcher = null;   // «Песня / Клип»
+
+function syncSwitch() {
+  if (!switcher) return;
+  switcher.hidden = !clipId || !clipsEnabled();
+  switcher.querySelectorAll("button").forEach((b) => b.classList.toggle("on", (b.dataset.mode === "clip") === wantClip()));
+}
 
 export function setClipsEnabled(on) {
   setSetting("clips", on);
@@ -38,6 +48,7 @@ function hide(drop = false) {
     video.removeAttribute("src");
     video.load();
   }
+  syncSwitch();
 }
 
 /** Трек сменился — спрашиваем сервер, есть ли клип */
@@ -69,7 +80,14 @@ async function check() {
 
 /** Показать клип, если он есть и экран «Сейчас играет» открыт */
 function show() {
+  syncSwitch();
   if (!clipId || !clipsEnabled()) return;
+  if (!wantClip()) {   // выбрали «Песня» — обложка, видео не качаем
+    if (video.getAttribute("src")) { video.removeAttribute("src"); video.load(); }
+    wrap.classList.remove("clip-on");
+    deck.classList.remove("has-clip");
+    return;
+  }
   if (!visible()) { video.pause(); return; }
   const src = `/api/video/youtube/${clipId}`;
   if (!video.src.endsWith(src)) {
@@ -82,7 +100,7 @@ function show() {
 
 /** Подогнать видео под звук: та же позиция, скорость, пауза */
 function sync(hard = false) {
-  if (!clipId || !video.src) return;
+  if (!clipId || !video.getAttribute("src")) return;
   video.playbackRate = audio.playbackRate || 1;
   const drift = video.currentTime - audio.currentTime;
   if (hard || Math.abs(drift) > 0.3) {
@@ -94,6 +112,18 @@ function sync(hard = false) {
 }
 
 export function initClips() {
+  switcher = document.createElement("div");
+  switcher.className = "clip-switch";
+  switcher.hidden = true;
+  for (const [mode, name] of [["song", "Песня"], ["clip", "Клип"]]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.mode = mode;
+    b.textContent = name;
+    b.addEventListener("click", () => { setSetting("clipMode", mode); show(); });
+    switcher.append(b);
+  }
+  wrap.closest(".cover-stage").append(switcher);
   onTrackChange(check);
   // Первые кадры готовы — плавно показываем видео поверх обложки
   video.addEventListener("loadeddata", () => {

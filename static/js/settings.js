@@ -218,6 +218,10 @@ function appearanceSection() {
   section.append(switchRow("Большой нижний плеер",
     "Крупнее обложка, название и кнопки — удобнее, если плеер внизу нужен под рукой.",
     !!getSetting("minibarLarge", false), (on) => { setSetting("minibarLarge", on); setMinibarLarge(on); }));
+  // Медиатека как в Spotify: папки, фильтр «Плейлисты / Исполнители», поиск и сортировка (libtools.js)
+  section.append(switchRow("Папки и фильтры в медиатеке",
+    "Папки для плейлистов, подписки на исполнителей, поиск и сортировка над медиатекой. Выключите — будет простой список.",
+    getSetting("libTools", true) !== false, (on) => setSetting("libTools", on)));
   section.append(switchRow("Визуализация под музыку",
     "Эквалайзер цветов обложки за экраном «Сейчас играет» — двигается по настоящему звуку.",
     vizEnabled(), (on) => { setSetting("visualizer", on); refreshViz(); }));

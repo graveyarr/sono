@@ -34,27 +34,7 @@ import localfiles
 import netbypass
 import zapret
 
-BASE_DIR = Path(__file__).parent
-# В собранном .exe код распаковывается во временную папку, которая удаляется при выходе.
-# Поэтому кэш тогда храним в %LOCALAPPDATA%\Sono, а при обычном запуске — рядом с кодом.
-if os.environ.get("SONO_DATA_DIR"):
-    # Приложение для Android (папка android/) передаёт свою личную папку приложения
-    DATA_DIR = Path(os.environ["SONO_DATA_DIR"])
-elif getattr(sys, "frozen", False):
-    _appdata = Path(os.environ.get("LOCALAPPDATA", Path.home()))
-    DATA_DIR = _appdata / "Sono"
-    # Раньше программа называлась Player — переносим медиатеку и кэш из старой папки (один раз).
-    # Не вышло (файлы чем-то заняты) — продолжаем работать со старой папкой, ничего не теряя.
-    if not DATA_DIR.exists() and (_appdata / "Player" / "library.json").exists():
-        try:
-            os.rename(_appdata / "Player", DATA_DIR)
-        except OSError:
-            DATA_DIR = _appdata / "Player"
-    # Установщик кладёт deno.exe рядом с Sono.exe — добавляем эту папку в PATH,
-    # чтобы yt-dlp нашёл deno (без него YouTube не работает), даже если у человека его нет
-    os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
-else:
-    DATA_DIR = BASE_DIR
+from paths import BASE_DIR, DATA_DIR   # где данные: %LOCALAPPDATA%\Sono у .exe, рядом с кодом — из исходников
 CACHE_DIR = DATA_DIR / "cache"          # сюда сохраняется скачанное аудио
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 COVER_DIR = CACHE_DIR / "covers"        # сюда сохраняются обложки
@@ -284,6 +264,37 @@ SC_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebK
               "Origin": "https://soundcloud.com", "Referer": "https://soundcloud.com/", "Accept": "application/json"}
 
 
+def sc_api(path: str, **params):
+    """Запрос к API SoundCloud (api-v2) с ключом, который знает yt-dlp. path — «/users/1» или полный next_href."""
+    with ydl_pool("search") as ydl:
+        client_id = ydl.cache.load("soundcloud", "client_id")
+        if not client_id:   # ключа ещё нет — yt-dlp узнаёт его при первом поиске
+            ydl.extract_info("scsearch1:music", download=False)
+            client_id = ydl.cache.load("soundcloud", "client_id")
+    url = path if path.startswith("http") else "https://api-v2.soundcloud.com" + path
+    # Сеть может оборваться на первом соединении (например, подделка обхода дошла до сервера при VPN —
+    # прокси после этого сам переходит на другой способ), поэтому ещё две попытки
+    for attempt in range(3):
+        try:
+            resp = _http.get(url, params={**params, "client_id": client_id}, headers=SC_HEADERS, timeout=15)
+            break
+        except requests.ConnectionError:
+            if attempt == 2:
+                raise
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _remember_sc_art(track_id: str, url: str):
+    _sc_artwork[track_id] = url
+
+
+importer.SC_API = sc_api            # переезд со SoundCloud ходит в API тем же путём
+importer.SC_ART = _remember_sc_art
+flow.SC_API = sc_api                # Flow берёт у SoundCloud «похожие треки»
+flow.SC_TRACK = lambda t: importer._sc_track(t, MAX_DURATION)[0]
+
+
 def _sc_search_api(query: str, limit: int) -> list[dict]:
     """Поиск на SoundCloud одним запросом к его API (~0,6 с). yt-dlp делает то же самое за 11 запросов (~2 с).
     Ключ (client_id) берём тот, что yt-dlp уже узнал и запомнил. Ответ — в том же виде, что у yt-dlp."""
@@ -297,7 +308,8 @@ def _sc_search_api(query: str, limit: int) -> list[dict]:
     resp.raise_for_status()
     entries = []
     for t in resp.json()["collection"]:
-        if not t.get("streamable", True) or t.get("policy") == "BLOCK":
+        # BLOCK — закрыт в стране, SNIP — без подписки только 30-секундный отрывок
+        if not t.get("streamable", True) or t.get("policy") in ("BLOCK", "SNIP"):
             continue
         protocols = {x.get("format", {}).get("protocol", "") for x in (t.get("media") or {}).get("transcodings") or []}
         artwork = t.get("artwork_url") or (t.get("user") or {}).get("avatar_url")   # нет обложки — фото автора, как у yt-dlp
@@ -1085,7 +1097,8 @@ LIBRARY_FILE = DATA_DIR / "library.json"
 LIBRARY_SECTIONS = {"liked": list, "disliked": list, "playlists": list, "history": list, "settings": dict,
                     "downloads": list,   # треки, которые человек скачал
                     "stats": dict,       # сколько слушали каждого исполнителя (static/js/stats.js)
-                    "picks": dict}       # «Собрано для вас» на «Главной» — готовые подборки (static/js/picks.js)
+                    "picks": dict,       # «Собрано для вас» на «Главной» — готовые подборки (static/js/picks.js)
+                    "session": dict}     # что играло при закрытии: трек, очередь, место (вернуть при запуске)
 _library_lock = threading.Lock()
 
 
@@ -1143,9 +1156,12 @@ def api_import_start():
         return jsonify(error="Неизвестный источник"), 400
     yandex = data.get("yandex")
     try:
+        files, sc = data.get("files"), data.get("soundcloud")
         job = importer.start(str(data.get("url", "")), match, search, MAX_DURATION,
                              text=str(data.get("text", ""))[:100_000],
-                             yandex=yandex if isinstance(yandex, dict) else None)
+                             yandex=yandex if isinstance(yandex, dict) else None,
+                             files=files if isinstance(files, list) else None,
+                             soundcloud=sc if isinstance(sc, dict) else None)
     except ValueError as e:
         return jsonify(error=str(e)), 400
     return jsonify(job.snapshot())
@@ -1164,6 +1180,21 @@ def api_yandex_profile():
     except Exception as e:
         print(f"[import] профиль {login}: {e}")
         return jsonify(error="Яндекс Музыка не ответила — попробуйте ещё раз"), 502
+
+
+@app.get("/api/import/soundcloud-profile")
+def api_soundcloud_profile():
+    """Что можно перенести со SoundCloud по ссылке на профиль: лайки, плейлисты, подписки."""
+    nick = importer.soundcloud_user(request.args.get("url", ""))
+    if not nick:
+        return jsonify(error="Это не ссылка на профиль SoundCloud — нужна ссылка вида soundcloud.com/ваш-ник"), 400
+    try:
+        return jsonify(importer.soundcloud_profile(nick))
+    except ValueError as e:
+        return jsonify(error=str(e)), 404
+    except Exception as e:
+        print(f"[import] профиль SoundCloud {nick}: {e}")
+        return jsonify(error="SoundCloud не ответил — попробуйте ещё раз"), 502
 
 
 @app.get("/api/import/<job_id>")
@@ -1956,12 +1987,100 @@ def api_artist(artist_id):
     return _meta_call(artists.artist, artist_id)
 
 
+# ---------- Артисты SoundCloud (id вида «sc:<номер>») ----------
+# Андеграунд, которого нет в Яндексе: страница строится из самого SoundCloud — популярные и новые треки
+# (настоящие, со звуком), похожие артисты, описание из профиля.
+
+_SC_POOL = ThreadPoolExecutor(8, thread_name_prefix="sc-artist")
+
+
+def _sc_picture(url: str | None, size: str) -> str | None:
+    return re.sub(r"-large\.(jpg|png)$", rf"-{size}.\1", url) if url else None
+
+
+def _sc_tracks(items: list) -> list[dict]:
+    out = []
+    for t in items or []:
+        track, _ = importer._sc_track(t, MAX_DURATION)
+        if track:
+            out.append({**track, "artistRefs": [{"id": f"sc:{(t.get('user') or {}).get('id')}",
+                                                 "name": (t.get("user") or {}).get("username")}]})
+    return out
+
+
+def _sc_card(u: dict) -> dict:
+    return {"id": f"sc:{u['id']}", "name": u.get("username"), "picture": _sc_picture(u.get("avatar_url"), "t200x200"),
+            "followers": u.get("followers_count")}
+
+
+def sc_artist(uid: int) -> dict:
+    jobs = {name: _SC_POOL.submit(sc_api, path, **params) for name, path, params in [
+        ("user", f"/users/{uid}", {}), ("top", f"/users/{uid}/toptracks", {"limit": 30}),
+        ("latest", f"/users/{uid}/tracks", {"limit": 20}), ("related", f"/users/{uid}/relatedartists", {"limit": 12})]}
+    user = jobs["user"].result()
+    part = lambda name: (lambda d: d.get("collection") or [])(_safe_result(jobs[name]))
+    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - 90 * 86400))
+    latest = [t for t in part("latest") if (t.get("created_at") or "")[:10] >= since]
+    return {**_sc_card(user), "source": "soundcloud",
+            "pictureLarge": _sc_picture(user.get("avatar_url"), "t500x500"),
+            "tracksTotal": user.get("track_count"), "listeners": None,
+            # в популярных бывают репосты чужих треков — оставляем только свои
+            "top": _sc_tracks([t for t in part("top") if (t.get("user") or {}).get("id") == uid]),
+            "latest": _sc_tracks(latest),
+            "releases": [], "related": [_sc_card(u) for u in part("related") if u.get("id")],
+            "bio": (user.get("description") or "").strip()[:3000], "bioSource": "SoundCloud" if user.get("description") else "",
+            "link": user.get("permalink_url")}
+
+
+def _safe_result(future, default=None):
+    try:
+        return future.result(timeout=20)
+    except Exception as e:
+        print(f"[soundcloud] {e}")
+        return default if default is not None else {}
+
+
+def sc_new_releases(ids: list[int], days: int = 90) -> list[dict]:
+    """Новые треки артистов SoundCloud, на которых подписан человек."""
+    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
+    jobs = [(uid, _SC_POOL.submit(sc_api, f"/users/{uid}/tracks", limit=5)) for uid in ids[:40]]
+    out = []
+    for uid, job in jobs:
+        mine = 0
+        for t in (_safe_result(job).get("collection") or []):
+            created = (t.get("created_at") or "")[:10]
+            track, _ = importer._sc_track(t, MAX_DURATION)
+            if track and created >= since and mine < 2:   # не больше двух на артиста — чтобы не забил весь ряд
+                mine += 1
+                out.append({"id": f"sc{t['id']}", "type": "track", "title": t.get("title"), "date": created,
+                            "year": created[:4], "cover": _sc_picture(t.get("artwork_url") or (t.get("user") or {}).get("avatar_url"), "t300x300"),
+                            "artist": (t.get("user") or {}).get("username"), "artistId": f"sc:{uid}", "track": track})
+    return out
+
+
+@app.get("/api/artist/sc:<int:uid>")
+def api_sc_artist(uid):
+    try:
+        return jsonify(sc_artist(uid))
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            abort(404)
+        return jsonify(error=friendly_error(e)), 502
+    except Exception as e:
+        print(f"[soundcloud] артист {uid}: {e}")
+        return jsonify(error="SoundCloud не ответил — попробуйте ещё раз"), 502
+
+
 @app.post("/api/new-releases")
 def api_new_releases():
     """{ids: [id исполнителя Яндекса]} → релизы за последние 3 месяца (для подписок: «Новинки» на «Главной»)."""
-    ids = [int(x) for x in _body().get("ids") or [] if str(x).isdigit()]
+    raw = [str(x) for x in _body().get("ids") or []]
+    ids = [int(x) for x in raw if x.isdigit()]
+    sc_ids = [int(x[3:]) for x in raw if x.startswith("sc:") and x[3:].isdigit()]   # артисты SoundCloud
     try:
-        return jsonify(releases=artists.new_releases(ids) if ids else [])
+        releases = (artists.new_releases(ids) if ids else []) + (sc_new_releases(sc_ids) if sc_ids else [])
+        releases.sort(key=lambda r: r.get("date") or "", reverse=True)
+        return jsonify(releases=releases)
     except Exception as e:
         return jsonify(error=friendly_error(e)), 502
 
@@ -1979,9 +2098,9 @@ IMG_DIR.mkdir(exist_ok=True)
 
 @app.get("/api/img")
 def api_img():
-    """Фото исполнителя / обложка альбома (Яндекс) — через сервер и с кэшем на диске."""
+    """Фото исполнителя / обложка альбома (Яндекс, Deezer, SoundCloud) — через сервер и с кэшем на диске."""
     url = request.args.get("u", "")
-    if not re.match(r"^https://(avatars\.yandex\.net|[\w.-]+\.dzcdn\.net)/", url):
+    if not re.match(r"^https://(avatars\.yandex\.net|[\w.-]+\.dzcdn\.net|i\d*\.sndcdn\.com)/", url):
         abort(400)
     path = IMG_DIR / (hashlib.sha1(url.encode()).hexdigest() + ".jpg")
     if not path.exists():

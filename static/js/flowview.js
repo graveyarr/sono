@@ -7,7 +7,7 @@
 
 import { analyserNode } from "./audio.js";
 import { FLOW_MODES, FLOW_TUNE, flowTune, setFlowTune, tuneSummary, flowMode, flowPlaying, hasTaste, learnedSummary, resetLearning, seedTaste, setFlowMode, startFlow,
-         tasteArtists } from "./flow.js";
+         tasteArtists, warmFlow } from "./flow.js";
 import { icons } from "./icons.js";
 import { lib, motionOff } from "./library.js";
 import { artistByName } from "./meta.js";
@@ -36,6 +36,7 @@ function build() {
   play.type = "button";
   play.innerHTML = `<span class="i-play">${icons.play}</span><span class="i-pause">${icons.pause}</span>`;
   play.addEventListener("click", () => (flowPlaying() ? togglePlay() : startFlow({ mode: flowMode() })));
+  play.addEventListener("pointerenter", () => warmFlow());
   const next = el("button", "flowv-next");
   next.type = "button";
   next.title = "Следующий трек Flow";
