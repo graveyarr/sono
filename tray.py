@@ -62,7 +62,7 @@ _main_hwnd = None       # его HWND (titlebar.install знает его ран
 _tray_hwnd = None
 _proc = None            # держим ссылку на обработчик — иначе сборщик мусора удалит его
 _nid = None
-_state = {"tip": "Sono", "playing": False, "close_to_tray": True, "quitting": False, "told": False}
+_state = {"tip": "Sono", "playing": False, "close_to_tray": True, "quitting": False}
 
 
 def _icon():
@@ -110,11 +110,8 @@ def _wndproc(hwnd, msg, wparam, lparam):
             _menu()
         return 0
     if msg == WM_TRAY_UPDATE and _nid:
-        _nid.uFlags = NIF_TIP | (NIF_INFO if wparam else 0)
+        _nid.uFlags = NIF_TIP
         _nid.szTip = _state["tip"][:127]
-        if wparam:   # один раз — пузырь «Sono играет в трее»
-            _nid.szInfoTitle = "Sono продолжает играть"
-            _nid.szInfo = "Окно спрятано в трей. Открыть — щелчок по значку, выйти — правой кнопкой → «Выход»."
         shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(_nid))
         return 0
     return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -154,10 +151,8 @@ def _on_closing() -> bool | None:
     if _state["quitting"] or not _state["close_to_tray"] or not _main_hwnd:
         remove()
         return None
+    # Без уведомления Windows «Sono продолжает играть» — автор попросил убрать (6 ноября 2026)
     user32.ShowWindow(_main_hwnd, SW_HIDE)
-    if not _state["told"]:   # подсказать один раз за запуск, куда делось окно
-        _state["told"] = True
-        user32.PostMessageW(_tray_hwnd, WM_TRAY_UPDATE, 1, 0)
     return False   # отменить закрытие
 
 

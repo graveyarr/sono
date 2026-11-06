@@ -9,11 +9,14 @@
 одновременно с движком окна. Раньше сначала грузился сервер, и только потом показывалось окно.
 """
 import html
+import json
 import os
+import secrets
 import sys
 import threading
 import time
 import traceback
+import urllib.request
 
 _started = time.perf_counter()
 
@@ -25,11 +28,37 @@ _args = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
 if "HardwareMediaKeyHandling" not in _args:
     os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (_args + " --enable-features=HardwareMediaKeyHandling").strip()
 
+from paths import DATA_DIR  # noqa: E402
+
+# ---------- Одна копия программы ----------
+# Sono часто живёт в трее (окно закрыли — музыка играет). Раньше ярлык тогда запускал вторую копию,
+# а установщик обновления не мог заменить файлы, пока первая их держит, — обновление молча не вставало.
+# Теперь запущенная копия записывает свой адрес в instance.json, а новая просит её показать окно и выходит.
+INSTANCE_FILE = DATA_DIR / "instance.json"
+
+
+def _wake_running() -> bool:
+    try:
+        info = json.loads(INSTANCE_FILE.read_text(encoding="utf-8"))
+        if sys.platform == "win32":   # разрешить той копии выйти на передний план (иначе Windows мигнёт кнопкой)
+            import ctypes
+            ctypes.windll.user32.AllowSetForegroundWindow(int(info["pid"]))
+        req = urllib.request.Request(f"http://127.0.0.1:{int(info['port'])}/api/instance/show", data=b"",
+                                     method="POST", headers={"X-Sono-Instance": str(info["token"])})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # мимо прокси из переменных окружения
+        with opener.open(req, timeout=2) as resp:
+            return resp.status == 200
+    except Exception:
+        return False   # файла нет, копия закрыта или не отвечает — запускаемся сами
+
+
+if _wake_running():
+    sys.exit(0)
+
 import webview  # noqa: E402
 
 import titlebar  # noqa: E402
 import tray  # noqa: E402
-from paths import DATA_DIR  # noqa: E402
 
 # У .exe нет консоли, печатать некуда. Пишем всё в файл —
 # его удобно смотреть, если что-то сломалось.
@@ -51,6 +80,14 @@ _server = {}
 _server_ready = threading.Event()
 
 
+def _show_window():
+    """Показать окно (вторая копия попросила): из трея, из свёрнутого, поверх остальных"""
+    if tray._main_hwnd:
+        tray.show_window()
+    else:
+        window.show()
+
+
 def _load_server():
     try:
         from werkzeug.serving import make_server
@@ -60,6 +97,12 @@ def _load_server():
         server = make_server("127.0.0.1", 0, app, threaded=True)
         threading.Thread(target=server.serve_forever, daemon=True).start()   # daemon: закрыли окно — сервер умер
         _server["port"] = server.port
+        token = secrets.token_hex(8)   # чтобы откликалась только наша программа, а не что-то на том же порту
+        app.config.update(INSTANCE_TOKEN=token, SHOW_WINDOW=_show_window)
+        try:
+            INSTANCE_FILE.write_text(json.dumps({"pid": os.getpid(), "port": server.port, "token": token}), encoding="utf-8")
+        except OSError:
+            pass
         print(f"[desktop] сервер на http://127.0.0.1:{server.port} — через {time.perf_counter() - _started:.2f} с после запуска")
     except Exception:
         traceback.print_exc()

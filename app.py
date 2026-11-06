@@ -1728,6 +1728,16 @@ def api_open_link(source, track_id):
     return jsonify(ok=True)
 
 
+@app.post("/api/instance/show")
+def api_instance_show():
+    """Sono запустили ещё раз (ярлык, «Пуск»), а эта копия уже работает — показываем её окно (desktop.py)."""
+    token, show = app.config.get("INSTANCE_TOKEN"), app.config.get("SHOW_WINDOW")
+    if not token or not show or request.headers.get("X-Sono-Instance") != token:
+        abort(404)
+    show()
+    return jsonify(ok=True)
+
+
 @app.post("/api/open-releases")
 def api_open_releases():
     """Окно «Что нового» → «Все выпуски на GitHub»: открыть страницу выпусков в обычном браузере.

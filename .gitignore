@@ -9,6 +9,7 @@ dist/
 
 # Данные запущенного приложения (личные плейлисты, избранное, история)
 library.json
+instance.json
 library.tmp
 network.json
 # Свои файлы с компьютера: какие папки добавил человек (localfiles.py)

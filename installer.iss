@@ -38,6 +38,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Если программа открыта — установщик сам предложит её закрыть (при обновлении)
 CloseApplications=yes
+; Журнал установки — в %TEMP%\Setup Log <дата>.txt (если обновление не встало, там видно почему)
+SetupLogging=yes
 
 [Languages]
 Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -82,6 +84,28 @@ var
 begin
   Result := (RegQueryStringValue(HKLM, WebView2Key, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0'))
     or (RegQueryStringValue(HKCU, WebView2KeyUser, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0'));
+end;
+
+// Перед заменой файлов закрываем все копии Sono. Обычное «закрыть» (его шлёт CloseApplications) Sono
+// не слушается, если он спрятан в трей: окно прячется, программа работает дальше и держит свои файлы.
+// Тихий установщик (автообновление) тогда молча сдавался — обновление не вставало (было 6 ноября 2026).
+// Медиатека сохраняется сразу после каждого изменения, так что ничего не теряется.
+// Закрываем только копии из папки, куда ставим (не трогаем Sono, запущенный из другого места).
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  AppDir: String;
+begin
+  AppDir := ExpandConstant('{app}');
+  StringChangeEx(AppDir, '''', '''''', True);   // апостроф в имени папки пользователя — удваиваем для PowerShell
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+       '-NoProfile -ExecutionPolicy Bypass -Command "$n = 0; Get-Process -Name ''{#MyAppExeName}'' -ErrorAction SilentlyContinue | ' +
+       'Where-Object { $_.Path -and $_.Path.StartsWith(''' + AppDir + '\'', ''OrdinalIgnoreCase'') } | ' +
+       'ForEach-Object { Stop-Process -Id $_.Id -Force; $n++ }; exit $n"',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if ResultCode > 0 then
+    Sleep(1000);   // дать Windows отпустить файлы закрытых процессов
+  Result := '';
 end;
 
 // Установщик запустила сама программа, чтобы обновиться (параметр /UPDATE=1)
