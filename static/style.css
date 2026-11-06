@@ -1859,6 +1859,8 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
 }
 .set-mode:hover { background: rgba(255, 255, 255, 0.07); }
 .set-mode:active { transform: scale(0.99); }
+.set-mode:disabled { cursor: progress; opacity: 0.75; }
+.set-mode .set-mode-saving { color: var(--accent); font-weight: 600; }
 .set-mode.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .set-mode p { margin: 8px 0 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
 .set-mode-head { display: flex; align-items: center; gap: 10px; }

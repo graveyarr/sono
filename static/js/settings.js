@@ -17,10 +17,13 @@ import { CHANGELOG } from "./changelog.js";
 import { showWhatsNew } from "./whatsnew.js";
 
 const box = document.getElementById("view-settings");
-let network = null;      // { mode, strategy, strategySc, fakeTtl, proxy }
+let network = null;      // { mode, strategy, strategySc, fakeTtl, proxy, direct }
+let netCard = null;      // адрес сетевой карты для «Мимо VPN» (null — не нашли или выключено)
 let strategies = {};     // способ → подпись
 let lastTest = null;     // результаты замера
 let testing = false;
+let proxyDraft = false;  // выбрали «Свой прокси», но адрес ещё не ввели (на сервере режим прежний)
+let netSaving = null;    // режим, который сейчас сохраняется (карточки на это время не нажимаются)
 
 const MODES = [
   { value: "bypass", title: "Встроенный обход", badge: "Рекомендуем",
@@ -32,14 +35,26 @@ const MODES = [
 ];
 
 async function saveNetwork(change) {
-  const res = await fetch("/api/network", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(change),
-  });
-  const data = await res.json();
+  // Не ждём вечно: если плеер занят, лучше сказать об этом, чем молча не переключаться
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), 15000);
+  let res;
+  try {
+    res = await fetch("/api/network", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(change),
+      signal: stop.signal,
+    });
+  } catch {
+    throw new Error("Плеер не ответил — попробуйте ещё раз");
+  } finally {
+    clearTimeout(timer);
+  }
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "не сохранилось");
   network = data.config;
+  netCard = data.card ?? null;
 }
 
 const label = (name) => (name === "off" ? "Напрямую" : name === "proxy" ? "Свой прокси" : strategies[name] ?? name);
@@ -53,26 +68,35 @@ function networkSection() {
 
   // Режимы — карточками
   const modes = el("div", "set-modes");
+  const shown = proxyDraft ? "proxy" : network.mode;   // выбранная карточка (черновик прокси — тоже)
   for (const mode of MODES) {
-    const card = el("button", `set-mode${network.mode === mode.value ? " on" : ""}`);
+    const card = el("button", `set-mode${shown === mode.value ? " on" : ""}`);
     card.type = "button";
+    card.disabled = !!netSaving;
     const head = el("div", "set-mode-head");
     head.append(el("span", "set-radio"), el("span", "set-mode-title", mode.title));
     card.append(head);
     if (mode.badge) card.append(el("span", "set-badge", mode.badge));
     card.append(el("p", "", mode.text));
+    if (netSaving === mode.value) card.append(el("p", "set-mode-saving", "Сохраняю…"));
     card.addEventListener("click", async () => {
-      if (network.mode === mode.value) return;
-      if (mode.value === "proxy" && !network.proxy) {   // адреса ещё нет — сначала просим его ввести
-        network = { ...network, mode: "proxy" };
+      if (netSaving) return;
+      // Адреса прокси ещё нет — сначала просим его ввести (на сервере пока остаётся прежний режим)
+      if (mode.value === "proxy" && !network.proxy) {
+        proxyDraft = true;
         render();
         box.querySelector(".set-proxy input")?.focus();
         return;
       }
+      proxyDraft = false;
+      if (network.mode === mode.value) { render(); return; }   // уже включён (ушли с черновика прокси)
+      netSaving = mode.value;
+      render();
       try {
         await saveNetwork({ mode: mode.value });
         toast(`Обход: ${mode.title.toLowerCase()}`);
       } catch (err) { toast(err.message, { error: true }); }
+      netSaving = null;
       render();
     });
     modes.append(card);
@@ -80,7 +104,7 @@ function networkSection() {
   section.append(modes);
 
   // Детали выбранного режима
-  if (network.mode === "bypass") {
+  if (shown === "bypass") {
     // Способ — свой для YouTube и для SoundCloud: SoundCloud провайдеры замораживают иначе
     const strategyRow = (key) => {
       const seg = el("div", "seg set-strategies");
@@ -100,7 +124,7 @@ function networkSection() {
       el("p", "set-hint", "У разных провайдеров срабатывают разные способы. Не знаете какой — нажмите «Подобрать лучший способ». "
         + "«Подделка» — против заморозки SoundCloud: открывается, но трек не грузится."));
   }
-  if (network.mode === "proxy") {
+  if (shown === "proxy") {
     const row = el("form", "set-proxy");
     const input = el("input", "dialog-input");
     input.placeholder = "socks5://127.0.0.1:1080";
@@ -112,12 +136,29 @@ function networkSection() {
       e.preventDefault();
       try {
         await saveNetwork({ mode: "proxy", proxy: input.value });
+        proxyDraft = false;
         toast("Прокси сохранён");
         render();
       } catch (err) { toast(err.message, { error: true }); }
     });
     section.append(el("div", "set-label", "Адрес прокси"), row,
       el("p", "set-hint", "Адрес есть в настройках вашего VPN или прокси-программы (раздел «Прокси», «SOCKS5» или «HTTP»)."));
+  }
+
+  // «Мимо VPN»: VPN на весь компьютер (TUN) забирает и соединения плеера — обход тогда не срабатывает.
+  // С этим переключателем плеер ходит прямо через сетевую карту (netbypass.set_direct)
+  if (shown !== "proxy") {
+    const sub = network.direct
+      ? (netCard ? `Плеер ходит в интернет прямо через сетевую карту (${netCard}), в обход VPN. Остальные программы — как раньше.`
+        : "Не нашёл сетевую карту — плеер ходит как обычно.")
+      : "Если на компьютере включён VPN, а музыку хочется слушать без него (или проверить, как работает обход без VPN).";
+    section.append(switchRow("Мимо VPN", sub, !!network.direct, async (on) => {
+      try {
+        await saveNetwork({ direct: on });
+        toast(on ? (netCard ? "Плеер ходит мимо VPN" : "Сетевая карта не найдена") : "Плеер ходит как обычно");
+      } catch (err) { toast(err.message, { error: true }); }
+      render();
+    }));
   }
 
   // Замер скорости
@@ -894,6 +935,7 @@ export async function renderSettings() {
     try {
       const data = await (await fetch("/api/network")).json();
       network = data.config;
+      netCard = data.card ?? null;
       strategies = Object.fromEntries(data.strategies);   // пары [способ, подпись] — в нужном порядке
       presenceInfo = await (await fetch("/api/presence")).json().catch(() => null);
     } catch {

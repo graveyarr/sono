@@ -50,9 +50,10 @@ zapret.init(DATA_DIR)                   # автонастройка zapret: с�
 
 NETWORK_FILE = DATA_DIR / "network.json"
 # strategy — для YouTube и всего остального, strategySc — для SoundCloud (его замораживают иначе, см. netbypass.py),
-# fakeTtl — сколько «шагов» по сети проходит подделка (подбирает замер)
+# fakeTtl — сколько «шагов» по сети проходит подделка (подбирает замер),
+# direct — «Мимо VPN»: соединения плеера идут прямо через сетевую карту, в обход адаптера VPN (netbypass.set_direct)
 NETWORK_DEFAULT = {"mode": "bypass", "strategy": "oob",
-                   "strategySc": "fake" if netbypass.FAKE_OK else "oob", "fakeTtl": 4, "proxy": ""}
+                   "strategySc": "fake" if netbypass.FAKE_OK else "oob", "fakeTtl": 4, "proxy": "", "direct": False}
 _network = dict(NETWORK_DEFAULT)
 _desync: netbypass.DesyncProxy | None = None
 
@@ -63,8 +64,14 @@ def apply_network(config: dict) -> None:
         _desync.stop()
         _desync = None
     proxy = ""
+    # «Мимо VPN» работает через наш прокси (он привязывает соединения к сетевой карте), поэтому
+    # и в режиме «Напрямую» тогда запускаем прокси — без уловок (none). Со своим прокси — не нужен
+    bind = netbypass.set_direct(bool(config.get("direct")) and config["mode"] != "proxy")
     if config["mode"] == "bypass":
         _desync = netbypass.DesyncProxy(config["strategy"], config["strategySc"], config["fakeTtl"])
+        proxy = _desync.url
+    elif config["mode"] == "off" and bind:
+        _desync = netbypass.DesyncProxy("none")
         proxy = _desync.url
     elif config["mode"] == "proxy":
         proxy = config["proxy"]
@@ -76,6 +83,12 @@ def apply_network(config: dict) -> None:
     os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost"
     _network.clear()
     _network.update(config)
+    if "_stream_cache" in globals():   # при запуске кэш ссылок ещё не загружен — его проверит _load_stream_links
+        _forget_links_if_route_changed()
+    if "_http" in globals():
+        # Открытые соединения шли через прежний прокси (или прежним способом) — закрываем, новые пойдут по-новому.
+        # Иначе первый запрос после смены способа мог повиснуть на старом соединении (поиск SoundCloud «без конца»)
+        _http.close()
     print(f"[network] режим: {config['mode']}" + (f" (YouTube: {config['strategy']}, SoundCloud: {config['strategySc']}, "
                                                    f"TTL {config['fakeTtl']})" if config["mode"] == "bypass" else ""))
     reset_ydl_pools()   # у готовых экземпляров yt-dlp прокси прежний — пусть создадутся заново
@@ -102,7 +115,8 @@ YDL_OPTIONS = {
                   "extractor_args": {"youtube": {"player_client": ["visionos"]}}},
     "clip_full": {"quiet": True, "no_warnings": True, "noplaylist": True, "format": VIDEO_FORMAT},
     # Поиск (список без подробностей)
-    "search": {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True},
+    # socket_timeout: если сеть «застряла», yt-dlp иначе ждёт по 20 с на каждую из нескольких попыток — минуты
+    "search": {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True, "socket_timeout": 12},
     # Ссылка на звук SoundCloud (кусочки HLS). Готовый экземпляр — ~0,8 с вместо ~1,4 с у нового
     "sc": {"quiet": True, "no_warnings": True, "noplaylist": True,
            "format": "bestaudio[protocol=m3u8_native]/bestaudio"},
@@ -170,6 +184,7 @@ def _load_network() -> dict:
                 config[key] = NETWORK_DEFAULT[key]
         if not isinstance(config["fakeTtl"], int) or not 1 <= config["fakeTtl"] <= 32:
             config["fakeTtl"] = NETWORK_DEFAULT["fakeTtl"]
+        config["direct"] = config["direct"] is True
         return config
     except (OSError, ValueError):
         return dict(NETWORK_DEFAULT)
@@ -303,8 +318,16 @@ def _sc_search_api(query: str, limit: int) -> list[dict]:
     if not client_id:
         raise LookupError("yt-dlp ещё не узнал ключ SoundCloud")
     # Заголовки как у браузера на soundcloud.com: без них SoundCloud через раз отвечает 403
-    resp = _http.get("https://api-v2.soundcloud.com/search/tracks", timeout=10, headers=SC_HEADERS,
-                     params={"q": query, "client_id": client_id, "limit": limit})
+    # Замёрзшее соединение (провайдер иногда замораживает отдельные соединения с SoundCloud) — сразу ещё раз,
+    # по новому соединению, а не 10 с ожидания и потом медленный yt-dlp
+    for attempt in range(3):
+        try:
+            resp = _http.get("https://api-v2.soundcloud.com/search/tracks", timeout=(5, 4), headers=SC_HEADERS,
+                             params={"q": query, "client_id": client_id, "limit": limit})
+            break
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 2:
+                raise
     resp.raise_for_status()
     entries = []
     for t in resp.json()["collection"]:
@@ -445,19 +468,46 @@ _stream_cache: dict[str, tuple[float, str, dict]] = {}   # id -> (до_како�
 _stream_file_lock = threading.Lock()
 
 
+# YouTube привязывает ссылку к адресу, с которого её получили: ссылка, полученная через VPN или прокси,
+# с домашнего адреса не откроется (403) — и наоборот. Поэтому запоминаем, каким путём ходили в интернет,
+# и при смене пути (режим обхода, «Мимо VPN», свой прокси) старые ссылки выбрасываем.
+# Было 6 ноября 2026: после включения «Мимо VPN» замер брал ссылки, полученные ещё через VPN, — «YouTube не работает».
+def _route() -> str:
+    return f"{_network.get('mode')}|{bool(_network.get('direct')) and _network.get('mode') != 'proxy'}|"            f"{_network.get('proxy') if _network.get('mode') == 'proxy' else ''}"
+
+
+_links_route = None   # путь, которым получены ссылки в _stream_cache
+
+
+def _forget_links_if_route_changed():
+    global _links_route
+    if _links_route == _route():
+        return
+    if _links_route is not None and _stream_cache:
+        print("[stream] сменился путь в интернет — старые ссылки YouTube больше не годятся, получим новые")
+        _stream_cache.clear()
+    _links_route = _route()
+    _save_stream_links()
+
+
 def _load_stream_links():
+    global _links_route
     try:
         saved = json.loads(STREAM_LINKS_FILE.read_text(encoding="utf-8"))
-        now = time.time()
-        _stream_cache.update({vid: tuple(v) for vid, v in saved.items() if v[0] > now})
-    except (OSError, ValueError, TypeError, IndexError):
+        _links_route = saved.pop("_route", "")   # в старом файле пути нет — ссылки неизвестно откуда, не берём
+        if _links_route == _route():
+            now = time.time()
+            _stream_cache.update({vid: tuple(v) for vid, v in saved.items() if v[0] > now})
+    except (OSError, ValueError, TypeError, IndexError, AttributeError):
         pass   # файла нет или он испорчен — просто начнём с пустого
+    _links_route = _route()
 
 
 def _save_stream_links():
     with _stream_file_lock:
         now = time.time()
         alive = {vid: list(v) for vid, v in list(_stream_cache.items()) if v[0] > now}
+        alive["_route"] = _links_route or _route()
         tmp = STREAM_LINKS_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(alive), encoding="utf-8")
         os.replace(tmp, STREAM_LINKS_FILE)
@@ -733,9 +783,18 @@ def _hls_parts(url: str, headers: dict) -> list[str]:
 
 
 def _fetch(url: str, headers: dict) -> bytes:
-    resp = _http.get(url, headers=headers, timeout=20)
-    resp.raise_for_status()
-    return resp.content
+    # Кусочек — 100–300 КБ, обычно приходит за доли секунды. Если соединение «замёрзло» (провайдер иногда
+    # замораживает отдельные соединения с SoundCloud, даже с обходом), не ждём 20 с, а берём кусочек заново —
+    # новое соединение обычно проходит. Раньше один замёрзший кусочек обрывал весь трек (замер 6 ноября 2026)
+    # Замёрзший адрес прокси сразу убирает из рабочих (netbypass._sc_frozen) — следующая попытка идёт через другой
+    for attempt in range(5):
+        try:
+            resp = _http.get(url, headers=headers, timeout=(6, 4))
+            resp.raise_for_status()
+            return resp.content
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 4:
+                raise
 
 
 def _run_sc_download(job: ScDownload):
@@ -1585,7 +1644,7 @@ def _pick_fake_ttl() -> int | None:
 @app.get("/api/network")
 def api_network():
     # Списком пар, а не словарём: Flask сортирует ключи словаря, а порядок способов важен
-    return jsonify(config=_network, strategies=list(netbypass.STRATEGIES.items()))
+    return jsonify(config=_network, strategies=list(netbypass.STRATEGIES.items()), card=netbypass.BIND)
 
 
 @app.put("/api/network")
@@ -1594,14 +1653,15 @@ def api_network_save():
     config = {**_network, **{k: data[k] for k in NETWORK_DEFAULT if k in data}}
     if (config["mode"] not in ("off", "bypass", "proxy") or config["strategy"] not in netbypass.STRATEGIES
             or config["strategySc"] not in netbypass.STRATEGIES
-            or not isinstance(config["fakeTtl"], int) or not 1 <= config["fakeTtl"] <= 32):
+            or not isinstance(config["fakeTtl"], int) or not 1 <= config["fakeTtl"] <= 32
+            or not isinstance(config["direct"], bool)):
         return jsonify(error="Неизвестный режим"), 400
     if config["mode"] == "proxy" and not re.match(r"^(https?|socks5h?|socks4)://[^\s/]+:\d+$", config["proxy"].strip()):
         return jsonify(error="Адрес прокси — в виде socks5://127.0.0.1:1080 или http://адрес:порт"), 400
     config["proxy"] = config["proxy"].strip()
     apply_network(config)
     NETWORK_FILE.write_text(json.dumps(config), encoding="utf-8")
-    return jsonify(config=_network)
+    return jsonify(config=_network, card=netbypass.BIND)
 
 
 @app.post("/api/network/test")
@@ -1609,7 +1669,7 @@ def api_network_test():
     """Замер: напрямую, каждым способом обхода и через свой прокси (если задан). Занимает 30–60 секунд.
     В ответе — результаты и лучшее сочетание (best): способ для YouTube, для SoundCloud и TTL подделки."""
     try:
-        stream_url, headers = resolve_stream(TEST_VIDEO)
+        stream_url, headers = _test_link()
     except Exception as e:
         return jsonify(error="Не получилось открыть YouTube даже для замера. Попробуйте режим «Свой прокси» "
                              f"(адрес из вашего VPN). Подробности: {friendly_error(e)}"), 502
@@ -1620,12 +1680,41 @@ def api_network_test():
         variants.append(("proxy", _network["proxy"]))
     results = []
     for name, kind in variants:
-        tmp = netbypass.DesyncProxy(name, name, fake_ttl or 4) if kind == "bypass" else None
+        if kind == "bypass" or (name == "off" and netbypass.BIND):   # «напрямую» мимо VPN — тоже через наш прокси
+            tmp = netbypass.DesyncProxy("none" if name == "off" else name, None, fake_ttl or 4)
+        else:
+            tmp = None
         proxy = tmp.url if tmp else kind if name == "proxy" else None
         results.append({"name": name, **_measure(proxy, stream_url, headers)})
         if tmp:
             tmp.stop()
     return jsonify(results=results, best=_best_network(results, fake_ttl), fakeTtl=fake_ttl)
+
+
+def _test_link() -> tuple[str, dict]:
+    """Свежая ссылка на звук для замера (старая могла быть получена другим путём — через VPN — и не откроется).
+    Если нынешним способом YouTube не открывается (например, выбран неработающий), берём ссылку через каждый
+    способ обхода по очереди: ссылка привязана к адресу, а не к способу, — дальше замер проверит все.
+    Раньше замер в таком случае сразу сдавался."""
+    # Без повторов и с коротким ожиданием: неработающий способ yt-dlp иначе пробует по минуте и больше
+    quick = {**YDL_OPTIONS["yt_fast"], "extractor_retries": 0, "socket_timeout": 8}
+    order = sorted(netbypass.STRATEGIES, key=lambda n: (n != "oob", n == "fake"))   # «лишний байт» — чаще всего работает
+    ways = [None] + ([] if _network.get("mode") == "proxy" else [n for n in order if n != _network.get("strategy")])
+    error = None
+    for name in ways:   # None — нынешним путём (как ходит плеер)
+        tmp = netbypass.DesyncProxy(name, name, _network.get("fakeTtl", 4)) if name else None
+        try:
+            with yt_dlp.YoutubeDL({**quick, "proxy": tmp.url} if tmp else quick) as ydl:
+                info = ydl.extract_info(track_url("youtube", TEST_VIDEO), download=False)
+            print(f"[network] ссылка для замера получена {'способом ' + name if name else 'нынешним путём'}")
+            return info["url"], info.get("http_headers") or {}
+        except Exception as e:
+            error = error or e
+            print(f"[network] ссылка для замера ({name or 'нынешним путём'}): {str(e)[:100]}")
+        finally:
+            if tmp:
+                tmp.stop()
+    raise error
 
 
 def _best_network(results: list[dict], fake_ttl: int | None) -> dict | None:

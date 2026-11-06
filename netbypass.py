@@ -336,12 +336,304 @@ def resolve(host: str) -> str:
     raise OSError(f"не удаётся узнать адрес {host}")
 
 
-def _connect(host: str, port: int) -> socket.socket:
+# ---------- «Мимо VPN»: соединения прямо через сетевую карту ----------
+# VPN с режимом TUN (MantaRay, sing-box, clash…) забирает весь трафик компьютера в свой адаптер и сам
+# заново отправляет соединения — наши уловки с первым пакетом до провайдера тогда не доходят, а заодно
+# не проверить, как Sono работает без VPN. Если соединение привязать к адресу настоящей сетевой карты,
+# Windows отправит его прямо через неё, мимо адаптера VPN (проверено 3 ноября 2026).
+# Адреса сайтов тогда тоже спрашиваем сами, через ту же карту: DNS у таких VPN выдаёт «ненастоящие»
+# адреса 198.18.x.x, которые работают только внутри VPN.
+
+BIND: str | None = None   # адрес сетевой карты, к которому привязываем соединения (None — как обычно)
+DNS_SERVERS = ("77.88.8.8", "8.8.8.8", "1.1.1.1")   # Яндекс, Google, Cloudflare — кто ответит первым
+_udp_cache: dict[str, tuple[float, str]] = {}
+
+
+def _virtual(ip: str) -> bool:
+    """Адрес VPN/виртуальной сети, а не настоящей карты"""
+    try:
+        a, b = (int(x) for x in ip.split(".")[:2])
+    except ValueError:
+        return True
+    return (a in (0, 127) or (a, b) == (169, 254) or (a == 198 and b in (18, 19))   # 198.18/15 — «ненастоящие» адреса VPN
+            or a == 26                                                             # Radmin VPN
+            or (a == 100 and 64 <= b <= 127))                                      # CGNAT/Tailscale
+
+
+def physical_address() -> str | None:
+    """Адрес настоящей сетевой карты: та, у которой маршрут «весь интернет» (0.0.0.0/0) ведёт на роутер.
+    VPN обычно ставит свои маршруты половинками (0.0.0.0/1 + 128.0.0.0/1) или с большой метрикой."""
+    if sys.platform != "win32":
+        return None
+    import subprocess
+    try:
+        out = subprocess.run(["route", "print", "-4", "0.0.0.0"], capture_output=True, timeout=5,
+                             creationflags=0x08000000).stdout.decode("ascii", "ignore")   # без окна консоли
+    except (OSError, subprocess.SubprocessError):
+        return None
+    best = None
+    for line in out.splitlines():
+        parts = line.split()
+        # «0.0.0.0  0.0.0.0  шлюз  адрес_карты  метрика»; у постоянных маршрутов — 4 колонки, их пропускаем
+        if len(parts) != 5 or parts[:2] != ["0.0.0.0", "0.0.0.0"] or not parts[4].isdigit():
+            continue
+        gateway, ip, metric = parts[2], parts[3], int(parts[4])
+        if gateway.count(".") != 3 or _virtual(ip) or _virtual(gateway):
+            continue
+        if best is None or metric < best[1]:
+            best = (ip, metric)
+    return best[0] if best else None
+
+
+def set_direct(on: bool) -> str | None:
+    """Включить/выключить «Мимо VPN». Возвращает адрес карты (None — не нашли или выключено)."""
+    global BIND
+    BIND = physical_address() if on else None
+    _udp_cache.clear()
+    _sc_good.clear()   # другой путь в интернет — проверенные адреса SoundCloud могли стать другими
+    _sc_bad.clear()
+    _sc_none.clear()
+    if on:
+        print(f"[network] мимо VPN: через сетевую карту {BIND}" if BIND else "[network] мимо VPN: сетевая карта не найдена")
+    return BIND
+
+
+def _dns_query(host: str) -> bytes:
+    qid = os.urandom(2)
+    labels = b"".join(bytes([len(p)]) + p for p in host.encode("idna").split(b".") if p)
+    return qid + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + labels + b"\x00\x00\x01\x00\x01"
+
+
+def _dns_answer(reply: bytes, query: bytes) -> tuple[str, int] | None:
+    """Первый адрес (A-запись) из ответа DNS и его время жизни"""
+    if len(reply) < 12 or reply[:2] != query[:2] or reply[3] & 0x0F:   # чужой ответ или ошибка
+        return None
+    count = int.from_bytes(reply[6:8], "big")
+    pos = len(query)   # вопрос повторяется в ответе как есть
+    for _ in range(count):
+        if pos >= len(reply):
+            return None
+        if reply[pos] & 0xC0 == 0xC0:   # имя — ссылкой
+            pos += 2
+        else:
+            while pos < len(reply) and reply[pos]:
+                pos += reply[pos] + 1
+            pos += 1
+        rtype, ttl, size = (int.from_bytes(reply[pos:pos + 2], "big"), int.from_bytes(reply[pos + 4:pos + 8], "big"),
+                            int.from_bytes(reply[pos + 8:pos + 10], "big"))
+        data = reply[pos + 10:pos + 10 + size]
+        pos += 10 + size
+        if rtype == 1 and size == 4:
+            return ".".join(str(b) for b in data), ttl
+    return None
+
+
+def _doh_direct(host: str, bind: str) -> tuple[str, int] | None:
+    """DNS-over-HTTPS (Cloudflare, Google) с сетевой карты. Обычный DNS (порт 53) мимо VPN часто закрыт:
+    такие VPN ставят правило брандмауэра «DNS — только через нас» (у MantaRay так, замер 6 ноября 2026)"""
+    import http.client
+    for server, path in (("1.1.1.1", "/dns-query"), ("8.8.8.8", "/resolve")):
+        conn = http.client.HTTPSConnection(server, 443, timeout=3, source_address=(bind, 0),
+                                           context=ssl.create_default_context())
+        try:
+            conn.request("GET", f"{path}?type=A&name={urllib.parse.quote(host)}", headers={"Accept": "application/dns-json"})
+            answers = json.loads(conn.getresponse().read()).get("Answer") or []
+            for a in answers:
+                if a.get("type") == 1 and not _virtual(a.get("data", "")):
+                    return a["data"], int(a.get("TTL", 300))
+        except (OSError, ValueError, http.client.HTTPException):
+            continue
+        finally:
+            conn.close()
+    return None
+
+
+def resolve_direct(host: str, bind: str) -> str:
+    """Адрес сайта мимо DNS VPN, с той же сетевой карты: DNS-over-HTTPS, а не вышло — обычный DNS (UDP)"""
+    cached = _udp_cache.get(host)
+    if cached and cached[0] > time.time():
+        return cached[1]
+    found = _doh_direct(host, bind)
+    if found:
+        _udp_cache[host] = (time.time() + min(max(60, found[1]), 3600), found[0])
+        return found[0]
+    query = _dns_query(host)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.bind((bind, 0))
+        deadline = time.time() + 4
+        for attempt in range(2):   # UDP может потеряться — второй раз спрашиваем ещё раз всех
+            for server in DNS_SERVERS:
+                try:
+                    s.sendto(query, (server, 53))
+                except OSError:
+                    pass
+            while (left := min(deadline, time.time() + 1.5 * (attempt + 1)) - time.time()) > 0:
+                s.settimeout(left)
+                try:
+                    reply, _ = s.recvfrom(2048)
+                except OSError:
+                    break
+                found = _dns_answer(reply, query)
+                if found and not _virtual(found[0]):
+                    _udp_cache[host] = (time.time() + min(max(60, found[1]), 3600), found[0])
+                    return found[0]
+    raise OSError(f"не удаётся узнать адрес {host} мимо VPN")
+
+
+def _all_addresses(host: str) -> list[str]:
+    """Все адреса сайта (у SoundCloud их по 4–12, у разных DNS — разные): системный DNS и DNS-over-HTTPS
+    (с сетевой карты, если «Мимо VPN»). Адреса VPN (198.18.x.x) отбрасываются."""
+    import http.client
+    found: list[str] = []
+    if not BIND:
+        try:
+            found += [a[4][0] for a in socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)]
+        except OSError:
+            pass
+    for server, path in (("1.1.1.1", "/dns-query"), ("8.8.8.8", "/resolve")):
+        conn = http.client.HTTPSConnection(server, 443, timeout=3, context=ssl.create_default_context(),
+                                           **({"source_address": (BIND, 0)} if BIND else {}))
+        try:
+            conn.request("GET", f"{path}?type=A&name={urllib.parse.quote(host)}", headers={"Accept": "application/dns-json"})
+            found += [a["data"] for a in json.loads(conn.getresponse().read()).get("Answer") or [] if a.get("type") == 1]
+        except (OSError, ValueError, http.client.HTTPException):
+            pass
+        finally:
+            conn.close()
+    return list(dict.fromkeys(ip for ip in found if not _virtual(ip)))
+
+
+# ---------- SoundCloud: «замороженные» адреса ----------
+# SoundCloud живёт в сети Amazon CloudFront, у каждого его сайта много адресов, и DNS выдаёт разные
+# (Google DNS — «поближе к России»). Часть адресов фильтр провайдера замораживает после ~16 КБ при
+# любом способе обхода, другие с «подделкой» работают (замер 6 ноября 2026: 108.157.214.x — всегда
+# заморозка; 13.33.235.x, 143.204.238.x, 52.84.150.x — работают). Поиск тогда то работал, то висел.
+# Любой адрес CloudFront отдаёт любой сайт SoundCloud (сайт выбирается по имени в приветствии TLS),
+# поэтому проверяем адреса — скачиваем главную soundcloud.com (~77 КБ, ~0,6 с) — и ходим через рабочие.
+
+SC_GOOD_FOR = 20 * 60   # сколько верим проверке адреса (с)
+# (адрес, способ, TTL) → до какого времени верим проверке: с другим способом или TTL адрес ведёт себя иначе
+_sc_good: dict[tuple, float] = {}
+_sc_bad: dict[tuple, float] = {}
+_sc_none: dict[tuple, float] = {}   # (способ, TTL) → до какого времени не проверяем (рабочих не нашлось)
+_sc_lock = threading.Lock()
+SC_PROBE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+
+
+def _sc_probe(ip: str, strategy: str, fake_ttl: int) -> bool:
+    """Открывается ли SoundCloud целиком (≥ 40 КБ) через этот адрес выбранным способом"""
+    import http.client
+    tmp = DesyncProxy(strategy, strategy, fake_ttl, force_ip=ip)
+    conn = http.client.HTTPSConnection("127.0.0.1", tmp.port, timeout=4, context=ssl.create_default_context())
+    try:
+        conn.set_tunnel("soundcloud.com", 443)
+        conn.request("GET", "/", headers={"User-Agent": SC_PROBE_UA, "Accept-Encoding": "identity"})
+        resp = conn.getresponse()
+        got, deadline = 0, time.time() + 4
+        while got < 40000 and time.time() < deadline:
+            chunk = resp.read(16384)
+            if not chunk:
+                break
+            got += len(chunk)
+        return got >= 40000
+    except (OSError, http.client.HTTPException, ValueError):
+        return False
+    finally:
+        conn.close()
+        tmp.stop()
+
+
+def _sc_pick(host: str, strategy: str, fake_ttl: int) -> str | None:
+    """Рабочий адрес CloudFront для сайта SoundCloud (None — не нашли, тогда как обычно)"""
+    now = time.time()
+    way = (strategy, fake_ttl)
+    good = [k[0] for k, until in _sc_good.items() if until > now and k[1:] == way]
+    if good:
+        return good[int(now * 1000) % len(good)]   # по очереди — не нагружать один адрес
+    if _sc_none.get(way, 0) > now:   # недавно не нашли ни одного — не проверяем на каждом соединении
+        return None
+    with _sc_lock:   # проверяет один поток, остальные соединения ждут его результат (один раз, ≤ ~5 с)
+        good = [k[0] for k, until in _sc_good.items() if until > time.time() and k[1:] == way]
+        if good:
+            return good[0]
+        if _sc_none.get(way, 0) > time.time():
+            return None
+        candidates = [ip for ip in dict.fromkeys(_all_addresses(host) + _all_addresses("soundcloud.com"))
+                      if _sc_bad.get((ip, *way), 0) < time.time()]
+        groups = list({ip.rsplit(".", 1)[0]: ip for ip in candidates}.values())[:6]   # по адресу из каждой подсети
+        if not groups:
+            return None
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        found = None
+        pool = ThreadPoolExecutor(len(groups))
+        jobs = {pool.submit(_sc_probe, ip, strategy, fake_ttl): ip for ip in groups}
+
+        def remember(job):   # подсеть ведёт себя одинаково — запоминаем все её адреса
+            ip = jobs[job]
+            try:
+                ok = job.result()
+            except Exception:
+                return
+            subnet = ip.rsplit(".", 1)[0]
+            for c in candidates:
+                if c.rsplit(".", 1)[0] == subnet:
+                    # плохой — ненадолго: заморозка бывает и случайной (один и тот же адрес то работает, то нет)
+                    (_sc_good if ok else _sc_bad)[(c, *way)] = time.time() + (SC_GOOD_FOR if ok else 5 * 60)
+
+        for job in jobs:   # и те проверки, что закончатся после ответа, пополнят списки
+            job.add_done_callback(remember)
+        try:
+            for job in as_completed(jobs, timeout=9):
+                if job.result():
+                    found = jobs[job]
+                    break
+        except Exception:
+            pass
+        pool.shutdown(wait=False)
+        if not found:
+            _sc_none[way] = time.time() + 60
+        print(f"[network] SoundCloud: рабочий адрес {found}" if found else
+              "[network] SoundCloud: рабочий адрес не нашёлся — минуту идём как обычно")
+        return found
+
+
+def _sc_frozen(ip: str, strategy: str, fake_ttl: int):
+    """Соединение через этот адрес замёрзло посреди работы — его подсеть больше не берём (на 5 мин).
+    Адреса одной группы то работают, то замерзают (13.33.235.x — замер 6 ноября 2026): трек обрывался"""
+    subnet = ip.rsplit(".", 1)[0]
+    way = (strategy, fake_ttl)
+    dropped = [k for k in list(_sc_good) if k[1:] == way and k[0].rsplit(".", 1)[0] == subnet]
+    for k in dropped:
+        _sc_good.pop(k, None)
+        _sc_bad[k] = time.time() + 5 * 60
+    if dropped:
+        print(f"[network] SoundCloud: соединение через {subnet}.x замёрзло — дальше через другие адреса")
+
+
+def _connect(host: str, port: int, ip: str | None = None) -> socket.socket:
     host = host.strip("[]")
+    bind = BIND
+    if ip:   # адрес уже выбран (SoundCloud)
+        return socket.create_connection((ip, port), timeout=10, **({"source_address": (bind, 0)} if bind else {}))
+    if bind:
+        ip = host if host.replace(".", "").isdigit() else resolve_direct(host, bind)
+        try:
+            return socket.create_connection((ip, port), timeout=10, source_address=(bind, 0))
+        except OSError as e:
+            if getattr(e, "winerror", None) != 10049 and e.errno not in (99, 10049):   # адрес карты сменился
+                raise
+            if set_direct(True) in (None, bind):
+                raise
+            return _connect(host, port)
     try:
         return socket.create_connection((host, port), timeout=10)
     except socket.gaierror:
         return socket.create_connection((resolve(host), port), timeout=10)
+
+
+# Подделок одновременно — не больше двух на всю программу, пока сервер не ответил: когда новых соединений
+# с подделкой сразу шесть (кусочки трека, проверка адресов), фильтр часть из них не узнаёт и замораживает
+_FAKE_GATE = threading.Semaphore(2)
 
 
 class DesyncProxy:
@@ -349,13 +641,12 @@ class DesyncProxy:
     прокси соединяется, первый пакет режет выбранным способом, остальное пересылает как есть.
     У SoundCloud — свой способ (sc_strategy)."""
 
-    def __init__(self, strategy: str, sc_strategy: str | None = None, fake_ttl: int = 4):
+    def __init__(self, strategy: str, sc_strategy: str | None = None, fake_ttl: int = 4, force_ip: str | None = None):
         self.strategy = strategy
         self.sc_strategy = sc_strategy or strategy
         self.fake_ttl = fake_ttl
-        # Подделок одновременно — не больше двух, пока сервер не ответил: когда новых соединений
-        # с подделкой сразу шесть (кусочки трека), фильтр часть из них не узнаёт и замораживает
-        self.fake_gate = threading.Semaphore(2)
+        self.fake_gate = _FAKE_GATE   # общий на все прокси (см. выше)
+        self.force_ip = force_ip   # для проверки адреса SoundCloud: все соединения — на этот адрес
         self.fake_failures = 0
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.bind(("127.0.0.1", 0))
@@ -404,8 +695,14 @@ class DesyncProxy:
                 client.sendall(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n")
                 return
             host, _, port = target.decode().rpartition(":")
+            ip = self.force_ip
+            if not ip and is_soundcloud(host) and self.sc_strategy in ("fake", "oob"):
+                try:
+                    ip = _sc_pick(host, self.sc_strategy, self.fake_ttl)
+                except Exception as e:   # проверка не удалась — идём как обычно
+                    print(f"[network] SoundCloud: проверка адресов не удалась ({e})")
             try:
-                upstream = _connect(host, int(port or 443))
+                upstream = _connect(host, int(port or 443), ip)
             except OSError as e:   # сайт не найден или не отвечает — так и говорим, а не молча закрываем
                 print(f"[network] {host}: {e}")
                 client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
@@ -416,7 +713,7 @@ class DesyncProxy:
             if not first:
                 return
             strategy = (self.sc_strategy if is_soundcloud(host) else self.strategy) if needs_bypass(host) else None
-            if strategy is None:
+            if strategy in (None, "none"):   # none — без уловок (режим «напрямую» с «Мимо VPN»)
                 upstream.sendall(first)
             elif strategy == "fake":
                 with self.fake_gate:
@@ -427,9 +724,15 @@ class DesyncProxy:
             else:
                 send_first_packet(upstream, first, strategy, self.fake_ttl)
             # Дальше просто пересылаем в обе стороны
-            other = threading.Thread(target=self._pipe, args=(upstream, client), daemon=True)
+            picked = ip if ip and not self.force_ip else None
+            seen = {"bytes": 0, "last": time.time()} if picked else None
+            other = threading.Thread(target=self._pipe, args=(upstream, client, seen), daemon=True)
             other.start()
             self._pipe(client, upstream)
+            # Плеер бросил соединение, не дождавшись ответа: сервер не закрыл его, но давно молчит,
+            # а пришло совсем немного — это заморозка. Адрес (и его подсеть) — в плохие, дальше через другие
+            if seen and other.is_alive() and seen["bytes"] < 64 * 1024 and time.time() - seen["last"] > 3:
+                _sc_frozen(picked, self.sc_strategy, self.fake_ttl)
             other.join(timeout=60)
         except (OSError, ValueError):
             pass
@@ -442,9 +745,12 @@ class DesyncProxy:
                         pass
 
     @staticmethod
-    def _pipe(src: socket.socket, dst: socket.socket):
+    def _pipe(src: socket.socket, dst: socket.socket, seen: dict | None = None):
         try:
             while data := src.recv(65536):
+                if seen is not None:   # для SoundCloud: сколько пришло и когда в последний раз (заморозка)
+                    seen["bytes"] += len(data)
+                    seen["last"] = time.time()
                 dst.sendall(data)
         except OSError:
             pass
