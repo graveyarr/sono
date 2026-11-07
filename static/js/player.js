@@ -469,19 +469,37 @@ export function syncLikeButtons() {
 
 // ---------- Обложка и фон под неё ----------
 
+// Что берём из обложки — решает тема (themes.js, «coverColors» в theme.json):
+// on — фон и акцент, accent — только акцент, tint — только фон, off — ничего (цвета задаёт сама тема)
+let coverMode = document.getElementById("theme-css")?.dataset.cover || "on";   // тему вписал сервер (app.py index)
+let lastCoverImg = null;
+
 function applyCoverColors(img) {
+  lastCoverImg = img;
+  resetCoverColors();
+  if (coverMode === "off") return;
   let h, s, l;
   try { [h, s, l] = imageHsl(img); } catch { return; }
   const root = document.documentElement.style;
   // Фон — тёмный вариант цвета обложки, чтобы белый текст всегда читался
-  root.setProperty("--tint", `hsl(${h.toFixed(0)} ${Math.min(s, 65).toFixed(0)}% ${Math.min(Math.max(l * 0.45, 9), 20).toFixed(0)}%)`);
+  if (coverMode !== "accent") {
+    root.setProperty("--tint", `hsl(${h.toFixed(0)} ${Math.min(s, 65).toFixed(0)}% ${Math.min(Math.max(l * 0.45, 9), 20).toFixed(0)}%)`);
+  }
   // Акцент (ползунок, текущий трек) — светлый вариант; у серых обложек — просто белый
-  root.setProperty("--accent", s < 12 ? "hsl(0 0% 92%)" : `hsl(${h.toFixed(0)} ${Math.max(s, 55).toFixed(0)}% 72%)`);
+  if (coverMode !== "tint") {
+    root.setProperty("--accent", s < 12 ? "hsl(0 0% 92%)" : `hsl(${h.toFixed(0)} ${Math.max(s, 55).toFixed(0)}% 72%)`);
+  }
 }
 
 function resetCoverColors() {
   document.documentElement.style.removeProperty("--tint");
   document.documentElement.style.removeProperty("--accent");
+}
+
+export function setCoverColorsMode(mode) {
+  coverMode = ["on", "off", "accent", "tint"].includes(mode) ? mode : "on";
+  if (lastCoverImg && state.current) applyCoverColors(lastCoverImg);
+  else resetCoverColors();
 }
 
 // Два слоя размытой обложки: новый проявляется, старый гаснет
@@ -521,6 +539,7 @@ async function showCover(track) {
   img.src = url;
   try { await img.decode(); } catch {
     if (state.current !== track) return;
+    lastCoverImg = null;
     resetCoverColors();
     setBackdrop(null);
     return;   // обложки нет — остаётся заглушка с нотой

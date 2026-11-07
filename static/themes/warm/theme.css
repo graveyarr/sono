@@ -1,0 +1,12 @@
+/* «Тёплый»: коричневый с янтарным, цвета не зависят от обложки */
+:root {
+  --bg: #0f0a06;
+  --tint: #22170e;
+  --accent: #e9b27a;
+  --fg-rgb: 255 241 224;
+  --glass: rgba(24, 16, 9, 0.42);
+  --panel: rgba(44, 31, 21, 0.95);
+}
+/* Размытая обложка — тише и в тёплых тонах */
+.bg-art { filter: sepia(0.7) saturate(0.8); }
+.bg-art.on, body.on-now .bg-art.on { opacity: 0.25 !important; }

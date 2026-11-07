@@ -15,6 +15,9 @@ import { initStats } from "./stats.js";
 import { maybeWelcome } from "./welcome.js";
 import { applyMotion, watchAppUpdate } from "./settings.js";
 import { initTitlebar } from "./titlebar.js";
+import { initThemes } from "./themes.js";
+import { initCompact, isMini, toggleMini } from "./compact.js";
+import { initIncoming } from "./links.js";
 import { maybeWhatsNew } from "./whatsnew.js";
 import { loadLocal, onLocalChange } from "./local.js";
 import { announceNewReleases } from "./releases.js";
@@ -34,6 +37,7 @@ try {
 }
 
 applyMotion();   // «Без анимаций» — до всего остального, чтобы ничего не успело дёрнуться
+initThemes();    // тема оформления (themes.js) — тоже как можно раньше, чтобы не мелькала обычная
 initPlayer();
 loadLocal();   // свои файлы с компьютера — раздел «Мои файлы» в медиатеке
 initSearch();
@@ -51,7 +55,9 @@ initSleepButton();
 initFlowView();
 initStats();
 initTitlebar();   // своя полоска заголовка окна (в программе; в браузере её нет)
+initCompact();    // мини-плеер поверх окон (тоже только в программе)
 restoreSession();   // что играло в прошлый раз — на паузе и уже подгружается (после всех init: они слушают смену трека)
+initIncoming();     // трек, присланный из браузера кнопкой «+ Sono» (после restoreSession — чтобы он его не перебил)
 maybeWelcome();   // первый запуск — приветствие и экскурсия
 setTimeout(maybeWhatsNew, 1200);
 
@@ -124,8 +130,14 @@ document.addEventListener("keydown", (e) => {
   if (e.target.closest?.(".dialog-backdrop, .menu")) return;   // в диалоге и меню клавиши свои
   // По клавише (e.code), а не по букве: на русской раскладке Ctrl+K — это «Ctrl+Л», а «/» — это «.»
   const typing = e.target.matches?.("input:not([type=range]), textarea, select, [contenteditable]");
+  if (e.ctrlKey && e.code === "KeyM" && !e.altKey && !e.shiftKey) {   // мини-плеер поверх окон
+    e.preventDefault();
+    toggleMini();
+    return;
+  }
   if ((e.ctrlKey && e.code === "KeyK") || (e.code === "Slash" && !e.ctrlKey && !e.altKey && !typing)) {
     e.preventDefault();
+    if (isMini()) toggleMini();   // искать — в обычном окне
     focusSearch();
     return;
   }

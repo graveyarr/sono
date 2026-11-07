@@ -20,7 +20,7 @@ from pathlib import Path
 
 import PyInstaller.__main__
 
-VERSION = "0.9.2"
+VERSION = "0.9.3"
 ROOT = Path(__file__).parent
 DIST = ROOT / "dist"
 # Файл программы — НЕ Sono.exe: в списке игр Discord есть игра «Sono» с правилом «sono/sono.exe»,

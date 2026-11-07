@@ -17,6 +17,9 @@
     </button>
     <span class="tb-logo">sono.</span>
     <div class="tb-space"></div>
+    <button type="button" class="tb-btn tb-win" id="tb-mini" aria-label="Мини-плеер" title="Мини-плеер поверх окон (Ctrl+M)" hidden>
+      <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"><rect x="1.5" y="2" width="9" height="8" rx="1.4"/><rect x="5.6" y="5.6" width="3.6" height="3" rx=".6" fill="currentColor" stroke="none"/></svg>
+    </button>
     <button type="button" class="tb-btn tb-win" id="tb-min" aria-label="Свернуть" title="Свернуть">
       <svg viewBox="0 0 12 12"><path d="M1.5 6h9" stroke="currentColor" stroke-width="1.1"/></svg>
     </button>
@@ -280,6 +283,40 @@
       </div>
     </div>
   </footer>
+
+  <!-- Мини-плеер поверх окон (compact.js): окно сжимается в эту плашку, остальное прячется -->
+  <div class="cp-root" id="compact" hidden>
+    <div class="cp-art"><img data-np="cover-mini" alt=""></div>
+    <div class="cp-body">
+      <div class="cp-top">
+        <div class="cp-text">
+          <span class="cp-title" data-np="title"></span>
+          <span class="cp-artist" data-np="artist"></span>
+        </div>
+        <button type="button" class="cp-btn" id="cp-expand" aria-label="Развернуть Sono" title="Развернуть Sono (Ctrl+M)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
+        </button>
+        <button type="button" class="cp-btn cp-close" id="cp-close" aria-label="Закрыть" title="Закрыть">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="cp-controls">
+        <button type="button" class="icon-btn small like" data-np="like" aria-label="В избранное" disabled></button>
+        <button class="icon-btn small" data-np="prev" aria-label="Предыдущий" disabled>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
+        </button>
+        <button class="play small-play" data-np="play" aria-label="Играть" disabled>
+          <svg class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
+          <svg class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
+        </button>
+        <button class="icon-btn small" data-np="next" aria-label="Следующий" disabled>
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
+        </button>
+        <button type="button" class="icon-btn small dislike" data-np="dislike" aria-label="Не нравится" disabled></button>
+      </div>
+      <input type="range" class="cp-seek" data-np="seek" min="0" max="1000" value="0" disabled aria-label="Перемотка">
+    </div>
+  </div>
 
   <audio id="player" preload="auto"></audio>
   <script type="module" src="js/main.js"></script>

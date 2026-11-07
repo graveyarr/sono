@@ -4,10 +4,11 @@ import { openTrackMenu, toggleLike } from "./actions.js";
 import { sourceIcons } from "./icons.js";
 import { tasteOf } from "./flow.js";
 import { clearHistory, getSetting, isDisliked, keyOf, lib, removeFromHistory, setSetting } from "./library.js";
+import { looksLikeLink, trackByUrl } from "./links.js";
 import { artistByName } from "./meta.js";
 import { openView } from "./nav.js";
 import { play, prefetch, state } from "./player.js";
-import { SOURCE_NAMES, el, imgUrl, isOverlay, markCurrentRows, trackRow } from "./ui.js";
+import { SOURCE_NAMES, displayTrack, el, imgUrl, isOverlay, markCurrentRows, trackRow } from "./ui.js";
 
 const searchBox = document.getElementById("search");
 const searchBar = document.getElementById("search-form");
@@ -22,6 +23,10 @@ const rowsEl = document.getElementById("rows");
 const artistEl = el("div", "panel-artist");
 artistEl.hidden = true;
 rowsEl.before(artistEl);
+// …и песни, где есть такие слова: человек помнит строчку, но не название (поиск по тексту — Яндекс Музыка)
+const lyricsEl = el("div", "panel-lyrics");
+lyricsEl.hidden = true;
+rowsEl.before(lyricsEl);
 
 let source = "youtube";
 let results = [];          // последние результаты поиска
@@ -97,8 +102,35 @@ function showArtist(artist) {
   artistEl.replaceChildren(card);
 }
 
+function showLyricMatches(tracks) {
+  lyricsEl.hidden = !tracks.length;
+  lyricsEl.replaceChildren(...tracks.map((track) => {
+    const shown = displayTrack(track);
+    const card = el("button", "panel-lyric-card");
+    card.type = "button";
+    const img = el("img");
+    img.alt = "";
+    if (track.cover) img.src = imgUrl(track.cover);
+    img.onerror = () => { img.style.visibility = "hidden"; };
+    const text = el("span", "panel-lyric-text");
+    if (track.lyricLine) text.append(el("span", "panel-lyric-line", `«${track.lyricLine}»`));
+    text.append(el("span", "panel-lyric-name", `${shown.title}${shown.artist ? ` — ${shown.artist}` : ""}`),
+      el("span", "panel-lyric-kind", track.lyricLine ? "Нашлось по словам песни" : "Похоже, это слова из этой песни"));
+    card.append(img, text);
+    card.title = "Включить";
+    card.addEventListener("mouseenter", () => prefetch(track));
+    card.addEventListener("click", () => {
+      play(track, [track], 0, { type: "search" });
+      closePanel();
+      queryInput.blur();
+    });
+    return card;
+  }));
+}
+
 export function showHistory() {
   showArtist(null);
+  showLyricMatches([]);
   panelMode = "history";
   panelTitle.textContent = "История поиска";
   panelAction.hidden = lib.history.length === 0;
@@ -179,19 +211,42 @@ async function runSearch(q) {
     panel.classList.add("busy");
   } else {
     showArtist(null);
+    showLyricMatches([]);
     showLoading(src);
   }
   openPanel();
-  // Параллельно: вдруг ищут исполнителя — тогда сверху покажем его страницу
-  artistByName(q).then((a) => { if (token === searchToken && panelMode !== "history") showArtist(a); }).catch(() => {});
+  const link = looksLikeLink(q);
+  if (link) {   // вставили ссылку на трек — показываем сам трек
+    showArtist(null);
+    showLyricMatches([]);
+  } else {
+    // Параллельно: вдруг ищут исполнителя — тогда сверху покажем его страницу
+    artistByName(q).then((a) => { if (token === searchToken && panelMode !== "history") showArtist(a); }).catch(() => {});
+    // …или вспомнили строчку из песни (от трёх слов)
+    if (q.split(/\s+/).length >= 3) {
+      fetch(`/api/search/lyrics?q=${encodeURIComponent(q)}`, { signal: searchAbort.signal })
+        .then((r) => r.json())
+        .then((d) => { if (token === searchToken && panelMode !== "history") showLyricMatches(d.tracks || []); })
+        .catch(() => {});
+    } else {
+      showLyricMatches([]);
+    }
+  }
   try {
-    const res = await fetch(`/api/search?source=${src}&q=${encodeURIComponent(q)}`, { signal: searchAbort.signal });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "ошибка сервера");
+    let found;
+    if (link) {
+      found = [await trackByUrl(q, searchAbort.signal)];
+    } else {
+      const res = await fetch(`/api/search?source=${src}&q=${encodeURIComponent(q)}`, { signal: searchAbort.signal });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "ошибка сервера");
+      found = data.results;
+    }
     if (token !== searchToken) return;
-    results = byTaste(data.results);
+    results = byTaste(found);
     panel.classList.remove("busy");
-    showResults(src);
+    showResults(link ? found[0].source : src);
+    if (link) panelTitle.textContent = "По ссылке";
     // Готовим первые треки, только если человек перестал печатать (иначе это лишняя работа на каждую букву)
     setTimeout(() => {
       if (token === searchToken) (async () => { for (const t of results.slice(0, 3)) await prefetch(t); })();

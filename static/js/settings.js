@@ -15,6 +15,7 @@ import { VIZ_PRESETS, applyVizColors, paletteFor, refreshViz, vizColorsSetting, 
 import { showWelcome, startTour } from "./welcome.js";
 import { CHANGELOG } from "./changelog.js";
 import { showWhatsNew } from "./whatsnew.js";
+import { chooseTheme, createTheme, currentThemeId, loadThemes, onThemesChange, openThemesFolder, themeList, themesFolder } from "./themes.js";
 
 const box = document.getElementById("view-settings");
 let network = null;      // { mode, strategy, strategySc, fakeTtl, proxy, direct }
@@ -256,6 +257,7 @@ function switchRow(title, text, on, onToggle) {
 function appearanceSection() {
   const section = el("section", "set-card");
   section.append(el("h2", "", "Оформление"));
+  section.append(themesRow());
   section.append(switchRow("Большой нижний плеер",
     "Крупнее обложка, название и кнопки — удобнее, если плеер внизу нужен под рукой.",
     !!getSetting("minibarLarge", false), (on) => { setSetting("minibarLarge", on); setMinibarLarge(on); }));
@@ -285,6 +287,93 @@ function appearanceSection() {
     `Друзья видят, что вы слушаете: название, исполнитель, обложка. ${status}`,
     presenceEnabled(), (on) => { setSetting("discord", on); updatePresence(0); }));
   return section;
+}
+
+// ---------- Темы (themes.js) ----------
+
+const DEFAULT_THEME = { id: null, name: "Sono", description: "Обычная: тёмная, цвета подстраиваются под обложку.",
+  coverColors: "on", preview: ["#0b0b0b", "#242424", "#ffffff", "#ff7a59"] };
+let themesGrid = null;        // перерисовываем только сетку тем, не весь экран
+let themesLoaded = false;
+
+/** Образец темы: картинка preview.png из её папки или маленькое «окно Sono» её цветами
+    (preview: [фон, панели, текст/акцент]) */
+function themeSwatch(t) {
+  const sw = el("span", "theme-swatch");
+  if (t.image) {
+    sw.style.backgroundImage = `url("/api/themes/${t.kind}/${encodeURIComponent(t.folder)}/${t.image}?v=${t.stamp}")`;
+  } else {
+    const [bg = "#151515", panel = "#2a2a2a", fg = "#ffffff", accent = fg] = t.preview ?? [];
+    sw.style.setProperty("--c-bg", bg);
+    sw.style.setProperty("--c-panel", panel);
+    sw.style.setProperty("--c-fg", fg);
+    sw.style.setProperty("--c-accent", accent);
+    sw.innerHTML = '<span class="ts-side"></span><span class="ts-main"><i></i><i></i><i></i></span><span class="ts-bar"><b></b></span>';
+  }
+  if (t.coverColors && t.coverColors !== "off") sw.append(el("span", "theme-cover-mark", "по обложке"));
+  return sw;
+}
+
+function drawThemes() {
+  if (!themesGrid) return;
+  const current = currentThemeId();
+  const list = [DEFAULT_THEME, ...themeList()];
+  themesGrid.replaceChildren(...list.map((t) => {
+    const card = el("button", `theme-card${t.id === current || (!t.id && !current) ? " on" : ""}`);
+    card.type = "button";
+    card.disabled = !!t.needs || t.tooBig;
+    const name = el("span", "theme-name", t.name);
+    const sub = el("span", "theme-sub",
+      t.needs ? `Нужна Sono ${t.needs}` : t.tooBig ? "Файл темы больше 512 КБ" : t.error ? t.error
+        : t.kind === "user" ? (t.author ? `Своя · ${t.author}` : "Своя") : t.author ? t.author : "Встроенная");
+    card.title = [t.description, t.version && `Версия ${t.version}`].filter(Boolean).join("\n");
+    card.append(themeSwatch(t), name, sub);
+    card.addEventListener("click", () => chooseTheme(t.id));
+    return card;
+  }));
+}
+
+function themesRow() {
+  const row = el("div", "set-themes");
+  const textBox = el("span", "set-switch-text");
+  textBox.append(el("span", "set-switch-title", "Тема"),
+    el("span", "set-switch-sub", "Цвета и вид всего Sono. Можно сделать свою — это обычный CSS-файл в папке тем; "
+      + "Sono подхватывает изменения сразу, как только вы сохраните файл."));
+  themesGrid = el("div", "theme-grid");
+  const tools = el("div", "set-actions theme-tools");
+  const create = el("button", "btn ghost", "Создать свою тему");
+  create.type = "button";
+  create.addEventListener("click", async () => {
+    create.disabled = true;
+    try {
+      const data = await createTheme("Моя тема");
+      toast(`Тема «${data.folder}» создана и включена — откройте theme.css в Блокноте и меняйте цвета`);
+    } catch (err) {
+      toast(err.message, { error: true });
+    } finally {
+      create.disabled = false;
+    }
+  });
+  const open = el("button", "btn ghost", "Открыть папку тем");
+  open.type = "button";
+  open.addEventListener("click", async () => {
+    const data = await openThemesFolder();
+    if (!data.ok) toast(`Папка тем: ${data.folder || themesFolder()}`);
+  });
+  const refresh = el("button", "btn ghost", "Обновить список");
+  refresh.type = "button";
+  refresh.addEventListener("click", async () => { await loadThemes(); drawThemes(); });
+  tools.append(create, open, refresh);
+  row.append(textBox, themesGrid, tools);
+  drawThemes();
+  if (!themesLoaded) {
+    themesLoaded = true;
+    onThemesChange(drawThemes);
+    loadThemes().then(drawThemes);
+  } else {
+    loadThemes().then(drawThemes);   // могли положить новую тему в папку, пока настройки были закрыты
+  }
+  return row;
 }
 
 /** Строка выбора из нескольких вариантов (кнопки-сегменты) с подсказкой под названием */
@@ -828,6 +917,44 @@ function revealButton(path) {
   return btn;
 }
 
+// Кнопка-закладка «+ Sono»: открывает адрес sono://add?url=<эта страница>. Установщик регистрирует sono:// —
+// Windows передаёт ссылку в Sono (desktop.py), и трек включается или встаёт следующим (links.js)
+const BOOKMARKLET = "javascript:void(location.href='sono://add?url='+encodeURIComponent(location.href))";
+
+function browserSection() {
+  const section = el("section", "set-card");
+  section.append(el("h2", "", "Из браузера"),
+    el("p", "set-text", "Нашли трек на YouTube или SoundCloud в браузере? Нажмите кнопку «+ Sono» на панели закладок — " +
+      "трек включится в Sono, а если что-то уже играет, встанет следующим. Ссылку на трек можно и просто вставить в поиск Sono."));
+  const row = el("div", "set-actions");
+  const link = el("a", "bookmarklet", "+ Sono");
+  link.href = BOOKMARKLET;
+  link.title = "Перетащите эту кнопку на панель закладок браузера";
+  link.addEventListener("click", (e) => {   // внутри Sono нажимать её незачем
+    e.preventDefault();
+    toast("Перетащите кнопку на панель закладок браузера");
+  });
+  const copy = el("button", "btn ghost", "Скопировать код закладки");
+  copy.type = "button";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(BOOKMARKLET);
+      toast("Код скопирован — вставьте его в поле «Адрес» новой закладки");
+    } catch {
+      toast("Не получилось скопировать", { error: true });
+    }
+  });
+  row.append(link, copy);
+  const steps = el("ol", "bookmarklet-steps");
+  for (const text of [
+    "Включите в браузере панель закладок (Ctrl+Shift+B).",
+    "Перетащите на неё кнопку «+ Sono» — или создайте закладку и вставьте скопированный код вместо адреса.",
+    "На странице трека нажмите закладку. В первый раз браузер спросит, открыть ли Sono, — разрешите (можно поставить «Всегда»).",
+  ]) steps.append(el("li", "", text));
+  section.append(row, steps);
+  return section;
+}
+
 function librarySection() {
   const section = el("section", "set-card");
   section.append(el("h2", "", "Медиатека"),
@@ -890,6 +1017,7 @@ function render() {
     ["Оформление", appearanceSection()],
     ["Медиатека", librarySection()],
     ["Мои файлы", localSection()],
+    ["Из браузера", browserSection()],
     ["Обход блокировок", networkSection()],
     ["zapret", zapretCard()],
     ["Обновления", updateSection()],

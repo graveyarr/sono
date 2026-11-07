@@ -32,6 +32,7 @@ import flow
 import importer
 import localfiles
 import netbypass
+import themes
 import zapret
 
 from paths import BASE_DIR, DATA_DIR   # где данные: %LOCALAPPDATA%\Sono у .exe, рядом с кодом — из исходников
@@ -515,6 +516,7 @@ def _save_stream_links():
 
 _load_stream_links()
 localfiles.init(DATA_DIR, CACHE_DIR)
+themes.init(BASE_DIR, DATA_DIR)          # темы оформления: встроенные в static/themes, свои — в DATA_DIR/themes
 localfiles.scan()   # при запуске — проверить, не появилось ли в папках нового (в фоне)
 
 
@@ -1421,7 +1423,23 @@ def api_library_save(section):
 
 @app.get("/")
 def index():
-    return app.send_static_file("index.html")
+    """Страница. Если выбрана тема оформления — её CSS вписываем сразу в <head>: иначе при каждом запуске
+    на долю секунды мелькала бы обычная тёмная тема, пока страница сама не узнает про тему (themes.js)."""
+    html = (BASE_DIR / "static" / "index.html").read_text(encoding="utf-8")
+    try:
+        with _library_lock:
+            chosen = load_library()["settings"].get("theme")
+        kind, _, name = chosen.partition(":") if isinstance(chosen, str) else ("", "", "")
+        info = themes.read_theme(kind, name, appupdate.current_version()) if kind in ("builtin", "user") else None
+        if info and not info["needs"] and not info["tooBig"]:
+            from urllib.parse import quote
+            href = f"/api/themes/{kind}/{quote(name)}/theme.css?v={info['stamp']}"
+            html = html.replace("</head>", f'  <link rel="stylesheet" id="theme-css" data-cover="{info["coverColors"]}" href="{href}">\n</head>', 1)
+    except Exception as e:   # тема — украшение: что бы ни случилось, страница должна открыться
+        print(f"[themes] не подключил тему: {e}")
+    resp = Response(html, mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/api/search")
@@ -1451,6 +1469,171 @@ def api_search():
 
 
 _search_cache: dict[tuple, tuple] = {}
+
+
+# ---------- Поиск по строчке из песни ----------
+# Человек помнит кусок текста, но не название: «и снится нам не рокот космодрома» → «Трава у дома».
+# Поиск Яндекс Музыки ищет и по словам песен (замер на 10 строчках: 9 верно, ~0,7 с). Карточку показываем,
+# только если найденное — не обычное совпадение по названию (тогда его и так найдёт поиск), а строчку
+# подтверждаем текстом песни из LRCLIB, если он там есть, — и показываем её.
+
+def _lrclib_text(artist: str, title: str) -> str:
+    """Текст песни из LRCLIB одним запросом (для проверки строчки). Нет — пустая строка."""
+    try:
+        resp = _http.get(f"{LRCLIB}/search", params={"track_name": title, "artist_name": artist},
+                         headers=LRCLIB_HEADERS, timeout=5)
+        want = _norm(re.sub(r"\(.*?\)", "", title))
+        for item in resp.json()[:5] if resp.ok else []:
+            text = item.get("plainLyrics") or re.sub(r"\[\d+:\d+(?:\.\d+)?\]", "", item.get("syncedLyrics") or "")
+            if text and want and want in _norm(item.get("trackName")):
+                return text
+    except (requests.RequestException, ValueError):
+        pass
+    return ""
+
+
+def _lyric_line(text: str, words: list[str]) -> str | None:
+    """Строчка (или две подряд), где есть почти все слова запроса."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    best, best_key = None, (0.0, 0)
+    for i in range(len(lines)):
+        for span in (1, 2):
+            chunk = lines[i:i + span]
+            have = set(_norm(" ".join(chunk)).split())
+            key = (sum(w in have for w in words) / len(words), -span)   # из равных — одна строчка, не две
+            if key > best_key:
+                best, best_key = " / ".join(chunk), key
+    return best[:140] if best and best_key[0] >= 0.75 else None
+
+
+def search_by_lyrics(query: str) -> list[dict]:
+    words = _norm(query).split()
+    if len(words) < 3:   # два слова — это почти всегда название или имя
+        return []
+    found = [artists._track(t) for t in artists._search(query, "track")[:8] if t.get("id")]
+    found = [t for t in found if t.get("available") is not False]
+    if not found:
+        return []
+
+    def by_name(t):   # слова запроса — в названии и имени исполнителя: это поиск по названию, не по тексту
+        name = set(_norm(f"{t['title']} {t['artists']}").split())
+        return sum(w in name for w in words) / len(words) >= 0.6
+
+    if by_name(found[0]):
+        return []
+    picks, seen = [], set()
+    for t in found:
+        title = _norm(re.sub(r"\(.*?\)", "", t["title"]))
+        if by_name(t) or title in seen:   # перепевки той же песни не повторяем
+            continue
+        seen.add(title)
+        picks.append(t)
+        if len(picks) == 3:
+            break
+    checks = [_LYRICS_POOL.submit(_lrclib_text, t["artists"].split(", ")[0], re.sub(r"\s*\(.*?\)", "", t["title"]))
+              for t in picks]
+    out = []
+    for t, job in zip(picks, checks):
+        try:
+            line = _lyric_line(job.result(timeout=6), words)
+        except Exception:
+            line = None
+        if line:
+            out.append({**t, "lyricLine": line})
+    # Одна карточка — лучшая: подтверждённая текстом, иначе первая у Яндекса (вторые места чаще
+    # оказывались ремиксами той же песни или ошибками базы текстов)
+    return out[:1] or picks[:1]
+
+
+@app.get("/api/search/lyrics")
+def api_search_lyrics():
+    query = request.args.get("q", "").strip()[:200]
+    key = ("lyrics", query.lower())
+    cached = _search_cache.get(key)
+    if cached and time.time() - cached[0] < 600:
+        return jsonify(tracks=cached[1])
+    try:
+        tracks = search_by_lyrics(query)
+    except Exception as e:
+        print(f"[lyrics-search] {e}")
+        return jsonify(tracks=[])   # не нашлось по тексту — не беда, обычный поиск идёт своим ходом
+    _search_cache[key] = (time.time(), tracks)
+    return jsonify(tracks=tracks)
+
+
+# ---------- Трек по ссылке ----------
+# Ссылку на YouTube или SoundCloud можно вставить в поиск, а кнопка «+ Sono» в браузере (закладка,
+# адрес sono://add?url=…) присылает её из открытой вкладки.
+YT_LINK = re.compile(r"^(?:https?://)?(?:www\.|m\.|music\.)?(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|shorts/|live/|embed/)"
+                     r"|youtu\.be/)([\w-]{11})", re.I)
+SC_LINK = re.compile(r"^(?:https?://)?(?:www\.|m\.)?soundcloud\.com/[\w-]+/[\w-]+(?:/s-\w+)?/?(?:[?#].*)?$", re.I)
+
+
+def is_track_link(text: str) -> bool:
+    text = (text or "").strip()
+    return bool(YT_LINK.match(text) or SC_LINK.match(text))
+
+
+def track_by_url(url: str) -> dict:
+    url = url.strip()
+    if m := YT_LINK.match(url):
+        video = m.group(1)
+        # Поиск по номеру видео выдаёт само видео (~0,6 с) — быстрее, чем разбирать страницу
+        for t in search("youtube", video, 3):
+            if t["id"] == video:
+                return t
+        with ydl_pool("search") as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video}", download=False, process=False)
+        if not info.get("duration") or info["duration"] > MAX_DURATION:
+            raise ValueError(f"Это видео длиннее {MAX_DURATION // 60} минут или прямой эфир")
+        return {"source": "youtube", "id": video, "title": info.get("title"),
+                "channel": info.get("channel") or info.get("uploader"), "duration": info["duration"]}
+    if SC_LINK.match(url):
+        clean = "https://" + re.sub(r"^(?:https?://)?(?:www\.|m\.)?", "", url.split("?")[0].split("#")[0]).rstrip("/")
+        data = sc_api("/resolve", url=clean)
+        if data.get("kind") != "track":
+            raise ValueError("Это не трек, а страница или плейлист SoundCloud")
+        track, why = importer._sc_track(data, MAX_DURATION)
+        if not track:
+            raise ValueError(f"Трек {why}")
+        return track
+    raise ValueError("Это не ссылка на трек YouTube или SoundCloud")
+
+
+@app.get("/api/track-by-url")
+def api_track_by_url():
+    url = request.args.get("url", "")[:2000]
+    if not is_track_link(url):
+        return jsonify(error="Это не ссылка на трек YouTube или SoundCloud"), 400
+    try:
+        return jsonify(track=track_by_url(url))
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except Exception as e:
+        print(f"[link] {url}: {e}")
+        return jsonify(error=friendly_error(e)), 502
+
+
+# Ссылки, пришедшие из браузера (sono://add?url=…): desktop.py кладёт их сюда, страница забирает
+_incoming: list[str] = []
+
+
+def add_incoming(url: str) -> bool:
+    if not is_track_link(url):
+        return False
+    _incoming.append(url.strip()[:2000])
+    del _incoming[:-10]
+    notify = app.config.get("PAGE_INCOMING")
+    if notify:
+        notify()
+    return True
+
+
+@app.post("/api/incoming/take")
+def api_incoming_take():
+    taken = _incoming[:]
+    _incoming.clear()
+    return jsonify(urls=taken)
 
 
 # ---------- Сколько раз слушали — пачкой (плейлисты, страница исполнителя) ----------
@@ -1823,8 +2006,77 @@ def api_instance_show():
     token, show = app.config.get("INSTANCE_TOKEN"), app.config.get("SHOW_WINDOW")
     if not token or not show or request.headers.get("X-Sono-Instance") != token:
         abort(404)
+    link = _body().get("open")
+    if isinstance(link, str) and link:
+        # Прислали трек из браузера («+ Sono»): окно не вытаскиваем — человек остаётся в браузере
+        return jsonify(ok=add_incoming(link))
     show()
     return jsonify(ok=True)
+
+
+# ---------- Темы оформления (themes.py, страница — js/themes.js) ----------
+
+@app.get("/api/themes")
+def api_themes():
+    """Список тем: встроенные и свои (из папки DATA_DIR/themes). stamp — время правки theme.css:
+    по нему страница сама перечитывает тему, пока автор темы её правит."""
+    return jsonify(themes=themes.list_themes(appupdate.current_version()), folder=str(themes.USER_DIR))
+
+
+@app.get("/api/themes/<kind>/<name>/theme.css")
+def api_theme_css(kind, name):
+    try:
+        css = themes.theme_css(kind, name)
+    except (ValueError, OSError) as e:
+        return Response(f"/* тема не загрузилась: {e} */", mimetype="text/css", status=404)
+    resp = Response(css, mimetype="text/css")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/api/themes/<kind>/<name>/<path:rel>")
+def api_theme_file(kind, name, rel):
+    """Картинки и шрифты темы — для url(фон.jpg) в её CSS (адреса считаются от theme.css)."""
+    try:
+        path, mime = themes.theme_file(kind, name, rel)
+    except (ValueError, OSError):
+        abort(404)
+    return send_file(path, mimetype=mime, max_age=0)
+
+
+@app.get("/api/themes/<kind>/<name>/stamp")
+def api_theme_stamp(kind, name):
+    info = themes.read_theme(kind, name, appupdate.current_version())
+    return jsonify(stamp=info["stamp"] if info else None)
+
+
+@app.post("/api/themes/create")
+def api_theme_create():
+    """«Создать свою тему»: копия заготовки в папку своих тем + открыть её в Проводнике."""
+    try:
+        name = themes.create_from_template(_body().get("name") or "")
+    except (OSError, ValueError) as e:
+        return jsonify(error=f"Не получилось создать тему: {e}"), 500
+    _open_folder(themes.USER_DIR / name)
+    return jsonify(ok=True, id=f"user:{name}", folder=name)
+
+
+@app.post("/api/themes/open-folder")
+def api_theme_open_folder():
+    themes.USER_DIR.mkdir(parents=True, exist_ok=True)
+    return jsonify(ok=_open_folder(themes.USER_DIR), folder=str(themes.USER_DIR))
+
+
+def _open_folder(path: Path) -> bool:
+    """Открыть папку в Проводнике (только папки тем — адрес строим сами)."""
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path))   # noqa: S606 — папка наша, не из запроса
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+        return True
+    except OSError:
+        return False
 
 
 @app.post("/api/open-releases")

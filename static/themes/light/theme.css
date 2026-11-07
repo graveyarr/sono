@@ -1,0 +1,42 @@
+/* «Светлая»: тёмный текст на светлом. Почти всё в Sono окрашено через --fg-rgb, поэтому хватает
+   поменять его на тёмный; ниже — то немногое, что нарисовано белым напрямую */
+:root {
+  color-scheme: light;
+  --bg: #e9e6e1;
+  --tint: #ebe8e3;
+  --accent: #3a3a3a;
+  --fg-rgb: 22 22 22;
+  --muted: rgb(var(--fg-rgb) / 0.66);
+  --faint: rgb(var(--fg-rgb) / 0.45);
+  --line: rgb(var(--fg-rgb) / 0.12);
+  --hover: rgb(var(--fg-rgb) / 0.07);
+  --glass: rgba(255, 255, 255, 0.62);
+  --panel: rgba(252, 251, 249, 0.98);
+  --error: #c62828;
+  --shade-rgb: 255 255 255;        /* подложки панелей — светлые */
+  --search-bg: rgba(255, 255, 255, 0.9);
+  --search-bg-hover: #fff;
+  --menu-bg: rgba(255, 255, 255, 0.98);
+  --dialog-bg: rgba(250, 249, 247, 0.99);
+}
+.bg-art.on, body.on-now .bg-art.on { opacity: 0.18 !important; }
+.bg-art { filter: saturate(0.7) brightness(1.6); }
+
+/* Главные кнопки — тёмные (в обычной теме белые с чёрным текстом) */
+.btn.primary { background: #1c1c1c; color: #fff; }
+
+/* «Тёмные острова»: карточки и шапки, у которых свой тёмный или цветной фон, — текст на них
+   остаётся светлым. Переменные текста пересчитываются здесь же: они считаются там, где объявлены */
+.flow-card, .pl-hero, .mix-card, .pick-card, .wrapped, .flowv {
+  --fg-rgb: 255 255 255;
+  --text: rgb(var(--fg-rgb));
+  --muted: rgb(var(--fg-rgb) / 0.62);
+  --faint: rgb(var(--fg-rgb) / 0.38);
+  --line: rgb(var(--fg-rgb) / 0.1);
+  --hover: rgb(var(--fg-rgb) / 0.08);
+  color: var(--text);
+}
+
+/* Круглая ▶ у плеера — тёмная (белая на светлом почти не видна); на тёмных карточках остаётся белой */
+button.play { background: #1c1c1c; color: #fff; }
+:is(.flow-card, .pl-hero, .flowv, .mix-card, .pick-card) button.play { background: #fff; color: #000; }

@@ -33,6 +33,10 @@ if sys.platform == "win32":
     user32.IsIconic.argtypes = [wintypes.HWND]
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    user32.MonitorFromWindow.restype = ctypes.c_void_p
+    user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+    user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 
 WM_NCCALCSIZE = 0x0083
 WM_NCLBUTTONDOWN = 0x00A1
@@ -58,6 +62,27 @@ SWP_NOSIZE = 0x0001
 # браузера (ReleaseCapture) может только поток самого окна — поэтому передаём команду ему (была ошибка:
 # окно не тащилось). wParam — что тянем: заголовок или край (HT…)
 WM_SONO_DRAG = 0x8000 + 0x51
+# Мини-плеер: окно сжимается в маленькую плашку поверх всех окон (wParam 1 — включить, 0 — вернуть)
+WM_SONO_MINI = 0x8000 + 0x52
+WM_GETMINMAXINFO = 0x0024
+MINI_SIZE = (400, 132)       # в «пикселях страницы» — умножаем на масштаб экрана
+HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+SW_RESTORE = 9
+
+
+class MINMAXINFO(ctypes.Structure):
+    _fields_ = [("reserved", wintypes.POINT), ("max_size", wintypes.POINT), ("max_pos", wintypes.POINT),
+                ("min_track", wintypes.POINT), ("max_track", wintypes.POINT)]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                ("dwFlags", wintypes.DWORD)]
+
+
+_mini = False
+_before_mini = None   # (x, y, ширина, высота) обычного окна — вернуть после мини-плеера
+_mini_pos = None      # где мини-плеер стоял в прошлый раз (его могли перетащить)
 
 _hwnd = None
 _old_proc = None
@@ -79,6 +104,16 @@ def _proc(hwnd, msg, wparam, lparam):
         user32.ReleaseCapture()
         user32.SendMessageW(hwnd, WM_NCLBUTTONDOWN, wparam, (pt.y & 0xFFFF) << 16 | (pt.x & 0xFFFF))
         return 0
+    if msg == WM_SONO_MINI:
+        _set_mini(hwnd, bool(wparam))
+        return 0
+    if msg == WM_GETMINMAXINFO and _mini:
+        # Обычное окно не даёт сжать себя меньше 860×600 — мини-плееру можно
+        result = user32.CallWindowProcW(_old_proc, hwnd, msg, wparam, lparam)
+        info = ctypes.cast(lparam, ctypes.POINTER(MINMAXINFO)).contents
+        scale = _scale(hwnd)
+        info.min_track.x, info.min_track.y = int(300 * scale), int(100 * scale)
+        return result
     if msg == WM_SIZE and wparam in (1, 2):   # свернули / развернули
         _restoring = True
     elif msg == WM_ENTERSIZEMOVE:              # человек сам тянет за край — его размер не трогаем
@@ -90,7 +125,7 @@ def _proc(hwnd, msg, wparam, lparam):
             pos.cy = _normal[1]
     elif msg == WM_WINDOWPOSCHANGED and not user32.IsZoomed(hwnd) and not user32.IsIconic(hwnd):
         pos = ctypes.cast(lparam, ctypes.POINTER(WINDOWPOS)).contents
-        if not pos.flags & SWP_NOSIZE and not _restoring:
+        if not pos.flags & SWP_NOSIZE and not _restoring and not _mini:
             _normal = (pos.cx, pos.cy)
     if msg == WM_NCCALCSIZE and wparam:
         params = ctypes.cast(lparam, ctypes.POINTER(NCCALCSIZE_PARAMS)).contents
@@ -101,6 +136,47 @@ def _proc(hwnd, msg, wparam, lparam):
         params.rgrc[0].top = top + (params.rgrc[0].left - left if user32.IsZoomed(hwnd) else 0)
         return result
     return user32.CallWindowProcW(_old_proc, hwnd, msg, wparam, lparam)
+
+
+def _scale(hwnd) -> float:
+    try:
+        return (user32.GetDpiForWindow(hwnd) or 96) / 96
+    except Exception:
+        return 1.0
+
+
+def _rect(hwnd) -> tuple[int, int, int, int]:
+    r = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    return r.left, r.top, r.right - r.left, r.bottom - r.top
+
+
+def _set_mini(hwnd, on: bool) -> None:
+    """Мы в потоке окна. Включить: запомнить обычное окно, сжать в плашку в правом нижнем углу экрана
+    (или туда, где она стояла в прошлый раз) и поставить поверх всех окон. Выключить: всё вернуть."""
+    global _mini, _before_mini, _mini_pos, _restoring
+    if on == _mini:
+        return
+    if on:
+        if user32.IsZoomed(hwnd) or user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, SW_RESTORE)
+        _before_mini = _rect(hwnd)
+        _mini = True
+        scale = _scale(hwnd)
+        w, h = int(MINI_SIZE[0] * scale), int(MINI_SIZE[1] * scale)
+        mon = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+        user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(mon))   # MONITOR_DEFAULTTONEAREST
+        work, margin = mon.rcWork, int(20 * scale)
+        x, y = _mini_pos or (work.right - w - margin, work.bottom - h - margin)
+        x = max(work.left, min(x, work.right - w))   # прошлое место за пределами экрана (сменился монитор) — подвинуть
+        y = max(work.top, min(y, work.bottom - h))
+        user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, 0x0040)   # SWP_SHOWWINDOW
+    else:
+        _mini_pos = _rect(hwnd)[:2]
+        _mini = False
+        _restoring = False
+        x, y, w, h = _before_mini or (100, 100, 1100, 760)
+        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, w, h, 0x0040)
 
 
 def install(window) -> bool:
@@ -150,6 +226,15 @@ class WindowApi:
 
     def is_maximized(self):
         return bool(_hwnd and user32.IsZoomed(_hwnd))
+
+    def set_mini(self, on):
+        """Мини-плеер: маленькое окно поверх остальных (static/js/compact.js). True — сжать, False — вернуть."""
+        if _hwnd:
+            user32.PostMessageW(_hwnd, WM_SONO_MINI, 1 if on else 0, 0)
+        return bool(_hwnd)
+
+    def is_mini(self):
+        return _mini
 
     def tray_status(self, title, playing):
         """Что играет — для подсказки значка в трее и пункта «Пауза/Играть» в его меню."""

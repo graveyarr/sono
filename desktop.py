@@ -37,14 +37,30 @@ from paths import DATA_DIR  # noqa: E402
 INSTANCE_FILE = DATA_DIR / "instance.json"
 
 
+def _link_from_args() -> str | None:
+    """Кнопка «+ Sono» в браузере открывает адрес sono://add?url=<ссылка на трек> — Windows запускает
+    SonoMusic.exe с этим адресом (установщик регистрирует sono://). Достаём ссылку на трек."""
+    for arg in sys.argv[1:]:
+        if arg.lower().startswith("sono:"):
+            from urllib.parse import parse_qs, urlsplit
+            url = (parse_qs(urlsplit(arg).query).get("url") or [""])[0]
+            return url[:2000] or None
+    return None
+
+
+LINK = _link_from_args()
+
+
 def _wake_running() -> bool:
     try:
         info = json.loads(INSTANCE_FILE.read_text(encoding="utf-8"))
-        if sys.platform == "win32":   # разрешить той копии выйти на передний план (иначе Windows мигнёт кнопкой)
+        if sys.platform == "win32" and not LINK:   # разрешить той копии выйти на передний план (иначе Windows мигнёт кнопкой)
             import ctypes
             ctypes.windll.user32.AllowSetForegroundWindow(int(info["pid"]))
-        req = urllib.request.Request(f"http://127.0.0.1:{int(info['port'])}/api/instance/show", data=b"",
-                                     method="POST", headers={"X-Sono-Instance": str(info["token"])})
+        body = json.dumps({"open": LINK}).encode() if LINK else b"{}"
+        req = urllib.request.Request(f"http://127.0.0.1:{int(info['port'])}/api/instance/show", data=body,
+                                     method="POST", headers={"X-Sono-Instance": str(info["token"]),
+                                                             "Content-Type": "application/json"})
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # мимо прокси из переменных окружения
         with opener.open(req, timeout=2) as resp:
             return resp.status == 200
@@ -88,17 +104,25 @@ def _show_window():
         window.show()
 
 
+def _page_incoming():
+    """Пришла ссылка из браузера, а страница уже открыта — пусть заберёт её (main.js → window.sonoIncoming)."""
+    threading.Thread(target=lambda: window.evaluate_js("window.sonoIncoming && window.sonoIncoming()"),
+                     daemon=True).start()
+
+
 def _load_server():
     try:
         from werkzeug.serving import make_server
-        from app import app
+        from app import add_incoming, app
+        if LINK:
+            add_incoming(LINK)   # Sono запустили кнопкой из браузера — страница заберёт трек, когда загрузится
         # Порт 0 — система сама выберет свободный, чтобы не мешать запущенному python app.py.
         # threaded=True — чтобы поток аудио и предзагрузка ссылок не ждали друг друга.
         server = make_server("127.0.0.1", 0, app, threaded=True)
         threading.Thread(target=server.serve_forever, daemon=True).start()   # daemon: закрыли окно — сервер умер
         _server["port"] = server.port
         token = secrets.token_hex(8)   # чтобы откликалась только наша программа, а не что-то на том же порту
-        app.config.update(INSTANCE_TOKEN=token, SHOW_WINDOW=_show_window)
+        app.config.update(INSTANCE_TOKEN=token, SHOW_WINDOW=_show_window, PAGE_INCOMING=_page_incoming)
         try:
             INSTANCE_FILE.write_text(json.dumps({"pid": os.getpid(), "port": server.port, "token": token}), encoding="utf-8")
         except OSError:

@@ -1,0 +1,14 @@
+{
+  "name": "Моя тема",
+  "author": "",
+  "version": "1.0",
+  "description": "Своя тема Sono.",
+  "sono": ">=0.9.3",
+  "coverColors": true,
+  "preview": [
+    "#0b0b0b",
+    "#242424",
+    "#ffffff",
+    "#ff7a59"
+  ]
+}

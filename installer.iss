@@ -65,6 +65,14 @@ Type: files; Name: "{autodesktop}\Player.lnk"
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
 
+[Registry]
+; Адрес sono:// — кнопка-закладка «+ Sono» в браузере открывает sono://add?url=<страница трека>,
+; Windows запускает Sono с этим адресом, и трек включается в уже открытой программе (desktop.py, links.js)
+Root: HKCU; Subkey: "Software\Classes\sono"; ValueType: string; ValueName: ""; ValueData: "URL:Sono"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\sono"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\sono\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExe}"",0"
+Root: HKCU; Subkey: "Software\Classes\sono\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExe}"" ""%1"""
+
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 ; Автообновление (appupdate.py): программа запускает установщик тихо с /UPDATE=1 и закрывается — открываем новую версию
