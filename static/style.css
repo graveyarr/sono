@@ -1501,6 +1501,25 @@ body.playing [data-np="play"] .i-pause, .big-play.is-playing .i-pause { opacity:
   font-size: 15px; line-height: 1.5; color: var(--muted);
 }
 
+/* Не открылся исполнитель/альбом (artist.js failBox): по центру экрана, с «Повторить» */
+.meta-fail {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  max-width: 440px; margin: 12vh auto 0; padding: 0 20px;
+}
+.meta-fail-icon {
+  width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center;
+  background: rgb(var(--fg-rgb) / 0.07); color: var(--muted); margin-bottom: 18px;
+}
+.meta-fail-icon svg { width: 26px; height: 26px; }
+.meta-fail-title { margin: 0 0 8px; font-size: 22px; font-weight: 700; line-height: 1.2; }
+.meta-fail-text { margin: 0 0 22px; font-size: 14.5px; line-height: 1.5; color: var(--muted); }
+.meta-fail-btn {
+  height: 40px; padding: 0 22px; border: 0; border-radius: 20px; cursor: pointer;
+  background: var(--text); color: var(--bg, #0b0b0b); font: inherit; font-size: 14px; font-weight: 700;
+  transition: transform 0.15s;
+}
+.meta-fail-btn:hover { transform: scale(1.04); }
+
 /* ---------- Исполнитель и альбом ---------- */
 /* Имя исполнителя в строке трека и в плеере — ссылка на его страницу */
 .t-artist, .artist-link { cursor: pointer; }
@@ -1822,32 +1841,62 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
 
 /* ---------- Настройки ---------- */
 .nav-bottom { margin-top: 6px; border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; padding-top: 14px; }
-.view-settings { padding: 32px var(--pad) 48px; max-width: 900px; }
-.set-title { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+/* Экран занимает середину основной панели: в широком окне — оглавление колонкой слева и карточки справа,
+   в узком — оглавление строками сверху. Какую раскладку брать, решает ширина самого экрана (container query),
+   а не окна: медиатеку можно спрятать, и место меняется */
+.view-settings {
+  padding: 32px var(--pad) 56px;
+  max-width: 1160px; margin: 0 auto;
+  container-type: inline-size;
+}
+.set-title { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
 .set-title h1 { margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -0.02em; }
 .set-title-icon svg { width: 30px; height: 30px; display: block; color: var(--muted); }
 
-/* Оглавление настроек: прилипает к верху, пока листают */
+.set-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.set-sections { min-width: 0; }
+
+/* Оглавление строками: прилипает к верху и переносится на вторую строку, если не влезло */
 .set-nav {
   position: sticky; top: 0; z-index: 5;
-  display: flex; gap: 4px;
-  overflow-x: auto; scrollbar-width: none;   /* в узком окне листается вбок, а не переносится */
-  margin: 0 -8px 18px; padding: 6px;
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 6px;
   border-radius: 14px;
-  background: rgba(14, 14, 14, 0.88);
+  background: var(--menu-bg);
   border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 .set-nav-btn {
+  display: flex; align-items: center; gap: 8px;
   flex: none; white-space: nowrap;
-  height: 30px; padding: 0 12px;
+  height: 32px; padding: 0 12px;
   border: 0; border-radius: 16px;
   background: none; color: var(--muted);
-  font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
 }
 .set-nav-btn:hover { background: var(--hover); color: var(--text); }
-.set-nav-btn.on { background: #fff; color: #000; }
-.set-anchor { scroll-margin-top: 64px; }
+.set-nav-btn.on { background: rgb(var(--fg-rgb) / 0.14); color: var(--text); }
+.set-nav-icon { display: none; }
+.set-nav-icon svg { width: 17px; height: 17px; display: block; }
+
+/* Широкий экран: оглавление — колонкой слева, со значками; карточки — не шире 820 px, чтобы строки
+   и переключатели не разъезжались по краям огромного окна */
+@container (min-width: 900px) {
+  .set-layout { grid-template-columns: 210px minmax(0, 820px); gap: 32px; align-items: start; }
+  .set-nav {
+    top: 18px;
+    flex-direction: column; flex-wrap: nowrap; gap: 2px;
+    padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  }
+  .set-nav-btn { height: 40px; padding: 0 12px; border-radius: 10px; font-size: 14px; gap: 12px; }
+  .set-nav-btn.on { background: rgb(var(--fg-rgb) / 0.1); }
+  .set-nav-icon { display: block; color: var(--faint); transition: color 0.15s; }
+  .set-nav-btn:hover .set-nav-icon, .set-nav-btn.on .set-nav-icon { color: var(--accent); }
+}
+
+.set-anchor { scroll-margin-top: 100px; }   /* под оглавлением в две строки */
+@container (min-width: 900px) { .set-anchor { scroll-margin-top: 18px; } }
 .set-card {
   margin-bottom: 18px; padding: 22px 24px;
   border-radius: 16px;
@@ -2716,20 +2765,8 @@ body.mobile .wr-card { height: calc(100% - 24px); aspect-ratio: auto; width: cal
 .collection-cover.pick:not(.mosaic) { background: rgb(var(--fg-rgb) / 0.06); }
 .pl-desc { margin-top: 4px; font-size: 14px; color: rgb(var(--fg-rgb) / 0.82); }
 
-/* ---------- Таймер сна (sleep.js) и «Песня / Клип» (clip.js) ---------- */
-.clip-switch {
-  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 3;
-  display: flex; padding: 3px; gap: 2px; border-radius: 999px;
-  background: rgb(var(--shade-rgb) / 0.62); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-}
-.clip-switch[hidden] { display: none; }
-.clip-switch button {
-  border: 0; border-radius: 999px; padding: 5px 14px; background: transparent;
-  color: rgb(var(--fg-rgb) / 0.75); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-.clip-switch button:hover { color: #fff; }
-.clip-switch button.on { background: #fff; color: #0b0b0b; }
+/* ---------- Таймер сна (sleep.js) и кнопка «Клип» (clip.js) ---------- */
+.np-actions [data-np="clip"][hidden] { display: none; }
 .import-howto { margin: 6px 0; border: 1px solid var(--line, rgb(var(--fg-rgb) / 0.1)); border-radius: 10px; padding: 8px 12px; }
 .import-howto summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
 .import-howto summary svg { width: 18px; height: 18px; flex: none; }

@@ -3,9 +3,11 @@
 // «audio/lyrics») или официальный клип той же длительности (±3 с — иначе картинка разойдётся с музыкой).
 // Видео без звука идёт через сервер (/api/video/youtube/<id>, тот же обход блокировок) и подстраивается под
 // звук: пауза, перемотка, скорость. Качаем видео, только пока открыт «Сейчас играет», — меньше интернета.
-// Переключатель «Песня / Клип» над обложкой (как в YouTube Music) — виден, когда у трека есть клип;
-// выбор запоминается (settings.clipMode) и действует на все треки, пока его не сменят.
+// Кнопка «Клип» в ряду кнопок под обложкой — видна, когда у трека есть клип; включена — клип, выключена —
+// обложка. Выбор запоминается (settings.clipMode) и действует на все треки, пока его не сменят.
+// (Раньше это был переключатель «Песня / Клип» поверх обложки — автор: «перекрывает часть обложки».)
 
+import { icons } from "./icons.js";
 import { getSetting, setSetting } from "./library.js";
 import { isMeta } from "./meta.js";
 import { onTrackChange, state } from "./player.js";
@@ -22,12 +24,15 @@ let token = 0;
 
 export const clipsEnabled = () => getSetting("clips", true) !== false;
 const wantClip = () => getSetting("clipMode", "clip") !== "song";
-let switcher = null;   // «Песня / Клип»
+let switcher = null;   // кнопка «Клип» (data-np="clip")
 
 function syncSwitch() {
   if (!switcher) return;
   switcher.hidden = !clipId || !clipsEnabled();
-  switcher.querySelectorAll("button").forEach((b) => b.classList.toggle("on", (b.dataset.mode === "clip") === wantClip()));
+  const on = wantClip();
+  switcher.classList.toggle("on", on);
+  switcher.title = on ? "Показывать обложку вместо клипа" : "Показывать клип вместо обложки";
+  switcher.setAttribute("aria-pressed", String(on));
 }
 
 export function setClipsEnabled(on) {
@@ -112,18 +117,10 @@ function sync(hard = false) {
 }
 
 export function initClips() {
-  switcher = document.createElement("div");
-  switcher.className = "clip-switch";
+  switcher = document.querySelector('.np-actions [data-np="clip"]');
+  switcher.innerHTML = icons.clip;
   switcher.hidden = true;
-  for (const [mode, name] of [["song", "Песня"], ["clip", "Клип"]]) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.dataset.mode = mode;
-    b.textContent = name;
-    b.addEventListener("click", () => { setSetting("clipMode", mode); show(); });
-    switcher.append(b);
-  }
-  wrap.closest(".cover-stage").append(switcher);
+  switcher.addEventListener("click", () => { setSetting("clipMode", wantClip() ? "song" : "clip"); show(); });
   onTrackChange(check);
   // Первые кадры готовы — плавно показываем видео поверх обложки
   video.addEventListener("loadeddata", () => {

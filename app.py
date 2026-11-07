@@ -249,6 +249,15 @@ def friendly_error(e: Exception) -> str:
         return "Сайт требует войти в аккаунт, чтобы открыть этот трек"
     if "unavailable" in text.lower() or "not available" in text.lower():
         return "Трек недоступен (удалён или закрыт в вашей стране)"
+    # Имя сайта не превратилось в адрес (у друга: «Failed to resolve 'www.youtube.com' ([Errno 11001]
+    # getaddrinfo failed)») — DNS провайдера не отвечает или блокирует сайт. Обход режет имя сайта в
+    # шифровании, а до этого дело не доходит; встроенный обход умеет спрашивать адрес у DNS-over-HTTPS сам
+    if re.search(r"getaddrinfo|Failed to resolve|NameResolution|Name or service not known|Errno 1100[14]", text):
+        host = "youtube.com" if "youtube" in text or "googlevideo" in text else \
+               "soundcloud.com" if "soundcloud" in text or "sndcdn" in text else "сайт"
+        return (f"Не удаётся найти {host}: DNS вашего провайдера не отвечает или блокирует его. "
+                "Включите «Встроенный обход» в Настройках (он ищет адрес сам), смените DNS на 1.1.1.1 или 8.8.8.8 "
+                "либо включите VPN")
     if isinstance(e, requests.RequestException) or re.search(r"timed out|HTTPSConnectionPool|Connection(Error| aborted| reset)", text):
         host = "YouTube" if "googlevideo" in text or "youtube" in text else "SoundCloud" if "soundcloud" in text or "sndcdn" in text else "Сайт"
         return (f"{host} не ответил вовремя. Попробуйте ещё раз; если повторяется — "
@@ -1116,15 +1125,19 @@ def cover_urls(source: str, track_id: str, size: str) -> list[str]:
     """Адреса, по которым можно взять обложку, по порядку предпочтения."""
     if source == "youtube":
         return [f"https://i.ytimg.com/vi/{track_id}/{v}.jpg" for v in COVER_VARIANTS[size]]
+    if source != "soundcloud":
+        return []
     artwork = _sc_artwork.get(track_id)
-    if not artwork:   # сервер перезапускали после поиска — узнаём обложку заново
-        with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
-            info = ydl.extract_info(track_url(source, track_id), download=False, process=False)
-        artwork = info.get("thumbnail")
+    if not artwork:   # сервер перезапускали после поиска — узнаём обложку заново у API SoundCloud
+        # (раньше — yt-dlp с process=False: он отдаёт только список thumbnails без «thumbnail», и обложки не было)
+        t = sc_api(f"/tracks/{track_id}")
+        artwork = t.get("artwork_url") or (t.get("user") or {}).get("avatar_url")   # нет обложки — фото автора
         if not artwork:
             return []
         _sc_artwork[track_id] = artwork
-    return [re.sub(r"-[^-/]+\.jpg$", f"-{SC_COVER_SIZES[size]}.jpg", artwork)]
+    # Размер — конец адреса. Бывает и «-original.png»: оригинал SoundCloud не отдаёт (404), а уменьшенная
+    # копия всегда .jpg — раньше .png оставался как есть, и у таких треков обложки не было
+    return [re.sub(r"-[^-/]+\.(?:jpe?g|png)$", f"-{SC_COVER_SIZES[size]}.jpg", artwork, flags=re.I)]
 
 
 def get_cover_file(source: str, track_id: str, size: str) -> Path | None:
@@ -1132,21 +1145,82 @@ def get_cover_file(source: str, track_id: str, size: str) -> Path | None:
     target = COVER_DIR / f"{cache_key(source, track_id)}_{size}.jpg"
     if target.exists():
         return target
+    # Не вышло недавно — пока не пробуем: зависшая загрузка держит соединения (_SC_IMG_GATE) до ~20 с,
+    # и если каждая перерисовка списка спрашивала бы её заново, остальные обложки ждали бы в очереди
+    if time.time() - _cover_failed.get(target.name, 0) < 120:
+        return get_cover_file(source, track_id, "small") if size == "large" else None
     try:
         urls = cover_urls(source, track_id, size)
     except Exception as e:
         print(f"[cover] {source} {track_id}: не узнал адрес обложки: {e}")
+        _cover_failed[target.name] = time.time()
         return None
+    if not urls:
+        print(f"[cover] {source} {track_id}: у трека нет обложки")
     for url in urls:
         try:
-            resp = _http.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)   # через обход/прокси, как всё остальное
-            resp.raise_for_status()
-            target.write_bytes(resp.content)
+            target.write_bytes(get_image(url))
             print(f"[cover] {source} {track_id} {size}")
             return target
-        except Exception as e:
+        except Exception as e:   # 404 — следующий адрес (у YouTube их несколько)
             print(f"[cover] {url} не вышло: {e}")
+    _cover_failed[target.name] = time.time()
+    # Большая не пришла — лучше маленькая (300×300 растянется чуть мягче), чем пустой квадрат с нотой:
+    # у автора 7 ноября маленькие обложки SoundCloud проходили, а большие нет (заморозка после 16 КБ)
+    if size == "large":
+        return get_cover_file(source, track_id, "small")
     return None
+
+
+_cover_failed: dict[str, float] = {}   # файл обложки -> когда не удалось скачать
+
+
+IMG_PART = 12 * 1024   # кусочек картинки SoundCloud — меньше порога заморозки (~16 КБ)
+_IMG_POOL = ThreadPoolExecutor(4, thread_name_prefix="img")
+# Не больше 3 соединений с картинками SoundCloud сразу (на все обложки страницы вместе): при 6 одновременных
+# фильтр часть замораживал — как и с подделками (netbypass._FAKE_GATE)
+_SC_IMG_GATE = threading.Semaphore(3)
+
+
+def get_image(url: str) -> bytes:
+    """Картинка по адресу — через обход/прокси, как всё остальное.
+    Картинки SoundCloud лежат в той же сети Amazon CloudFront, что и звук, а там провайдер «замораживает»
+    соединение после первых 16 КБ (замер 7 ноября 2026, «Мимо VPN»: ровно 16384 байта — и тишина; маленькие
+    обложки проскакивали, большие — почти никогда, отсюда «обложки не грузятся»). Поэтому SoundCloud —
+    кусочками по 12 КБ, каждый по новому соединению, несколько сразу. Остальное — одним запросом."""
+    headers = {"User-Agent": "Mozilla/5.0"}
+    if not netbypass.is_soundcloud(re.sub(r"^https?://([^/:]+).*$", r"\1", url)):
+        for attempt in range(3):
+            try:
+                resp = _http.get(url, headers=headers, timeout=(6, 4))
+                resp.raise_for_status()
+                return resp.content
+            except (requests.ConnectionError, requests.Timeout):
+                if attempt == 2:
+                    raise
+
+    def part(start: int) -> requests.Response:
+        # requests.get — новая сессия, а значит и новое соединение (через прокси из переменных окружения)
+        for attempt in range(3):
+            try:
+                with _SC_IMG_GATE:
+                    resp = requests.get(url, timeout=(6, 6), headers={
+                        **headers, "Range": f"bytes={start}-{start + IMG_PART - 1}", "Connection": "close"})
+                resp.raise_for_status()
+                return resp
+            except (requests.ConnectionError, requests.Timeout):
+                if attempt == 2:
+                    raise
+
+    first = part(0)
+    total = int(first.headers.get("Content-Range", "").rpartition("/")[2] or 0) if first.status_code == 206 else 0
+    if total <= len(first.content):   # картинка влезла в первый кусочек (или сервер отдал её целиком)
+        return first.content
+    rest = _IMG_POOL.map(lambda start: part(start).content, range(IMG_PART, total, IMG_PART))
+    data = first.content + b"".join(rest)
+    if len(data) != total:
+        raise IOError(f"картинка пришла не целиком: {len(data)} из {total} байт")
+    return data
 
 
 # ---------- Медиатека: избранное, плейлисты, дизлайки, история, настройки ----------
@@ -2107,10 +2181,37 @@ _presence = discord_rpc.Presence(discord_rpc.CLIENT_ID)
 _maxres_ok: dict[str, bool] = {}   # есть ли у видео YouTube большая картинка maxresdefault
 
 
-def _public_cover(source: str, track_id: str, cover: str | None) -> str:
+_local_public: dict[str, str] = {}   # свой файл -> открытый адрес обложки для Discord
+
+
+def _local_public_cover(track_id: str, artist: str, title: str, duration: float) -> str:
+    """Своему файлу — обложка альбома из Яндекс Музыки (по исполнителю и названию), а если там нет —
+    значок Sono с GitHub. Вшитую в файл обложку Discord не увидит: она лежит на компьютере, а Discord
+    берёт картинки только по открытому адресу (раньше вместо обложки был «?»)."""
+    if track_id in _local_public:
+        return _local_public[track_id]
+    url = ""
+    if title:
+        try:
+            found = artists.match_track(artist, title, duration or None)
+            if found:
+                url = artists._img(found[0].get("coverUri") or found[1].get("coverUri"), "400x400") or ""
+        except Exception as e:
+            print(f"[discord] обложка своего файла: {e}")
+    if not url and appupdate.REPO:
+        url = f"https://raw.githubusercontent.com/{appupdate.REPO}/main/assets/sono.png"
+    _local_public[track_id] = url
+    return url
+
+
+def _public_cover(source: str, track_id: str, cover: str | None, data: dict | None = None) -> str:
     """Обложка по открытому адресу: Discord берёт картинку сам, наш локальный сервер ему не виден."""
     if cover and cover.startswith("https://"):
         return cover.replace("200x200", "400x400")   # обложки альбомов Яндекса — покрупнее
+    if source == "local":
+        data = data or {}
+        return _local_public_cover(track_id, str(data.get("artist") or ""), str(data.get("title") or ""),
+                                   float(data.get("duration") or 0))
     if source == "youtube":
         # Не hqdefault: он 4:3, и у широких видео чёрные полосы сверху и снизу «впечатаны» в саму картинку
         # (так было в статусе Discord). Широкая картинка без полос — maxresdefault (бывает не у всех) или mqdefault;
@@ -2145,7 +2246,7 @@ def api_presence():
     def build():   # обложка SoundCloud может потребовать запроса — не держим страницу
         _presence.show(discord_rpc.activity(
             str(data.get("title") or ""), str(data.get("artist") or ""), album=str(data.get("album") or ""),
-            cover=_public_cover(source, track_id, data.get("cover")),
+            cover=_public_cover(source, track_id, data.get("cover"), data),
             url=track_url(source, track_id) if source == "youtube" else "",
             source=SOURCES_TITLE.get(source, ""),
             position=float(data.get("position") or 0), duration=float(data.get("duration") or 0)))
@@ -2318,7 +2419,12 @@ def _meta_call(fn, *args):
         abort(404)
     except Exception as e:
         print(f"[meta] {fn.__name__}{args}: {e}")
-        return jsonify(error="Не получилось загрузить сведения об исполнителе — нет связи с Deezer"), 502
+        # Называем тот сайт, что не ответил (раньше всегда писали «Deezer», даже если упал Яндекс)
+        text = str(e)
+        site = "Deezer" if "deezer" in text else "Яндекс Музыка" if "yandex" in text else \
+               "SoundCloud" if "soundcloud" in text else "сайт с музыкальной базой"
+        return jsonify(error=f"{site} сейчас не отвечает. Обычно это ненадолго — попробуйте ещё раз через минуту",
+                       site=site), 502
 
 
 @app.get("/api/artist/search")
@@ -2456,10 +2562,9 @@ def api_img():
     path = IMG_DIR / (hashlib.sha1(url.encode()).hexdigest() + ".jpg")
     if not path.exists():
         try:
-            resp = _http.get(url, timeout=10)
-            resp.raise_for_status()
-            path.write_bytes(resp.content)
-        except Exception:
+            path.write_bytes(get_image(url))   # SoundCloud — кусочками (заморозка после 16 КБ)
+        except Exception as e:
+            print(f"[img] {url} не вышло: {e}")
             abort(404)
     return send_file(path, mimetype="image/jpeg", max_age=7 * 24 * 3600)
 
@@ -2565,8 +2670,11 @@ def api_cover(source, track_id):
     if not path:
         abort(404)
     # Обложка трека не меняется — браузер может не переспрашивать сутки (раньше спрашивал при каждом показе).
-    # У своих файлов обложку могут заменить — их проверяем как прежде
-    return send_file(path, mimetype="image/jpeg", max_age=None if source == "local" else 24 * 3600)
+    # У своих файлов обложку могут заменить — их проверяем как прежде. Вместо большой пришлось отдать
+    # маленькую — браузер спросит снова через 5 мин (вдруг большая уже скачается)
+    stand_in = source != "local" and size == "large" and path.name.endswith("_small.jpg")
+    return send_file(path, mimetype="image/jpeg",
+                     max_age=None if source == "local" else 300 if stand_in else 24 * 3600)
 
 
 @app.get("/api/stream/<source>/<track_id>")

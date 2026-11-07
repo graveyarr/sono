@@ -1,0 +1,70 @@
+/* «Луна» — по макету автора: фиолетовая ночь, обложка слева, название и кнопки справа */
+:root {
+  --bg: #0d0a18;
+  --tint: #1a1230;
+  --accent: #9d7bff;
+  --fg-rgb: 236 232 255;
+  --glass: rgba(22, 16, 40, 0.62);
+  --panel: rgba(34, 26, 58, 0.96);
+  --menu-bg: rgba(38, 29, 64, 0.98);
+  --dialog-bg: rgba(34, 26, 58, 0.98);
+  --search-bg: rgba(24, 18, 42, 0.7);
+  --search-bg-hover: rgba(36, 27, 60, 0.8);
+  --shade-rgb: 14 9 30;
+}
+/* Размытая обложка — еле видна и в лиловых тонах, поверх — ночное свечение */
+.bg-art { filter: saturate(0.4) hue-rotate(0deg); }
+.bg-art.on, body.on-now .bg-art.on { opacity: 0.22 !important; }
+.np-glow { display: none; }
+body.on-now .main {
+  background:
+    radial-gradient(60% 50% at 25% 0%, rgba(124, 84, 230, 0.22), transparent 70%),
+    radial-gradient(50% 50% at 100% 100%, rgba(80, 50, 170, 0.18), transparent 70%);
+}
+.nav-item.active { background: rgb(157 123 255 / 0.14); box-shadow: inset 3px 0 0 var(--accent); }
+.nav-item.active .nav-icon { color: var(--accent); }
+.up-next { background: rgb(var(--shade-rgb) / 0.5); }
+.up-next-item.now { background: rgb(157 123 255 / 0.12); box-shadow: inset 3px 0 0 var(--accent); }
+.cover-wrap { border-radius: 16px; }
+/* Раскладка меняется, когда открывают «Очередь» на узком экране, — без анимации ширины (обложка раздувалась) */
+.deck { transition: none; }
+
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .deck, body:not(.mobile):not(.show-queue):not(.show-lyrics) .deck.has-clip {
+  display: grid;
+  width: min(100%, calc(var(--deck) * 2.5)); max-width: none;
+  grid-template-columns: var(--deck) minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr auto auto auto;
+  grid-template-areas: "cover info" "cover acts" "cover ." "cover prog" "cover ctrl" "stat stat";
+  column-gap: clamp(28px, 3.5vw, 48px);
+}
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .deck.has-clip { grid-template-columns: calc(var(--deck) * 1.4) minmax(0, 1fr); }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .np-row { display: contents; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .cover-stage { grid-area: cover; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .np-row .info { grid-area: info; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .np-actions { grid-area: acts; justify-self: start; margin: 14px 0 0 -8px; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .deck .progress { grid-area: prog; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .deck .controls { grid-area: ctrl; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .deck .status { grid-area: stat; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .info h1 { font-size: clamp(30px, 3.4vw, 50px); line-height: 1.15; padding-bottom: 0.1em; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) .info p { font-size: clamp(16px, 1.6vw, 24px); color: var(--accent); margin-top: 6px; }
+@media (min-width: 1500px) {
+  body:not(.mobile) .deck, body:not(.mobile) .deck.has-clip {
+  display: grid;
+  width: min(100%, calc(var(--deck) * 2.5)); max-width: none;
+  grid-template-columns: var(--deck) minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr auto auto auto;
+  grid-template-areas: "cover info" "cover acts" "cover ." "cover prog" "cover ctrl" "stat stat";
+  column-gap: clamp(28px, 3.5vw, 48px);
+    width: min(100%, calc(var(--deck) * 2.2));
+  }
+  body:not(.mobile) .deck.has-clip { grid-template-columns: calc(var(--deck) * 1.2) minmax(0, 1fr); }
+  body:not(.mobile) .np-row { display: contents; }
+  body:not(.mobile) .cover-stage { grid-area: cover; }
+  body:not(.mobile) .np-row .info { grid-area: info; }
+  body:not(.mobile) .np-actions { grid-area: acts; justify-self: start; margin: 14px 0 0 -8px; }
+  body:not(.mobile) .deck .progress { grid-area: prog; }
+  body:not(.mobile) .deck .controls { grid-area: ctrl; }
+  body:not(.mobile) .deck .status { grid-area: stat; }
+  body:not(.mobile) .info h1 { font-size: clamp(30px, 3.4vw, 50px); line-height: 1.15; padding-bottom: 0.1em; }
+  body:not(.mobile) .info p { font-size: clamp(16px, 1.6vw, 24px); color: var(--accent); margin-top: 6px; }
+}

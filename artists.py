@@ -80,7 +80,16 @@ def _refresh_later(key: str, url: str, params: dict | None, path: Path):
 
 
 def _fetch(url: str, params: dict | None, path: Path) -> dict:
-    resp = _http.get(url, params=params, headers=UA, timeout=12)
+    # Соединение иногда рвётся на рукопожатии (7 ноября у автора: Deezer — «SSL: UNEXPECTED_EOF» на большинстве
+    # альбомов Lucy Bedroque, через минуту всё открывалось) — пробуем ещё два раза, а не сразу ошибка
+    for attempt in range(3):
+        try:
+            resp = _http.get(url, params=params, headers=UA, timeout=(5, 10))
+            break
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 2:
+                raise
+            time.sleep(0.3 * (attempt + 1))
     if resp.status_code == 404:
         # «Нет такой страницы» тоже запоминаем: иначе, например, у исполнителя без статьи в Википедии
         # каждое открытие страницы заново ждало три ответа «не найдено» (2–4 с)

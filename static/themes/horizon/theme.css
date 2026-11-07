@@ -1,0 +1,58 @@
+/* «Горизонт» — по макету автора: закатное небо с холмами на «Сейчас играет»,
+   крупное тонкое название слева, обложка справа, кнопки внизу во всю ширину */
+:root {
+  --bg: #0b0810;
+  --tint: #1a1224;
+  --accent: #e8a393;
+  --fg-rgb: 239 230 238;
+  --glass: rgba(21, 16, 26, 0.86);
+  --panel: rgba(30, 22, 38, 0.96);
+  --menu-bg: rgba(36, 26, 44, 0.98);
+  --dialog-bg: rgba(32, 23, 40, 0.98);
+  --search-bg: rgba(18, 12, 30, 0.55);
+  --search-bg-hover: rgba(30, 20, 44, 0.7);
+  --radius: 22px;
+}
+/* Свой фон вместо размытой обложки и подсветки */
+.bg-art, .now-bg, .np-glow { display: none !important; }
+body.on-now .viz { display: none; }
+
+body.on-now .main {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1340 380' preserveAspectRatio='none'%3E%3Cpath d='M0,110 C200,55 380,135 620,90 C860,45 1080,125 1340,80 L1340,380 L0,380Z' fill='%237a5071'/%3E%3Cpath d='M0,190 C240,140 420,215 700,170 C960,125 1130,205 1340,155 L1340,380 L0,380Z' fill='%2347294d'/%3E%3Cpath d='M0,240 C260,205 520,275 800,240 C1040,210 1200,265 1340,235 L1340,380 L0,380Z' fill='%231b1020'/%3E%3C/svg%3E") bottom / 100% max(42%, 330px) no-repeat,
+    linear-gradient(180deg, #120e26 0%, #2a1c44 32%, #5d3c62 52%, #b57f84 66%, #e3b39b 72%, #e3b39b 100%);
+}
+
+/* Раскладка (на телефоне — как обычно) */
+body:not(.mobile) .view-now { align-items: stretch; padding: 28px 56px 26px; }
+body:not(.mobile) .np-stage { align-items: stretch; width: 100%; }
+body:not(.mobile) .deck,
+body:not(.mobile) .deck.has-clip {
+  flex: 1 1 auto; width: auto; min-width: 0;
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) min(var(--deck), 38%);
+  grid-template-rows: 1fr auto auto auto auto;
+  grid-template-areas: "info cover" "acts cover" "prog prog" "ctrl ctrl" "stat stat";
+  column-gap: clamp(28px, 6vw, 120px);
+}
+body:not(.mobile) .deck.has-clip { grid-template-columns: minmax(0, 1fr) min(calc(var(--deck) * 1.5), 52%); }
+body:not(.mobile) .np-row { display: contents; }
+body:not(.mobile) .cover-stage { grid-area: cover; align-self: center; }
+body:not(.mobile) .np-row .info { grid-area: info; align-self: end; }
+body:not(.mobile) .np-actions { grid-area: acts; justify-self: start; margin: 18px 0 0 -8px; }
+body:not(.mobile) .deck .progress { grid-area: prog; margin-top: 30px; }
+body:not(.mobile) .deck .controls { grid-area: ctrl; }
+body:not(.mobile) .deck .status { grid-area: stat; }
+
+body:not(.mobile) .info h1 {
+  font-size: clamp(34px, 7cqi, 78px); font-weight: 300; line-height: 1.15;
+  letter-spacing: -0.02em; padding-bottom: 0.1em; -webkit-line-clamp: 3; color: #fff;
+}
+body:not(.mobile) .info p { margin-top: 12px; font-size: clamp(16px, 2.2cqi, 22px); color: #e0d3e2; }
+.cover-wrap { border-radius: 28px; box-shadow: 0 30px 60px rgba(0, 0, 0, 0.35); }
+body.playing .cover-wrap { box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4); }
+
+/* Кнопки — светлые, «играть» — кремовая */
+.view-now .play { background: #f3e9ee; color: #1b1020; }
+.view-now .times, .view-now .source-badge { color: #d3c6d6; }

@@ -1006,6 +1006,7 @@ export function applyMotion() {
 // ---------- Сборка экрана ----------
 
 let navSpy = null;   // подсветка раздела в оглавлении при прокрутке
+let clickedAt = 0;   // когда щёлкнули по пункту оглавления
 
 function render() {
   const title = el("div", "set-title");
@@ -1013,35 +1014,50 @@ function render() {
   title.append(el("h1", "", "Настройки"));
   // Порядок разделов — от того, что меняют чаще, к тому, что настраивают один раз
   const sections = [
-    ["Воспроизведение", playbackSection()],
-    ["Оформление", appearanceSection()],
-    ["Медиатека", librarySection()],
-    ["Мои файлы", localSection()],
-    ["Из браузера", browserSection()],
-    ["Обход блокировок", networkSection()],
-    ["zapret", zapretCard()],
-    ["Обновления", updateSection()],
+    ["Воспроизведение", icons.play, playbackSection()],
+    ["Оформление", icons.palette, appearanceSection()],
+    ["Медиатека", icons.album, librarySection()],
+    ["Мои файлы", icons.folder, localSection()],
+    ["Из браузера", icons.plus, browserSection()],
+    ["Обход блокировок", icons.compass, networkSection()],
+    ["zapret", icons.fx, zapretCard()],
+    ["Обновления", icons.download, updateSection()],
   ];
-  // Оглавление сверху: щелчок — прокрутить к разделу; пока листают — подсвечен тот, что на экране
+  // Оглавление: в широком окне — колонкой слева (прилипает, пока листают), в узком — строками сверху
+  // (переносится, а не уезжает вбок за край). Щелчок — прокрутить к разделу; подсвечен тот, что на экране
   const nav = el("nav", "set-nav");
+  const list = el("div", "set-sections");
   // Каждый раздел — в своей обёртке: карточка zapret перерисовывает себя заменой целиком,
   // а обёртка остаётся — оглавление не теряет на неё ссылку
-  const links = sections.map(([name, section], i) => {
+  const links = sections.map(([name, icon, section], i) => {
     const anchor = el("div", "set-anchor");
     anchor.id = `set-${i}`;
     anchor.append(section);
-    const b = el("button", "set-nav-btn", name);
+    const b = el("button", "set-nav-btn");
     b.type = "button";
-    b.addEventListener("click", () => anchor.scrollIntoView({ behavior: "smooth", block: "start" }));
+    b.innerHTML = `<span class="set-nav-icon">${icon}</span>`;
+    b.append(el("span", "set-nav-name", name));
+    b.addEventListener("click", () => {
+      // Подсвечиваем сразу: пока прокрутка плавно едет, подсветка не прыгает по промежуточным разделам
+      nav.querySelectorAll(".set-nav-btn").forEach((x) => x.classList.toggle("on", x === b));
+      clickedAt = Date.now();
+      anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     nav.append(b);
+    list.append(anchor);
     return [b, anchor];
   });
-  box.replaceChildren(title, nav, ...links.map(([, a]) => a));
+  const layout = el("div", "set-layout");
+  layout.append(nav, list);
+  box.replaceChildren(title, layout);
   // Экран перерисовывается при многих щелчках — старый обработчик прокрутки снимаем, чтобы не копились
   const scroller = box.closest(".views") ?? box.parentElement;
   if (navSpy) scroller.removeEventListener("scroll", navSpy);
   navSpy = () => {
-    const top = nav.getBoundingClientRect().bottom + 40;
+    if (Date.now() - clickedAt < 900) return;   // едем к разделу, который выбрали щелчком
+    // Колонка слева — раздел «на экране», когда его верх у верха окна; строки сверху — когда он под ними
+    const column = getComputedStyle(nav).flexDirection === "column";
+    const top = (column ? scroller.getBoundingClientRect().top + 24 : nav.getBoundingClientRect().bottom) + 40;
     let current = links[0];
     for (const pair of links) {
       const shown = pair[1].offsetHeight > 0;   // карточка zapret прячется, если zapret не найден

@@ -130,6 +130,19 @@ function section(title, ...children) {
   return s;
 }
 
+/** Экран ошибки: что не открылось, почему, и «Повторить» (раньше — серая строка с пунктиром в углу) */
+function failBox(what, err, retry) {
+  const box = el("div", "meta-fail");
+  const icon = el("span", "meta-fail-icon");
+  icon.innerHTML = icons.compass;
+  const again = el("button", "meta-fail-btn", "Повторить");
+  again.type = "button";
+  again.addEventListener("click", retry);
+  box.append(icon, el("h2", "meta-fail-title", `Не получилось открыть ${what}`),
+    el("p", "meta-fail-text", err.message || "Нет связи"), again);
+  return box;
+}
+
 // ---------- Страница исполнителя ----------
 
 export async function renderArtist(box, id, stillHere) {
@@ -138,7 +151,7 @@ export async function renderArtist(box, id, stillHere) {
   try {
     a = await load(`/api/artist/${id}`);
   } catch (err) {
-    if (stillHere()) box.replaceChildren(el("p", "pl-empty", `Не получилось открыть исполнителя: ${err.message}`));
+    if (stillHere()) box.replaceChildren(failBox("исполнителя", err, () => renderArtist(box, id, stillHere)));
     return;
   }
   if (!stillHere()) return;
@@ -400,7 +413,7 @@ export async function renderAlbum(box, id, stillHere) {
   try {
     al = await load(`/api/album/${id}`);
   } catch (err) {
-    if (stillHere()) box.replaceChildren(el("p", "pl-empty", `Не получилось открыть альбом: ${err.message}`));
+    if (stillHere()) box.replaceChildren(failBox("альбом", err, () => renderAlbum(box, id, stillHere)));
     return;
   }
   if (!stillHere()) return;
