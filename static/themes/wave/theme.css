@@ -19,6 +19,8 @@ body.on-now .main {
     radial-gradient(55% 45% at 45% 8%, rgba(150, 46, 46, 0.32), transparent 70%),
     radial-gradient(40% 40% at 90% 100%, rgba(120, 40, 60, 0.18), transparent 70%),
     #141113;
+  /* фон до самого края, без повтора: иначе в 1 px рамки панели вылезал повтор градиента — светлые линии по краям */
+  background-origin: border-box; background-repeat: no-repeat;
 }
 
 body:not(.mobile) .view-now { align-items: stretch; padding: 28px 48px 18px; }
@@ -79,3 +81,13 @@ body:not(.mobile):not(.show-lyrics) .up-next-list.upcoming .up-next-item { flex:
 body:not(.mobile):not(.show-lyrics) .up-next-list.upcoming .up-next-item:hover { background: none; }
 body:not(.mobile):not(.show-lyrics) .up-next-list.upcoming .up-next-item img { width: 88px; height: 88px; border-radius: 10px; }
 body:not(.mobile):not(.show-lyrics) .up-next-list.upcoming .up-next-item:first-child img { width: 112px; height: 112px; }
+
+/* Живая полоса перемотки (seekviz.js): вместо неподвижных полосок — спектр того, что играет.
+   Ползунок остаётся под холстом прозрачным — щелчок и перетаскивание работают как раньше */
+:root { --seek-viz: live; }
+body.seek-viz-on:not(.mobile) #view-now .progress { position: relative; }
+body.seek-viz-on:not(.mobile) #view-now .seek-viz {
+  position: absolute; left: 0; width: 100%; pointer-events: none; z-index: 1;
+}
+body.seek-viz-on:not(.mobile) #view-now input[data-np="seek"] { opacity: 0; }
+body.mobile #view-now .seek-viz { display: none; }

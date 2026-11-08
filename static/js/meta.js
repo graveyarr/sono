@@ -60,6 +60,16 @@ export async function toReal(track) {
   return Object.fromEntries(Object.entries({ ...real, ...extra }).filter(([, v]) => v != null));
 }
 
+/** Исполнитель трека: тот одноимённый, у кого есть эта песня → { id, name } или null */
+export async function artistForTrack(name, title, track) {
+  const real = resolvedOf(track) ?? track;   // у трека из базы — найденная пара (SoundCloud/YouTube)
+  const res = await fetch("/api/artist/for-track", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, title, duration: track.duration || real.duration, source: real.source, id: real.id }),
+  });
+  return res.ok ? res.json() : null;
+}
+
 /** Исполнитель по имени (щелчок по имени в списке) → { id, name } или null */
 export async function artistByName(name) {
   const res = await fetch(`/api/artist/by-name?name=${encodeURIComponent(name)}`);

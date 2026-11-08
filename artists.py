@@ -190,10 +190,62 @@ def artist_by_name(name: str) -> dict | None:
     return None
 
 
+def _same_name(a: str | None, b: str | None) -> bool:
+    """Одно и то же имя: без знаков, регистра, пробелов и приставки «группа»."""
+    def key(x):
+        return re.sub(r"^группа ", "", _norm(x)).replace(" ", "")
+    return bool(key(a)) and key(a) == key(b)
+
+
+def _bare(title: str) -> str:
+    return _norm(re.sub(r"\s*[(\[].*?[)\]]", "", title or ""))
+
+
+def artist_with_track(name: str, title: str, duration: float | None) -> dict | None:
+    """Исполнитель с этим именем, у которого действительно есть эта песня (щелчок по имени в строке трека).
+    Одноимённых много («Eazy» — казахстанский певец и рэпер с SoundCloud), поэтому имя само по себе
+    ничего не значит. Сначала — поиск трека «имя название», потом — песни каждого одноимённого исполнителя."""
+    name = re.split(r",| feat\.? | ft\.? ", name or "", flags=re.I)[0].strip()
+    if not name:
+        return None
+    if title:
+        found = match_track(name, title, duration)
+        if found:
+            hit = next((a for a in found[0].get("artists") or [] if _same_name(a.get("name"), name)), None)
+            if hit and hit.get("id"):
+                return _artist_card(hit)
+    hit = _in_artist_lists(name, title)
+    return hit[0] if hit else None
+
+
+def _in_artist_lists(name: str, title: str) -> tuple[dict, dict] | None:
+    """Песня в списке треков одноимённых исполнителей (поиск «имя название» у Яндекса находит не всё):
+    (исполнитель, трек как в ответе) или None."""
+    want = _bare(title)
+    if not want:
+        return None
+    same = [a for a in search_artists(name, limit=8) if _same_name(a["name"], name)]
+    jobs = [(a, _pool.submit(_get, f"{YANDEX}/artists/{a['id']}/tracks", {"page": 0, "page-size": 100})) for a in same[:4]]
+    for a, job in jobs:
+        try:
+            tracks = (job.result().get("result") or {}).get("tracks") or []
+        except Exception:
+            continue
+        t = next((t for t in tracks if _bare(t.get("title")) == want and t.get("albums")), None)
+        if t:
+            return a, t
+    return None
+
+
 def find_track(artist: str, title: str, duration: float | None) -> dict | None:
     """Трек в базе Яндекса по исполнителю и названию (щелчок по названию → его альбом или сингл).
     Ответ: {"albumId", "trackId": "ya…"} или None."""
     found = match_track(artist, title, duration)
+    if not found:   # поиск по фразе не нашёл — смотрим песни одноимённых исполнителей
+        hit = _in_artist_lists(re.split(r",| feat\.? | ft\.? ", artist or "", flags=re.I)[0].strip(), title)
+        if hit:
+            albums = hit[1]["albums"]
+            found = (hit[1], next((al for al in albums if al.get("type") != "compilation"), albums[0]))
     return {"albumId": found[1].get("id"), "trackId": f"ya{found[0]['id']}"} if found else None
 
 
@@ -208,15 +260,18 @@ def match_track(artist: str, title: str, duration: float | None) -> tuple[dict, 
     best, best_score = None, -1e9
     for rank, t in enumerate(_search(f"{artist} {title}", "track")):
         name = _norm(re.sub(r"\s*[(\[].*?[)\]]", "", t.get("title") or ""))
-        people = " ".join(_norm(a.get("name", "")) for a in t.get("artists") or [])
         if name != want_title and not (want_title in name or name in want_title):
             continue
-        if want_artist and want_artist not in people and want_artist.replace(" ", "") not in people.replace(" ", ""):
+        # Исполнитель — ровно тот (слитно тоже), а не «входит в строку»: «eazy» ≠ «Mo Eazy», иначе
+        # щелчок по названию открывал чужой одноимённый сингл
+        if want_artist and not any(_same_name(a.get("name"), want_artist) for a in t.get("artists") or []):
             continue
         albums = t.get("albums") or []
         if not albums:
             continue
         got = (t.get("durationMs") or 0) / 1000
+        if duration and got and abs(got - float(duration)) > 75:
+            continue   # совсем другая длина — другая песня (клипы бывают длиннее на минуту, поэтому запас большой)
         score = (3 if name == want_title else 0) - rank * 0.2
         if duration and got:
             score -= min(abs(got - duration), 60) / 10

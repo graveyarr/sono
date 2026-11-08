@@ -20,6 +20,8 @@ body.on-now .main {
   background:
     radial-gradient(60% 50% at 25% 0%, rgba(124, 84, 230, 0.22), transparent 70%),
     radial-gradient(50% 50% at 100% 100%, rgba(80, 50, 170, 0.18), transparent 70%);
+  /* фон до самого края, без повтора: иначе в 1 px рамки панели вылезал повтор градиента — светлые линии по краям */
+  background-origin: border-box; background-repeat: no-repeat;
 }
 .nav-item.active { background: rgb(157 123 255 / 0.14); box-shadow: inset 3px 0 0 var(--accent); }
 .nav-item.active .nav-icon { color: var(--accent); }

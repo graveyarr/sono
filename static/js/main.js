@@ -5,6 +5,7 @@ import { initDownloads, onDownloadsChange } from "./downloads.js";
 import { initFlow } from "./flow.js";
 import { initPresence } from "./presence.js";
 import { initViz } from "./viz.js";
+import { initSeekViz } from "./seekviz.js";
 import { initNowBackground } from "./nowbg.js";
 import { initClips } from "./clip.js";
 import { initAudio } from "./audio.js";
@@ -48,6 +49,7 @@ initFlow();
 initPresence();
 initAudio();
 initViz();
+initSeekViz();   // живая полоса перемотки — если её просит тема
 initNowBackground();   // фон «Сейчас играет»: свет / тихий / градиент / линии
 initClips();   // клип вместо обложки, где он есть
 initFxButton();

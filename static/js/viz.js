@@ -214,8 +214,8 @@ function startEq() {
 }
 
 /** Уровни полос: частоты по логарифмической шкале, как слышит ухо */
-function levels(ts) {
-  const n = bars.length, out = new Array(n).fill(0);
+function levels(ts, n = bars.length) {
+  const out = new Array(n).fill(0);
   if (!analyser || audio.paused) return out;
   readSpectrum(ts);
   const hzPerBin = actx.sampleRate / analyser.fftSize;
@@ -230,6 +230,9 @@ function levels(ts) {
   }
   return out;
 }
+
+/** Уровни n полос спектра прямо сейчас (0…1) — для живой полосы перемотки (seekviz.js). Пауза — нули */
+export const spectrumLevels = (n, ts) => levels(ts, n);
 
 let size = { W: 0, H: 0 };
 

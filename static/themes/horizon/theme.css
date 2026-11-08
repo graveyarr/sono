@@ -18,9 +18,20 @@
 body.on-now .viz { display: none; }
 
 body.on-now .main {
+  /* Небо и холмы — цветом обложки: небо из --tint (тёмный оттенок обложки) и --accent (светлый),
+     холмы — полупрозрачные тёмные слои поверх неба, поэтому берут его оттенок сами.
+     Без трека — цвета темы (закат) */
   background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1340 380' preserveAspectRatio='none'%3E%3Cpath d='M0,110 C200,55 380,135 620,90 C860,45 1080,125 1340,80 L1340,380 L0,380Z' fill='%237a5071'/%3E%3Cpath d='M0,190 C240,140 420,215 700,170 C960,125 1130,205 1340,155 L1340,380 L0,380Z' fill='%2347294d'/%3E%3Cpath d='M0,240 C260,205 520,275 800,240 C1040,210 1200,265 1340,235 L1340,380 L0,380Z' fill='%231b1020'/%3E%3C/svg%3E") bottom / 100% max(42%, 330px) no-repeat,
-    linear-gradient(180deg, #120e26 0%, #2a1c44 32%, #5d3c62 52%, #b57f84 66%, #e3b39b 72%, #e3b39b 100%);
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1340 380' preserveAspectRatio='none'%3E%3Cpath d='M0,110 C200,55 380,135 620,90 C860,45 1080,125 1340,80 L1340,380 L0,380Z' fill='%2306040a' fill-opacity='0.38'/%3E%3Cpath d='M0,190 C240,140 420,215 700,170 C960,125 1100,240 1340,190 L1340,380 L0,380Z' fill='%2306040a' fill-opacity='0.5'/%3E%3Cpath d='M0,240 C260,205 520,275 800,240 C1040,210 1080,275 1340,240 L1340,380 L0,380Z' fill='%2306040a' fill-opacity='0.6'/%3E%3C/svg%3E") bottom / 100% max(42%, 330px) no-repeat,
+    linear-gradient(180deg,
+      color-mix(in oklab, var(--tint) 55%, #000) 0%,
+      var(--tint) 30%,
+      color-mix(in oklab, var(--tint) 55%, var(--accent)) 50%,
+      color-mix(in oklab, var(--tint) 22%, var(--accent)) 63%,
+      color-mix(in oklab, var(--accent) 82%, #fff) 72%,
+      color-mix(in oklab, var(--accent) 82%, #fff) 100%);
+  /* фон до самого края, без повтора: иначе в 1 px рамки панели вылезал повтор градиента — светлые линии по краям */
+  background-origin: border-box; background-repeat: no-repeat;
 }
 
 /* Раскладка (на телефоне — как обычно) */
@@ -56,3 +67,37 @@ body.playing .cover-wrap { box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4); }
 /* Кнопки — светлые, «играть» — кремовая */
 .view-now .play { background: #f3e9ee; color: #1b1020; }
 .view-now .times, .view-now .source-badge { color: #d3c6d6; }
+
+/* ===== Плывущие холмы (7 ноября, по просьбе автора) =====
+   Средние и ближние холмы — отдельные слои, которые медленно плывут влево с разной скоростью
+   (дальние стоят на месте — так видна глубина) и чуть покачиваются. Сдвигает их видеокарта (transform),
+   фон панели не перерисовывается. «Без анимаций» — стоят.
+   Не понравится — удалить весь этот блок до конца файла: вернутся прежние неподвижные холмы. */
+body.on-now .main {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1340 380' preserveAspectRatio='none'%3E%3Cpath d='M0,110 C200,55 380,135 620,90 C860,45 1080,125 1340,80 L1340,380 L0,380Z' fill='%2306040a' fill-opacity='0.38'/%3E%3C/svg%3E") bottom / 100% max(42%, 330px) no-repeat,
+    linear-gradient(180deg,
+      color-mix(in oklab, var(--tint) 55%, #000) 0%,
+      var(--tint) 30%,
+      color-mix(in oklab, var(--tint) 55%, var(--accent)) 50%,
+      color-mix(in oklab, var(--tint) 22%, var(--accent)) 63%,
+      color-mix(in oklab, var(--accent) 82%, #fff) 72%,
+      color-mix(in oklab, var(--accent) 82%, #fff) 100%);
+  background-origin: border-box;
+}
+body.on-now .main::before,
+body.on-now .main::after {
+  content: ""; position: absolute; left: 0; bottom: -8px; z-index: 0;   /* запас снизу: при покачивании вверх не видно щели */
+  width: 200%; height: calc(max(42%, 330px) + 8px);
+  background-repeat: repeat-x; background-size: 50% 100%; background-position: left bottom;
+  pointer-events: none; will-change: transform;
+}
+body.on-now .main::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1340 380' preserveAspectRatio='none'%3E%3Cpath d='M0,190 C240,140 420,215 700,170 C960,125 1100,240 1340,190 L1340,380 L0,380Z' fill='%2306040a' fill-opacity='0.5'/%3E%3C/svg%3E"); animation: horizon-drift 150s linear infinite; }
+body.on-now .main::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1340 380' preserveAspectRatio='none'%3E%3Cpath d='M0,240 C260,205 520,275 800,240 C1040,210 1080,275 1340,240 L1340,380 L0,380Z' fill='%2306040a' fill-opacity='0.6'/%3E%3C/svg%3E"); animation: horizon-drift 90s linear infinite -20s; }
+@keyframes horizon-drift {
+  0%   { transform: translate3d(0, 0, 0); }
+  25%  { transform: translate3d(-12.5%, 5px, 0); }
+  50%  { transform: translate3d(-25%, 0, 0); }
+  75%  { transform: translate3d(-37.5%, -4px, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
+}

@@ -260,7 +260,9 @@ function trackMenuItems(track, ctx = {}) {
   // Переходы: к исполнителю (по id из базы или по имени) и к альбому (если трек со страницы альбома/исполнителя)
   // Несколько исполнителей — подменю с каждым
   const people = splitArtists(track, displayTrack(track).artist);
-  const goTo = ({ id, name }) => async () => { if (!await openArtist({ id, name })) toast(`Не нашёл страницу «${name}»`); };
+  const goTo = ({ id, name }) => async () => {
+    if (!await openArtist({ id, name, track, title: displayTrack(track).title })) toast(`Не нашёл страницу «${name}»`);
+  };
   items.push({ sep: true }, people.length > 1
     ? { label: "Перейти к исполнителю", icon: icons.artist, submenu: () => people.map((p) => ({ label: p.name, icon: icons.artist, action: goTo(p) })) }
     : { label: "Перейти к исполнителю", icon: icons.artist, action: goTo(people[0] ?? { name: "" }) });

@@ -244,7 +244,8 @@ export function artistLinks(track, text) {
     if (id) link.dataset.warm = `artist:${id}`;   // наведение — страница начинает грузиться (artist.js)
     link.addEventListener("click", (e) => {
       e.stopPropagation();   // строка трека и мини-плеер сами реагируют на щелчок
-      openArtist({ id, name }).then((ok) => { if (!ok) toast(`Не нашёл страницу «${name}»`); });
+      openArtist({ id, name, track, title: displayTrack(track).title })
+        .then((ok) => { if (!ok) toast(`Не нашёл страницу «${name}»`); });
     });
     box.append(link);
   });

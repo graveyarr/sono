@@ -45,7 +45,9 @@ export const icons = {
   downloaded: filled('<circle cx="12" cy="12" r="10"/><path d="M12 7v7.5M8.5 11.5 12 15l3.5-3.5" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'),
   import: outline('<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/>'),
   // Умное перемешивание: перемешать + искорка
-  smartShuffle: outline('<path d="M16 4h4v4M4 20L20 4M20 16v4h-4M15 15l5 5M4 4l5 5"/><path d="M6.5 12.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" fill="currentColor"/>'),
+  // Умное перемешивание: стрелки перемешивания, а вместо левого «хвостика» — четырёхлучевая искра
+  // (раньше искра была в 2 px и её не было видно)
+  smartShuffle: outline('<path d="M16 4h4v4M4 20L20 4M20 16v4h-4M14 14l6 6"/><path d="M6.5 2.5c.45 2.3 1.7 3.55 4 4-2.3.45-3.55 1.7-4 4-.45-2.3-1.7-3.55-4-4 2.3-.45 3.55-1.7 4-4z" fill="currentColor" stroke-width="1"/>'),
   search: outline('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/>'),
   sortList: outline('<path d="M4 7h16M4 12h11M4 17h6"/>'),
   moon: outline('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'),

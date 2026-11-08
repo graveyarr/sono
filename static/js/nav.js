@@ -2,7 +2,7 @@
 // Сами экраны переключает views.js — он регистрирует себя здесь при запуске.
 // Отдельный маленький модуль нужен, чтобы ui.js и actions.js не зависели от views.js (иначе — круговые импорты).
 
-import { artistByName } from "./meta.js";
+import { artistByName, artistForTrack } from "./meta.js";
 
 let navigator = null;
 
@@ -39,8 +39,10 @@ export function splitArtists(track, text) {
   });
 }
 
-/** Открыть исполнителя: по id из базы, если он известен, иначе — по имени. false — не нашёлся */
-export async function openArtist({ id, name } = {}) {
+/** Открыть исполнителя: по id из базы, если он известен, иначе — по имени. false — не нашёлся.
+ *  track + title — щелчок по имени в строке трека: тогда ищем того одноимённого исполнителя,
+ *  у кого есть эта песня (а у нишевых с SoundCloud — страницу автора на SoundCloud) */
+export async function openArtist({ id, name, track = null, title = "" } = {}) {
   if (id) {
     openView(`artist:${id}`);
     return true;
@@ -50,7 +52,9 @@ export async function openArtist({ id, name } = {}) {
   if (key && key === lookingFor) return true;
   lookingFor = key;
   try {
-    const found = key ? await artistByName(name.trim()) : null;
+    const found = !key ? null
+      : track ? await artistForTrack(name.trim(), title, track)
+      : await artistByName(name.trim());
     if (found) openView(`artist:${found.id}`);
     return !!found;
   } finally {

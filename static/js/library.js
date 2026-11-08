@@ -43,14 +43,25 @@ export const onSaveError = (fn) => errorListeners.add(fn);
 const timers = {};
 const chains = {};
 
-function send(section) {
+// keepalive («дойти, даже если окно закрывают») браузер разрешает только для запросов в сумме
+// до 64 КБ — больший сразу падает с «Failed to fetch» (так было со статистикой в 71 КБ: ошибка
+// каждые 15 с). Поэтому keepalive — только при закрытии окна и только пока хватает этого запаса.
+const KEEPALIVE_LIMIT = 60000;
+let keepaliveBudget = 0;
+
+function send(section, closing = false) {
   const body = JSON.stringify(lib[section]);
+  let keepalive = false;
+  if (closing) {
+    const size = new Blob([body]).size;
+    if (size <= keepaliveBudget) { keepalive = true; keepaliveBudget -= size; }
+  }
   chains[section] = (chains[section] || Promise.resolve()).then(() =>
     fetch(`/api/library/${section}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body,
-      keepalive: true,   // чтобы запрос дошёл, даже если окно закрывают
+      keepalive,
     })
       .then((r) => { if (!r.ok) throw new Error(`сервер ответил ${r.status}`); })
       .catch((err) => errorListeners.forEach((fn) => fn(err))),
@@ -65,10 +76,11 @@ function changed(section) {
 
 // Окно закрывается — отправляем всё, что ещё ждёт
 export function flush() {
+  keepaliveBudget = KEEPALIVE_LIMIT;
   for (const section of Object.keys(timers)) {
     clearTimeout(timers[section]);
     delete timers[section];
-    send(section);
+    send(section, true);
   }
 }
 

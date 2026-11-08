@@ -2439,6 +2439,59 @@ def api_artist_by_name():
     return jsonify(found) if found else (jsonify(error="Исполнитель не нашёлся"), 404)
 
 
+_artist_for_track: dict[tuple, dict | None] = {}
+
+
+def _sc_uploader(track_id: str, name: str) -> dict | None:
+    """Автор трека SoundCloud — если щёлкнули именно по нему (а не по соавтору из названия «A - B»)."""
+    t = sc_api(f"/tracks/{track_id}")
+    user = t.get("user") or {}
+    names = [user.get("username"), user.get("permalink"), (t.get("publisher_metadata") or {}).get("artist")]
+    if user.get("id") and any(artists._same_name(n, name) for n in names if n):
+        return _sc_card(user)
+    return None
+
+
+def artist_for_track(name: str, title: str, duration, source: str, track_id: str) -> dict | None:
+    """Страница исполнителя по щелчку на имя в строке трека. Одноимённых исполнителей много, поэтому
+    берём того, у кого есть эта песня. Нет в Яндексе — у трека SoundCloud открываем страницу его автора
+    на SoundCloud (там же находятся и нишевые исполнители). У YouTube запасной путь прежний — по имени."""
+    key = (name.lower(), title.lower(), source, track_id)
+    if key in _artist_for_track:
+        return _artist_for_track[key]
+    found = artists.artist_with_track(name, title, duration)
+    if not found and source == "soundcloud" and valid(source, track_id):
+        try:
+            found = _sc_uploader(track_id, name)
+        except Exception as e:
+            print(f"[artist] автор трека SoundCloud {track_id}: {e}")
+    if not found and source != "soundcloud":
+        found = artists.artist_by_name(name)
+    if len(_artist_for_track) > 500:
+        _artist_for_track.clear()
+    _artist_for_track[key] = found
+    return found
+
+
+@app.post("/api/artist/for-track")
+def api_artist_for_track():
+    """{name, title, duration, source, id} → {id, name} исполнителя (Яндекс или «sc:<номер>») или 404."""
+    data = _body()
+    name = str(data.get("name") or "").strip()[:200]
+    if not name:
+        return jsonify(error="Нет имени"), 400
+    try:
+        duration = float(data.get("duration") or 0) or None
+    except (TypeError, ValueError):
+        duration = None
+    try:
+        found = artist_for_track(name, str(data.get("title") or "")[:200], duration,
+                                 str(data.get("source") or ""), str(data.get("id") or "")[:100])
+    except Exception as e:
+        return jsonify(error=friendly_error(e)), 502
+    return jsonify(found) if found else (jsonify(error="Исполнитель не нашёлся"), 404)
+
+
 @app.get("/api/artist/<int:artist_id>")
 def api_artist(artist_id):
     return _meta_call(artists.artist, artist_id)
