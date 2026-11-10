@@ -4,7 +4,7 @@
 
 import { icons } from "./icons.js";
 import { setCrossfadeHandler } from "./audio.js";
-import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, lib, sessionChanged, setSetting, slim } from "./library.js";
+import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, lib, removeFromHistory, sessionChanged, setAltVersion, setSetting, slim } from "./library.js";
 import { isMeta, missingReason, resolveMeta, toReal } from "./meta.js";
 import { SOURCE_NAMES, artistLinks, compactNumber, coverUrl, displayTrack, formatTime, imageHsl, playsText, replay, toast, trackPath } from "./ui.js";
 
@@ -251,8 +251,10 @@ export function restoreSession() {
 // Трек не начался за 6 с — говорим, что происходит, а не молчим. Обычно это редкое видео YouTube:
 // кэш-сервер провайдера сначала сам скачивает его у Google (замер 3 ноября 2026: 15–25 с), потом отдаёт
 let slowTimer = 0;
+let slowToast = null;   // уведомление «долго отдаёт» — убираем, если вместо звука пришла ошибка
 function warnIfSlow(track) {
   clearTimeout(slowTimer);
+  slowToast?.close();
   const src = audio.src;
   slowTimer = setTimeout(() => {
     if (audio.src !== src || audio.currentTime > 0 || audio.error || audio.paused) return;
@@ -260,8 +262,34 @@ function warnIfSlow(track) {
       ? "YouTube долго отдаёт этот трек — редкие видео он сначала загружает к себе. Ещё немного…"
       : "Трек долго загружается — ещё немного…";
     setStatus(text);
-    if (!document.body.classList.contains("on-now")) toast(text);
+    if (!document.body.classList.contains("on-now")) slowToast = toast(text);
   }, 6000);
+}
+
+// Загрузка не открывается без входа в аккаунт (видео 18+ или YouTube решил проверить «не робот ли»),
+// удалена или защищена — ищем другую загрузку того же трека (друг автора, 10 ноября: раньше плеер просто
+// вставал с ошибкой). Нашлась — играет она и запоминается вместо сломанной (как версия без цензуры)
+const REPLACEABLE = /войти в аккаунт|недоступен|защищён от копирования/;
+const replaceTried = new Set();   // ключи, которым уже искали замену в этот запуск — не ищем по кругу
+
+async function findReplacement(track) {
+  const shown = displayTrack(track);
+  try {
+    const res = await fetch("/api/replacement", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: track.source, id: track.id, artist: shown.artist, title: shown.title,
+                             duration: track.duration, metaId: track.metaId }),
+    });
+    if (!res.ok) return null;
+    const found = await res.json();
+    // Звук — от новой загрузки, а название, исполнитель и обложка альбома — прежние
+    const keep = ["cover", "coverLarge", "artistId", "albumId", "album", "artistRefs", "metaId", "because"];
+    return { ...found, artists: track.artists || shown.artist, origTitle: track.origTitle || shown.title,
+             ...Object.fromEntries(keep.filter((k) => track[k] != null).map((k) => [k, track[k]])) };
+  } catch {
+    return null;
+  }
 }
 
 /** Заменить играющий трек другой версией (например, без цензуры) и продолжить с того же места */
@@ -398,8 +426,24 @@ function syncModeButtons() {
 export function queueNext(track) {
   if (!state.current) return play(track);
   const rest = state.queue.slice(state.index + 1).filter((t) => keyOf(t) !== keyOf(track));
-  state.queue = [...state.queue.slice(0, state.index + 1), track, ...rest];
+  // queued — добавлен человеком: «Добавить в очередь» встанет после него, а не перед
+  state.queue = [...state.queue.slice(0, state.index + 1), { ...track, queued: true }, ...rest];
   prefetch(track);
+  queueChanged();
+}
+
+/** «Добавить в очередь» (как в Spotify): трек встаёт после добавленных так же раньше, но перед остальным
+    списком. Не в самый конец: во Flow конца нет — трек бы так и не заиграл (обход 10 ноября) */
+export function queueLater(tracks) {
+  if (!state.current) return play(tracks[0], tracks, 0);
+  const keys = new Set(tracks.map(keyOf));
+  const ahead = state.queue.slice(state.index + 1).filter((t) => !keys.has(keyOf(t)));
+  let at = 0;
+  while (at < ahead.length && ahead[at].queued) at++;   // уже добавленные «в очередь» — впереди
+  const added = tracks.map((t) => ({ ...t, queued: true }));
+  state.queue = [...state.queue.slice(0, state.index + 1), ...ahead.slice(0, at), ...added, ...ahead.slice(at)];
+  if (state.original) state.original = [...state.original.filter((t) => !keys.has(keyOf(t))), ...added];
+  prefetch(added[0]);
   queueChanged();
 }
 
@@ -746,6 +790,31 @@ export function initPlayer() {
     } catch {}
     // Пока спрашивали (до 15 с), могли включить другой трек — тогда эта ошибка уже не про него
     if (audio.src !== src) return;
+    clearTimeout(slowTimer);
+    slowToast?.close();
+    const track = state.current;
+    const broken = REPLACEABLE.test(msg) && track.source !== "local";
+    if (broken && !replaceTried.has(keyOf(track))) {
+      replaceTried.add(keyOf(track));
+      setStatus("Этот вариант трека не открывается — ищу другую загрузку…");
+      all("play").forEach((b) => b.classList.add("loading"));
+      const alt = await findReplacement(track);
+      if (audio.src !== src) return;   // пока искали, включили другое
+      if (alt) {
+        setAltVersion(track, alt);
+        removeFromHistory(track);   // в «Недавно слушали» — только рабочая загрузка, без дубля
+        swapCurrent(alt);
+        toast("Этот вариант трека не открывался — включил другую загрузку");
+        return;
+      }
+      loading(false);
+    }
+    if (broken && nextPlayable(state.index, 1) >= 0) {
+      // Как у трека, которого нет нигде: сообщаем и идём дальше, а не стоим молча
+      setStatus(`Ошибка: ${msg} — включаю следующий`, true);
+      setTimeout(() => { if (audio.src === src) playNext(); }, 2500);
+      return;
+    }
     setStatus("Ошибка: " + msg, true);
   });
 

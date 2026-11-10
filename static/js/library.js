@@ -25,6 +25,7 @@ export const slim = (t) => ({
   ...(t.album ? { album: t.album } : {}),
   ...(t.artistRefs ? { artistRefs: t.artistRefs } : {}),
   ...(t.metaId ? { metaId: t.metaId } : {}),
+  ...(t.pubArtist ? { pubArtist: t.pubArtist } : {}),
 });
 
 // ---------- События ----------

@@ -72,7 +72,8 @@ export function displayTrack(track) {
   // Трек из импорта знает настоящих исполнителей и название — они точнее всего
   if (track.artists && track.origTitle) return { title: track.origTitle, artist: track.artists };
   const isTopic = /-\s*topic$/i.test(track.channel || "");   // автоканалы YouTube: название уже чистое
-  let artist = cleanChannel(track.channel);
+  // У SoundCloud исполнитель бывает указан отдельно от аккаунта (общий аккаунт дуэта, лейбл) — он точнее
+  let artist = track.pubArtist || cleanChannel(track.channel);
   let title = (track.title || "")
     // скобки с «мусором» убираем, но не если там пометка версии: «(HQ Instrumental)», «[Live]» важно видеть
     .replace(NOISE_BRACKETS, (m) => (VERSION_MARK.test(m) ? m : " "))
@@ -521,4 +522,5 @@ export function toast(text, { error = false, action = null } = {}) {
   toasts.append(item);
   while (toasts.children.length > 3) toasts.firstElementChild.remove();
   setTimeout(leave, action ? 6000 : error ? 4500 : 2600);
+  return { close: leave };   // убрать раньше времени (например, «долго отдаёт», когда пришла ошибка)
 }

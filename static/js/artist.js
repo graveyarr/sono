@@ -173,7 +173,7 @@ export async function renderArtist(box, id, stillHere) {
     if (a.listenersDelta && a.listeners) {
       const pct = (a.listenersDelta / (a.listeners - a.listenersDelta)) * 100;
       if (Math.abs(pct) >= 0.5) {
-        const trend = el("span", `artist-trend ${pct > 0 ? "up" : "down"}`, `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(Math.abs(pct) < 10 ? 1 : 0)}%`);
+        const trend = el("span", `artist-trend ${pct > 0 ? "up" : "down"}`, `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(Math.abs(pct) < 10 ? 1 : 0).replace(".", ",")} %`);
         trend.title = `${pct > 0 ? "+" : "−"}${compactNumber(Math.abs(a.listenersDelta))} за месяц`;
         line.append(trend);
       }

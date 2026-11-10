@@ -11,7 +11,7 @@ import { keyOf, lib } from "./library.js";
 import { folderMenuItem } from "./libtools.js";
 import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
 import { openAlbumAt, openArtist, splitArtists } from "./nav.js";
-import { playNext, queueNext, returnToQueue, state } from "./player.js";
+import { playNext, queueLater, queueNext, returnToQueue, state } from "./player.js";
 import { confirmDialog, displayTrack, el, openMenu, plural, promptDialog, toast } from "./ui.js";
 
 const isCurrent = (track) => !!state.current && keyOf(state.current) === keyOf(track);
@@ -227,6 +227,7 @@ function trackMenuItems(track, ctx = {}) {
   const liked = library.isLiked(real), disliked = library.isDisliked(real);
   const items = [
     { label: "Играть следующим", icon: icons.playNext, action: () => { queueNext(track); toast("Будет играть следующим"); } },
+    { label: "Добавить в очередь", icon: icons.queue, action: () => { queueLater([track]); toast("Добавлено в очередь"); } },
     { label: "Радио по треку", icon: icons.flow, action: () => startFlow({ track: real }) },
     { label: "Добавить в плейлист", icon: icons.plus, submenu: () => addToPlaylistItems(track) },
     { sep: true },

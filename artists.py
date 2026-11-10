@@ -296,7 +296,9 @@ def artist(artist_id: int) -> dict:
     albums = albums_job.result().get("result") or {}
     releases = [_release(r) for r in albums.get("albums") or []]
     releases += _deezer_extra(deezer_job.result(), releases)
-    releases.sort(key=lambda r: r.get("date") or r["year"] or "0", reverse=True)   # новые сверху
+    # Новые сверху — по году, который показан на карточке. Дата у Яндекса — день цифрового выпуска: у старых
+    # альбомов это переиздание (у «Кино» «Начальник Камчатки» 1984 стоял между 2018 и 1990, обход 10 ноября)
+    releases.sort(key=lambda r: (r["year"] or (r.get("date") or "")[:4] or "0", r.get("date") or ""), reverse=True)
     stats = info.get("stats") or {}
     return {**_artist_card(a), "likes": a.get("likesCount"),
             # Слушателей в Яндекс Музыке за последний месяц и насколько их стало больше/меньше

@@ -531,7 +531,7 @@ def _run_yandex(job: ImportJob, search_fn, max_duration: int):
         raw = [entry.get("track") or entry for entry in result.get("tracks") or []]
         name = result.get("title")
         if result.get("trackCount", 0) > len(raw):
-            job.note = f"Яндекс отдал {len(raw)} треков из {result['trackCount']}"
+            job.note = f"Яндекс отдал не все треки: {len(raw)} из {result['trackCount']}"
     _match_items(job, search_fn, name, [_yandex_item(t) for t in raw if t.get("title")])
 
 
@@ -1240,6 +1240,15 @@ def _sc_full_tracks(ids: list) -> dict:
     return out
 
 
+def sc_pub_artist(t: dict) -> str | None:
+    """Исполнитель, указанный у трека SoundCloud (publisher_metadata.artist), если он не совпадает с именем
+    аккаунта. Так у общих аккаунтов: «Kai Angel & 9mice» выложил сольный трек Kai Angel (друг автора,
+    10 ноября: Яндекс пишет одного Kai Angel, а Sono — обоих). Имя аккаунта остаётся в channel."""
+    artist = re.sub(r"\s+", " ", str((t.get("publisher_metadata") or {}).get("artist") or "")).strip()
+    user = str((t.get("user") or {}).get("username") or "").strip()
+    return artist if artist and artist.lower() != user.lower() and len(artist) <= 80 else None
+
+
 def _sc_track(t: dict, max_duration: int) -> tuple[dict | None, str]:
     """Трек SoundCloud из API → трек Sono (или None и причина)."""
     protocols = {x.get("format", {}).get("protocol", "") for x in (t.get("media") or {}).get("transcodings") or []}
@@ -1255,9 +1264,12 @@ def _sc_track(t: dict, max_duration: int) -> tuple[dict | None, str]:
     art = t.get("artwork_url") or (t.get("user") or {}).get("avatar_url")
     if art and SC_ART:
         SC_ART(str(t["id"]), art)
-    return {"source": "soundcloud", "id": str(t["id"]), "title": t.get("title"),
-            "channel": (t.get("user") or {}).get("username"), "duration": duration,
-            "plays": t.get("playback_count"), "likes": t.get("likes_count")}, ""
+    track = {"source": "soundcloud", "id": str(t["id"]), "title": t.get("title"),
+             "channel": (t.get("user") or {}).get("username"), "duration": duration,
+             "plays": t.get("playback_count"), "likes": t.get("likes_count")}
+    if pub := sc_pub_artist(t):
+        track["pubArtist"] = pub
+    return track, ""
 
 
 def _run_sc_all(job: ImportJob, search_fn, max_duration: int):

@@ -13,7 +13,7 @@ import { setNavigator } from "./nav.js";
 import { openImportDialog } from "./import.js";
 import { addToPlaylist, createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isDisliked, keyOf, lib, moveInPlaylist, setSetting } from "./library.js";
 import { isLyricsVisible, setLyricsVisible } from "./lyrics.js";
-import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
+import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueLater, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
 import { newReleases } from "./releases.js";
 import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, recentOf, renameFolder, sidebarSignature, sortMenuItems, toggleFolder, toolsRow } from "./libtools.js";
@@ -1012,10 +1012,19 @@ function listTools(info, st, list, drawList) {
       b.addEventListener("click", fn);
       return b;
     };
+    // «Снять выбор» — только крестиком (с «В очередь» надписи не помещались в строку на 1100 px)
+    const unselect = btn("Снять выбор", icons.close, clearSelection, "sel-close");
+    unselect.title = "Снять выбор (Esc)";
+    unselect.setAttribute("aria-label", "Снять выбор");
     bar.replaceChildren(el("span", "select-count", `Выбрано: ${n}`),
       btn("Играть следующими", icons.playNext, () => {
         selectedTracks().reverse().forEach((t) => queueNext(t));
         toast(`${plural(n, "трек", "трека", "треков")} — играют следующими`);
+        clearSelection();
+      }),
+      btn("В очередь", icons.queue, () => {
+        queueLater(selectedTracks());
+        toast(`${plural(n, "трек", "трека", "треков")} — в очереди`);
         clearSelection();
       }),
       btn("В плейлист", icons.plus, (e) => openMenu(e.currentTarget, addToPlaylistItems(selectedTracks()))),
@@ -1024,7 +1033,7 @@ function listTools(info, st, list, drawList) {
         st.selected.clear();
         removeTracksWithUndo(info.playlist.id, picked);
       }, "danger-text")] : []),
-      btn("Снять выбор", icons.close, clearSelection));
+      unselect);
   };
 
   // Ctrl+щелчок — добавить/убрать трек, Shift+щелчок — всё от прошлого выбранного до этого.

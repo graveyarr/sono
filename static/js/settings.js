@@ -10,7 +10,7 @@ import { icons } from "./icons.js";
 import { getSetting, lib, likeTarget, likeTargetName, motionOff, setSetting } from "./library.js";
 import { setMinibarLarge, syncLikeButtons } from "./player.js";
 import { presenceEnabled, updatePresence } from "./presence.js";
-import { confirmDialog, el, iconButton, openMenu, syncAllRows, toast } from "./ui.js";
+import { confirmDialog, el, iconButton, openMenu, plural, syncAllRows, toast } from "./ui.js";
 import { VIZ_PRESETS, applyVizColors, paletteFor, refreshViz, vizColorsSetting, vizEnabled } from "./viz.js";
 import { showWelcome, startTour } from "./welcome.js";
 import { BACK_PLACES, backPlace, setBackPlace } from "./backbtn.js";
@@ -926,7 +926,7 @@ function zapretCard() {
     row.append(lists);
   }
   section.append(row,
-    el("p", "set-hint", `Попросит права администратора. Плеер проверит все ${info.strategies.length} стратегий на YouTube и SoundCloud `
+    el("p", "set-hint", `Попросит права администратора. Плеер проверит все ${plural(info.strategies.length, "стратегию", "стратегии", "стратегий")} на YouTube и SoundCloud `
       + "(и что Discord открывается), поставит лучшую и сам добавит SoundCloud в списки zapret. Если лучше не станет — вернёт как было."));
   if (zap.error) section.append(el("p", "import-error", zap.error));
   return section;

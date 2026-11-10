@@ -353,6 +353,7 @@ def _sc_search_api(query: str, limit: int) -> list[dict]:
             "thumbnails": [{"url": artwork}] if artwork else [],
             "view_count": t.get("playback_count"), "like_count": t.get("likes_count"),
             "timestamp": int(datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()) if created else None,
+            "pubArtist": importer.sc_pub_artist(t),
             # Только зашифрованные потоки — трек под DRM (у крупных лейблов), сыграть его нельзя
             "drm": bool(protocols) and all("encrypted" in p for p in protocols),
         })
@@ -394,6 +395,7 @@ def search(source: str, query: str, limit: int = 10) -> list[dict]:
             "uploaded": entry.get("timestamp"),   # когда загружен (есть у SoundCloud) — для поиска версий без цензуры
             # Защищён ли (только SoundCloud через API): True — сыграть нельзя, False — точно можно, нет поля — неизвестно
             **({"drm": entry["drm"]} if "drm" in entry else {}),
+            **({"pubArtist": entry["pubArtist"]} if entry.get("pubArtist") else {}),
         })
         _track_stats[f"{source}:{entry['id']}"] = {"plays": entry.get("view_count"), "likes": entry.get("like_count")}
     return results
@@ -1544,6 +1546,11 @@ def api_search():
     try:
         # Защищённые (DRM) треки SoundCloud не показываем — включить их всё равно нельзя
         results = [r for r in search(source, query) if not r.get("drm")]
+        # YouTube ищет не только музыку: по «кино» — одни полнометражные фильмы, а их (длиннее 20 минут) мы
+        # отбрасываем — было «Ничего не нашлось» (обход 10 ноября). Тогда ищем ещё раз, уточнив, что нужна песня
+        if source == "youtube" and len(results) < 3 and len(query) <= 60:
+            have = {r["id"] for r in results}
+            results += [r for r in search(source, f"{query} song") if r["id"] not in have]
     except Exception as e:  # покажем ошибку в интерфейсе, а не просто 500
         print(f"[error] search {source}: {e}")
         return jsonify(error=friendly_error(e)), 502
@@ -2712,6 +2719,40 @@ def api_resolve():
         except Exception:
             pass
     return jsonify(saved)
+
+
+@app.post("/api/replacement")
+def api_replacement():
+    """Трек не играет (YouTube просит войти — видео 18+ или проверка «не робот ли», либо удалён) —
+    ищем другую загрузку того же трека, мимо сломанной: {source, id, artist, title, duration, metaId?}.
+    metaId — трек был из базы: запоминаем новую пару, чтобы /api/resolve больше не отдавал сломанную."""
+    data = _body()
+    source, track_id = str(data.get("source", "")), str(data.get("id", ""))
+    if not valid(source, track_id) or source == "local":
+        abort(400)
+    artist, title = str(data.get("artist") or "")[:200], str(data.get("title") or "")[:200]
+    if not title:
+        abort(400)
+    bad = cache_key(source, track_id)
+
+    def search_without_bad(src, query, limit=8):
+        return [t for t in search(src, query, limit=limit) if cache_key(t["source"], str(t["id"])) != bad]
+
+    try:
+        found = importer._find_pair("auto", search_without_bad, artist, title, data.get("duration"))
+    except Exception as e:
+        print(f"[replacement] {artist} — {title}: {e}")
+        return jsonify(error=friendly_error(e)), 502
+    if not found or cache_key(found["source"], str(found["id"])) == bad:   # YouTube Music мог вернуть ту же
+        return jsonify(error="Другой загрузки этого трека не нашлось"), 404
+    print(f"[replacement] {artist} — {title}: {source}:{track_id} -> {found['source']}:{found['id']}")
+    meta_id = str(data.get("metaId") or "")
+    if re.match(r"^(ya|dz)\d+$", meta_id):
+        with _resolved_lock:
+            if meta_id in _resolved:
+                _resolved[meta_id] = {**found, "artists": artist, "origTitle": title}
+                RESOLVED_FILE.write_text(json.dumps(_resolved, ensure_ascii=False), encoding="utf-8")
+    return jsonify(found)
 
 
 @app.get("/api/lyrics/<source>/<track_id>")
