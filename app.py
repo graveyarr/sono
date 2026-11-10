@@ -643,6 +643,7 @@ def stream_youtube(video_id: str, kind: str = "audio"):
     """Пересылает аудио (kind="video" — видео клипа без звука) с YouTube браузеру. Понимает Range-запросы (перемотка).
     Идёт через тот же обход блокировок, что и звук: браузер сам к YouTube не ходит."""
     if kind == "audio" and (path := find_cached(cache_key("youtube", video_id))):
+        _touch(path)
         return send_file(path, conditional=True)   # трек скачан — отдаём с диска: мгновенно и без интернета
     range_header = request.headers.get("Range")
     match = re.match(r"bytes=(\d*)-(\d*)$", range_header or "")
@@ -845,7 +846,9 @@ def stream_soundcloud(track_id: str):
     key = cache_key("soundcloud", track_id)
     job = sc_download(track_id)
     if job is None:   # уже в кэше — обычный файл с перемоткой
-        return send_file(find_cached(key), conditional=True)
+        path = find_cached(key)
+        _touch(path)
+        return send_file(path, conditional=True)
     start = re.match(r"bytes=(\d+)-", request.headers.get("Range") or "")
     if request.args.get("full") or (start and int(start.group(1)) > 0):
         # Перемотка туда, что ещё не скачано (?full=1 просит плеер): дожидаемся конца
@@ -925,7 +928,7 @@ LRCLIB = "https://lrclib.net/api"
 LRCLIB_HEADERS = {"User-Agent": "Sono (open-source desktop music player)"}
 LYRICS_DIR = CACHE_DIR / "lyrics"
 LYRICS_DIR.mkdir(exist_ok=True)
-LYRICS_VERSION = 2   # 2 — добавился YouTube Music
+LYRICS_VERSION = 3   # 2 — добавился YouTube Music; 3 — отметки LRCLIB только при той же длине трека
 
 
 def _parse_lrc(text: str) -> list[list]:
@@ -972,6 +975,14 @@ def _lrclib_lyrics(artist: str, title: str, duration: float) -> dict | None:
     found = [item for item in found if item.get("instrumental") or lines(item) >= 5]   # пустышки — мимо
     if not found:
         return None
+    # Отметки времени годятся, только если запись той же длины (±3 с), что и наш трек: у другой версии
+    # (клип со вступлением, ремастер, радио-версия) строки отставали или спешили (друг автора, 9 ноября).
+    # Тогда берём из неё только слова — без отметок, как и у YouTube Music
+    if duration:
+        for i, item in enumerate(found):
+            if item.get("syncedLyrics") and item.get("duration") and abs(item["duration"] - duration) > 3:
+                words = item.get("plainLyrics") or "\n".join(w for _, w in _parse_lrc(item["syncedLyrics"]))
+                found[i] = {**item, "syncedLyrics": None, "plainLyrics": words}
 
     want_title, want_artist = _norm(title), set(_norm(artists[-1]).split())
     cyrillic = bool(re.search(r"[а-яё]", title.lower()))
@@ -2080,7 +2091,10 @@ def api_instance_show():
     token, show = app.config.get("INSTANCE_TOKEN"), app.config.get("SHOW_WINDOW")
     if not token or not show or request.headers.get("X-Sono-Instance") != token:
         abort(404)
-    link = _body().get("open")
+    body = _body()
+    if body.get("quiet"):
+        return jsonify(ok=True)   # автозапуск с Windows (--tray), а Sono уже работает — ничего не показываем
+    link = body.get("open")
     if isinstance(link, str) and link:
         # Прислали трек из браузера («+ Sono»): окно не вытаскиваем — человек остаётся в браузере
         return jsonify(ok=add_incoming(link))
@@ -2133,6 +2147,18 @@ def api_theme_create():
         return jsonify(error=f"Не получилось создать тему: {e}"), 500
     _open_folder(themes.USER_DIR / name)
     return jsonify(ok=True, id=f"user:{name}", folder=name)
+
+
+@app.delete("/api/themes/user/<name>")
+def api_theme_delete(name):
+    """Удалить свою тему: на Windows — в Корзину (можно восстановить), иначе — в DATA_DIR/themes-deleted."""
+    try:
+        where = themes.delete_user_theme(name)
+    except ValueError as e:
+        return jsonify(error=str(e)), 404
+    except OSError as e:
+        return jsonify(error=f"Не получилось удалить тему: {e}"), 500
+    return jsonify(ok=True, where=where)
 
 
 @app.post("/api/themes/open-folder")
@@ -2696,8 +2722,11 @@ def api_lyrics(source, track_id):
     cached = LYRICS_DIR / f"{cache_key(source, track_id)}.json"
     try:
         saved = json.loads(cached.read_text(encoding="utf-8"))
-        # «Не найдено» из времён, когда был только LRCLIB (без "v"), — спрашиваем заново
-        if saved.get("found") or (saved.get("v", 1) >= LYRICS_VERSION and time.time() - saved.get("checked", 0) < 24 * 3600):
+        # «Не найдено» из времён, когда был только LRCLIB (без "v"), — спрашиваем заново.
+        # Текст LRCLIB с отметками, найденный до версии 3, тоже: мог быть от другой версии песни и не совпадать
+        fresh = saved.get("v", 1) >= LYRICS_VERSION
+        stale_sync = not fresh and saved.get("source") == "LRCLIB" and saved.get("synced")
+        if (saved.get("found") and not stale_sync) or (fresh and time.time() - saved.get("checked", 0) < 24 * 3600):
             return jsonify(saved)
     except (OSError, ValueError):
         pass
@@ -2861,6 +2890,211 @@ def api_video(video_id):
     if not valid("youtube", video_id):
         abort(400)
     return stream_youtube(video_id, kind="video")
+
+
+# ---------- Кэш на диске: сколько занимает, очистка, предел (страница — js/system.js) ----------
+# Прослушанные треки остаются в cache/ (второй раз — мгновенно и без интернета), и папка росла без конца.
+# Теперь: предел для прослушанного (settings.cacheLimitGb, по умолчанию 5 ГБ; 0 — без предела) — самые
+# давние удаляются сами; кнопка «Очистить» в настройках. Скачанное человеком (раздел медиатеки downloads)
+# и его обложки не трогаем никогда. Обложки своих файлов (local-covers) — тоже: без них нужен пересканировать.
+
+AUDIO_EXT = {".m4a", ".webm", ".opus", ".mp4", ".mp3", ".ogg", ".aac", ".mka", ".flac"}
+CACHE_LIMIT_DEFAULT_GB = 5
+_cache_lock = threading.Lock()
+
+
+def _touch(path: Path) -> None:
+    """Трек из кэша снова играет — «освежаем» время файла, чтобы предел удалял самые давние, а не любимые."""
+    try:
+        os.utime(path)
+    except (OSError, TypeError):
+        pass
+
+
+def _downloaded_keys() -> set[str]:
+    with _library_lock:
+        items = load_library()["downloads"]
+    return {cache_key(t["source"], str(t["id"])) for t in items
+            if isinstance(t, dict) and t.get("source") and t.get("id")}
+
+
+def _cache_files():
+    """(вид, файл, скачан ли человеком) для всего, что можно удалить: audio, cover, image, other."""
+    keep = _downloaded_keys()
+    for path in CACHE_DIR.iterdir():
+        if path.is_file() and path.suffix.lower() in AUDIO_EXT:
+            yield "audio", path, path.name.rsplit(".", 1)[0] in keep
+    for path in COVER_DIR.glob("*.jpg"):
+        yield "cover", path, path.name.rsplit("_", 1)[0] in keep
+    for path in IMG_DIR.glob("*"):
+        yield "image", path, False
+    for sub in ("lyrics", "meta"):
+        for path in (CACHE_DIR / sub).glob("*"):
+            if path.is_file():
+                yield "other", path, False
+
+
+def _size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def cache_usage() -> dict:
+    sizes = {"music": 0, "downloaded": 0, "images": 0, "other": 0}
+    for kind, path, kept in _cache_files():
+        size = _size(path)
+        if kept:
+            sizes["downloaded"] += size
+        elif kind == "audio":
+            sizes["music"] += size
+        elif kind in ("cover", "image"):
+            sizes["images"] += size
+        else:
+            sizes["other"] += size
+    sizes["total"] = sum(sizes.values())
+    return sizes
+
+
+def _remove(path: Path) -> int:
+    """Удалить файл; занятый (трек сейчас играет) или только что записанный — пропускаем. Вернёт байты."""
+    try:
+        st = path.stat()
+        if time.time() - st.st_mtime < 120:
+            return 0   # только что качался или играл — пусть лежит
+        path.unlink()
+        return st.st_size
+    except OSError:
+        return 0
+
+
+def clear_cache() -> int:
+    """«Очистить»: всё, кроме скачанного человеком. Вернёт, сколько байт освободили."""
+    with _cache_lock:
+        freed = sum(_remove(path) for _kind, path, kept in list(_cache_files()) if not kept)
+    _cover_failed.clear()
+    print(f"[cache] очищено {freed / 1e6:.0f} МБ")
+    return freed
+
+
+def trim_cache(limit_gb: float) -> int:
+    """Предел для прослушанных треков: удаляем самые давние, пока не станет меньше предела."""
+    if not limit_gb or limit_gb <= 0:
+        return 0
+    with _cache_lock:
+        songs = []
+        for kind, path, kept in _cache_files():
+            if kind == "audio" and not kept:
+                try:
+                    st = path.stat()
+                    songs.append((st.st_mtime, st.st_size, path))
+                except OSError:
+                    pass
+        total, limit, freed = sum(s for _t, s, _p in songs), limit_gb * 1024 ** 3, 0
+        for _mtime, _size_, path in sorted(songs):   # от самых давних
+            if total - freed <= limit:
+                break
+            freed += _remove(path)
+    if freed:
+        print(f"[cache] предел {limit_gb} ГБ: удалил давние треки, {freed / 1e6:.0f} МБ")
+    return freed
+
+
+def _cache_limit_gb() -> float:
+    with _library_lock:
+        value = load_library()["settings"].get("cacheLimitGb", CACHE_LIMIT_DEFAULT_GB)
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return CACHE_LIMIT_DEFAULT_GB
+
+
+def _cache_janitor() -> None:
+    """Раз в полчаса (и через полторы минуты после запуска) — держим кэш в пределе."""
+    time.sleep(90)
+    while True:
+        try:
+            trim_cache(_cache_limit_gb())
+        except Exception as e:
+            print(f"[cache] {e}")
+        time.sleep(1800)
+
+
+threading.Thread(target=_cache_janitor, daemon=True, name="cache-janitor").start()
+
+
+@app.get("/api/cache")
+def api_cache():
+    return jsonify(usage=cache_usage(), limitGb=_cache_limit_gb(), folder=str(CACHE_DIR))
+
+
+@app.post("/api/cache/clear")
+def api_cache_clear():
+    freed = clear_cache()
+    return jsonify(freed=freed, usage=cache_usage())
+
+
+@app.post("/api/cache/trim")
+def api_cache_trim():
+    """Поменяли предел в настройках — сразу подрезать (предел присылает страница: медиатека сохраняется с задержкой)."""
+    try:
+        limit = float(_body().get("limitGb", CACHE_LIMIT_DEFAULT_GB))
+    except (TypeError, ValueError):
+        return jsonify(error="неправильный предел"), 400
+    freed = trim_cache(limit)
+    return jsonify(freed=freed, usage=cache_usage())
+
+
+# ---------- Запуск вместе с Windows ----------
+# Только у установленной программы: в «Автозагрузку» (HKCU\…\Run) пишется «SonoMusic.exe --tray» —
+# Sono стартует сразу в трее, без окна (desktop.py). Установщик убирает эту запись при удалении Sono.
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_NAME = "Sono"
+
+
+def autostart_info() -> dict:
+    if sys.platform != "win32":
+        return {"available": False, "on": False, "why": "Только в Windows"}
+    if not getattr(sys, "frozen", False):
+        return {"available": False, "on": False, "why": "Работает только в установленной программе (сейчас Sono запущен из исходников)"}
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            value, _type = winreg.QueryValueEx(key, RUN_NAME)
+    except OSError:
+        value = ""
+    return {"available": True, "on": bool(value)}
+
+
+def set_autostart(on: bool) -> dict:
+    info = autostart_info()
+    if not info["available"]:
+        return info
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        if on:
+            winreg.SetValueEx(key, RUN_NAME, 0, winreg.REG_SZ, f'"{sys.executable}" --tray')
+        else:
+            try:
+                winreg.DeleteValue(key, RUN_NAME)
+            except FileNotFoundError:
+                pass
+    return autostart_info()
+
+
+@app.get("/api/autostart")
+def api_autostart():
+    return jsonify(autostart_info())
+
+
+@app.put("/api/autostart")
+def api_autostart_set():
+    try:
+        return jsonify(set_autostart(bool(_body().get("on"))))
+    except OSError as e:
+        return jsonify(error=f"Не получилось поменять автозагрузку: {e}"), 500
 
 
 if __name__ == "__main__":

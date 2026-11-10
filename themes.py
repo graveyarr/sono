@@ -15,6 +15,8 @@ CSS-переменные (цвета, скругления, шрифт) и мо�
 import json
 import re
 import shutil
+import sys
+import time
 from pathlib import Path
 
 MAX_CSS = 512 * 1024              # больше — это уже не тема
@@ -258,3 +260,36 @@ def create_from_template(title: str) -> str:
     meta["name"] = name
     meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return name
+
+
+# ---------- Удаление своей темы ----------
+
+def _to_recycle_bin(path: Path) -> bool:
+    """Windows: папку — в Корзину (можно восстановить). Вернёт False, если не вышло."""
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", wintypes.LPCWSTR),
+                    ("pTo", wintypes.LPCWSTR), ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", wintypes.BOOL),
+                    ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", wintypes.LPCWSTR)]
+
+    FO_DELETE = 3
+    FOF_SILENT, FOF_NOCONFIRMATION, FOF_ALLOWUNDO, FOF_NOERRORUI = 0x4, 0x10, 0x40, 0x400
+    op = SHFILEOPSTRUCTW(wFunc=FO_DELETE, pFrom=str(path.resolve()) + "\0\0",
+                         fFlags=FOF_SILENT | FOF_NOCONFIRMATION | FOF_ALLOWUNDO | FOF_NOERRORUI)
+    return ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0 and not op.fAnyOperationsAborted and not path.exists()
+
+
+def delete_user_theme(name: str) -> str:
+    """Удалить свою тему (встроенные удалить нельзя). Windows — в Корзину; иначе (или Корзина не сработала)
+    папка переезжает в DATA_DIR/themes-deleted — ничего не стирается насовсем. Вернёт, куда делась тема."""
+    path = theme_dir("user", name)
+    if _to_recycle_bin(path):
+        return "trash"
+    bin_dir = USER_DIR.parent / "themes-deleted"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(path), str(bin_dir / f"{name} {time.strftime('%Y-%m-%d %H-%M-%S')}"))
+    return "moved"

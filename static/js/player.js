@@ -624,6 +624,15 @@ function setVolumeLevel(level) {
   audio.volume = toVolume(volumeLevel);
 }
 
+/** Громче/тише на шаг (глобальные клавиши Ctrl+Alt+↑/↓ из трея — tray.py). Возвращает новое положение 0…1 */
+export function stepVolume(delta) {
+  setVolumeLevel(volumeLevel + delta);
+  audio.muted = false;
+  setSetting("volumePos", volumeLevel);
+  applyVolume();
+  return volumeLevel;
+}
+
 // Громкость показана в двух местах (большой экран и мини-плеер) — обновляем оба
 function applyVolume() {
   const level = audio.muted ? 0 : volumeLevel;

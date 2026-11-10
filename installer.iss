@@ -72,6 +72,9 @@ Root: HKCU; Subkey: "Software\Classes\sono"; ValueType: string; ValueName: ""; V
 Root: HKCU; Subkey: "Software\Classes\sono"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\sono\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExe}"",0"
 Root: HKCU; Subkey: "Software\Classes\sono\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExe}"" ""%1"""
+; «Запускать вместе с Windows» (настройка в Sono пишет это значение сама) — при удалении Sono убираем его.
+; ValueType: none — установщик ничего не создаёт, только удаляет при удалении программы
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Sono"; Flags: uninsdeletevalue dontcreatekey
 
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent

@@ -3,6 +3,7 @@
 // идут через window.pywebview.api: окно получает те же сигналы, что от системного заголовка, поэтому
 // работают и прилипание к краям экрана, и двойной щелчок «развернуть».
 
+import { applyBackPlace } from "./backbtn.js";
 import { canGoBack, goBack } from "./views.js";
 
 const bar = document.getElementById("titlebar");
@@ -51,7 +52,14 @@ function bind() {
 }
 
 export function initTitlebar() {
-  const sync = () => { backBtn.disabled = !canGoBack(); };
+  // «Назад» на панели (если выбрано в настройках — backbtn.js) работает и в обычном браузере
+  const panelBack = document.getElementById("panel-back");
+  panelBack?.addEventListener("click", goBack);
+  applyBackPlace();
+  const sync = () => {
+    backBtn.disabled = !canGoBack();
+    if (panelBack) panelBack.disabled = !canGoBack();
+  };
   document.addEventListener("sono:view", sync);
   sync();
 

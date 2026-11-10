@@ -26,6 +26,9 @@ function apply() {
     b.title = visible ? "Скрыть текст" : "Текст песни";
     b.setAttribute("aria-label", b.title);
   });
+  // Текст встаёт на место «Очереди» — её кнопка не должна гореть, пока самой очереди не видно
+  const queueOn = document.body.classList.contains("show-queue") && !shown;
+  document.querySelectorAll('[data-np="queue"]').forEach((b) => b.classList.toggle("on", queueOn));
   box.classList.remove(...LYRICS_STYLES.map((x) => `ls-${x.id}`));
   box.classList.add(`ls-${lyricsStyle()}`);
   if (shown) load();
@@ -47,9 +50,51 @@ export function setLyricsStyle(id) {
   apply();
 }
 
-function head() {
+// Сдвиг текста для трека (секунды, «+» — строки позже): бывает, что отметки в базе чуть не совпадают
+// с нашей загрузкой — текст отстаёт или спешит (друг автора, 9 ноября). Запоминается для трека
+let offset = 0;
+const OFFSETS = "lyricsOffsets";
+const offsetOf = (key) => Number(getSetting(OFFSETS, {})?.[key]) || 0;
+function saveOffset(key, value) {
+  const all = { ...getSetting(OFFSETS, {}) };
+  delete all[key];
+  if (value) all[key] = value;
+  const keys = Object.keys(all);
+  if (keys.length > 200) delete all[keys[0]];   // храним последние 200
+  setSetting(OFFSETS, all);
+}
+const offsetText = (v) => (v ? `${v > 0 ? "+" : "−"}${Math.abs(v).toFixed(1).replace(".", ",")} с` : "0 с");
+
+function offsetControl() {
+  const wrap = el("div", "lyrics-offset");
+  const earlier = el("button", "", "−0,5");
+  earlier.type = "button";
+  earlier.title = "Текст отстаёт — показывать строки раньше";
+  const value = el("button", "lyrics-offset-val", offsetText(offset));
+  value.type = "button";
+  value.title = "Сдвиг текста для этого трека. Щелчок — сбросить";
+  const later = el("button", "", "+0,5");
+  later.type = "button";
+  later.title = "Текст спешит — показывать строки позже";
+  const change = (v) => {
+    offset = Math.max(-30, Math.min(30, Math.round(v * 10) / 10));
+    saveOffset(loadedKey, offset);
+    value.textContent = offsetText(offset);
+    activeIndex = -2;
+    sync(true);
+  };
+  earlier.addEventListener("click", () => change(offset - 0.5));
+  later.addEventListener("click", () => change(offset + 0.5));
+  value.addEventListener("click", () => change(0));
+  wrap.append(earlier, value, later);
+  return wrap;
+}
+
+/** Шапка панели; synced — у текста есть отметки времени (тогда кнопки сдвига). Откуда текст — внизу списка */
+function head(synced = false) {
   const h = el("div", "lyrics-head");
-  h.append(el("span", "lyrics-title", "Текст"), el("span", "lyrics-source", "LRCLIB"));
+  h.append(el("span", "lyrics-title", "Текст"));
+  if (synced) h.append(offsetControl());
   return h;
 }
 
@@ -115,12 +160,13 @@ function render(data) {
 
   listEl = el("div", "lyrics-lines");
   lines = [];
+  offset = offsetOf(loadedKey);
   if (data.synced.length) {
     for (const [time, words] of data.synced) {
       const line = el("button", "lyrics-line", words || "♪");
       line.type = "button";
       line.addEventListener("click", () => {
-        seekTo(time);
+        seekTo(Math.max(0, time + offset));
         if (audio.paused) togglePlay();
         userScrolledAt = 0;   // щёлкнули по строке — снова следим за песней
       });
@@ -135,14 +181,14 @@ function render(data) {
   const userScroll = () => { userScrolledAt = Date.now(); };
   listEl.addEventListener("wheel", userScroll, { passive: true });
   listEl.addEventListener("pointerdown", userScroll);
-  box.replaceChildren(head(), listEl);
+  box.replaceChildren(head(lines.length > 0), listEl);
   sync(true);
 }
 
 /** Подсветить строку, которая звучит сейчас, и прокрутить к ней */
 function sync(instant = false) {
   if (!visible || !lines.length) return;
-  const t = audio.currentTime + 0.3;   // чуть заранее — строка загорается к моменту, когда её поют
+  const t = audio.currentTime + 0.3 - offset;   // чуть заранее — строка загорается к моменту, когда её поют
   let i = -1;
   while (i + 1 < lines.length && lines[i + 1].time <= t) i++;
   if (i === activeIndex) return;
@@ -174,6 +220,8 @@ export function initLyrics() {
   }));
   onTrackChange(apply);
   audio.addEventListener("timeupdate", () => sync());
+  // timeupdate приходит лишь ~4 раза в секунду — строка загоралась с опозданием до 0,25 с. Чаще — только пока играет
+  setInterval(() => { if (!audio.paused) sync(); }, 100);
   audio.addEventListener("seeked", () => { activeIndex = -2; userScrolledAt = 0; sync(true); });   // перемотали — сразу к нужной строке
   apply();
 }

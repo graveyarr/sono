@@ -27,7 +27,7 @@
 
 /* «Тёмные острова»: карточки и шапки, у которых свой тёмный или цветной фон, — текст на них
    остаётся светлым. Переменные текста пересчитываются здесь же: они считаются там, где объявлены */
-.flow-card, .pl-hero, .mix-card, .pick-card, .wrapped, .flowv {
+.flow-card, .pl-hero, .mix-art, .pick-art, .wrapped, .flowv {
   --fg-rgb: 255 255 255;
   --text: rgb(var(--fg-rgb));
   --muted: rgb(var(--fg-rgb) / 0.62);
@@ -37,6 +37,26 @@
   color: var(--text);
 }
 
+/* Цветная шапка плейлиста/исполнителя/альбома: в обычной теме она растворяется в тёмный фон, а здесь
+   растворялась бы в светлый — и белый текст с кнопками внизу шапки пропадал. Делаем её сплошной
+   притемнённой полосой цвета обложки — белый текст читается на всей шапке */
+.pl-hero {
+  padding-bottom: 20px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--hero) 82%, #000) 0%,
+    color-mix(in srgb, var(--hero) 60%, #000) 100%);
+}
+
+/* Текст песни: «Карточка» здесь светлая (в обычной теме — тёмная цвета обложки) */
+.lyrics.ls-card { background: rgba(255, 255, 255, 0.78); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12); }
+.ls-card .lyrics-line { color: rgb(var(--fg-rgb) / 0.32); }
+.ls-card .lyrics-line:hover { color: rgb(var(--fg-rgb) / 0.55); }
+.ls-card .lyrics-line.past { color: rgb(var(--fg-rgb) / 0.62); }
+.ls-card .lyrics-line.active, .ls-card .lyrics-plain { color: rgb(var(--fg-rgb)); }
+
+/* Шарик ползунков — тёмный (белый на светлом фоне не видно) */
+input[type="range"]::-webkit-slider-thumb { background: #1c1c1c; }
+
 /* Круглая ▶ у плеера — тёмная (белая на светлом почти не видна); на тёмных карточках остаётся белой */
 button.play { background: #1c1c1c; color: #fff; }
-:is(.flow-card, .pl-hero, .flowv, .mix-card, .pick-card) button.play { background: #fff; color: #000; }
+:is(.flow-card, .pl-hero, .flowv, .mix-art, .pick-art) button.play { background: #fff; color: #000; }

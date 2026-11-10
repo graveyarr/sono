@@ -49,15 +49,19 @@ def _link_from_args() -> str | None:
 
 
 LINK = _link_from_args()
+# Автозапуск вместе с Windows (настройка, system.js / autostart в app.py) запускает «SonoMusic.exe --tray»:
+# окна не видно, Sono сразу в трее — открыть щелчком по значку
+IN_TRAY = "--tray" in sys.argv[1:]
 
 
 def _wake_running() -> bool:
     try:
         info = json.loads(INSTANCE_FILE.read_text(encoding="utf-8"))
-        if sys.platform == "win32" and not LINK:   # разрешить той копии выйти на передний план (иначе Windows мигнёт кнопкой)
+        if sys.platform == "win32" and not LINK and not IN_TRAY:   # разрешить той копии выйти на передний план (иначе Windows мигнёт кнопкой)
             import ctypes
             ctypes.windll.user32.AllowSetForegroundWindow(int(info["pid"]))
-        body = json.dumps({"open": LINK}).encode() if LINK else b"{}"
+        body = (json.dumps({"open": LINK}).encode() if LINK
+                else b'{"quiet": true}' if IN_TRAY else b"{}")
         req = urllib.request.Request(f"http://127.0.0.1:{int(info['port'])}/api/instance/show", data=body,
                                      method="POST", headers={"X-Sono-Instance": str(info["token"]),
                                                              "Content-Type": "application/json"})
@@ -139,11 +143,20 @@ threading.Thread(target=_load_server, daemon=True).start()
 
 window = webview.create_window("Sono", html=SPLASH, width=1100, height=760,
                                min_size=(860, 600), background_color="#0a0a0a",   # тёмный фон — без белой вспышки
+                               minimized=IN_TRAY,   # автозапуск: окно не выскакивает посреди экрана
                                js_api=titlebar.WindowApi())   # кнопки своей полоски заголовка
 # Системную полоску заголовка заменяем своей (titlebar.py) — до показа окна, чтобы не мелькала
 window.events.before_show += titlebar.install
 # Значок в трее: закрыли окно — музыка играет дальше (tray.py). HWND окна знает titlebar.install
 tray.install(window, lambda: titlebar._hwnd or int(window.native.Handle.ToInt64()))
+
+if IN_TRAY and sys.platform == "win32":
+    def _hide_to_tray():
+        """Автозапуск: свёрнутое окно прячем совсем (и с панели задач) — Sono ждёт в трее."""
+        import ctypes
+        hwnd = titlebar._hwnd or int(window.native.Handle.ToInt64())
+        ctypes.windll.user32.ShowWindow(hwnd, 0)   # SW_HIDE; значок в трее вернёт окно (SW_RESTORE)
+    window.events.shown += _hide_to_tray
 
 
 def boot():

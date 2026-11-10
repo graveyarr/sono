@@ -6,6 +6,15 @@ import { isDisliked, isLiked, keyOf } from "./library.js";
 import { isMeta, resolvedOf } from "./meta.js";
 import { openArtist, splitArtists } from "./nav.js";
 
+// Большие обложки YouTube без maxres приходят 4:3 (sddefault/hqdefault), а у широких видео чёрные полосы
+// сверху и снизу «впечатаны» в саму картинку — в квадрате они были видны («Недавно слушали», плеер).
+// Такой картинке ставим класс .yt-43: CSS оставляет от неё середину 16:9 (object-view-box)
+document.addEventListener("load", (e) => {
+  const img = e.target;
+  if (img?.tagName !== "IMG" || !img.src.includes("/api/cover/youtube/")) return;
+  img.classList.toggle("yt-43", Math.abs(img.naturalWidth / img.naturalHeight - 4 / 3) < 0.02);
+}, true);
+
 export const SOURCE_NAMES = { youtube: "YouTube", soundcloud: "SoundCloud" };
 /** Где лежит трек — для колонки «Сайт»; свои файлы — не сайт, поэтому не в SOURCE_NAMES (там выбор, где искать) */
 export const sourceLabel = (source) => SOURCE_NAMES[source] ?? (source === "local" ? "С компьютера" : "");

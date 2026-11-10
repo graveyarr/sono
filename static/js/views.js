@@ -74,7 +74,7 @@ function describe(key) {
   if (!playlist) return null;
   return { kind: "playlist", label: "Плейлист", name: playlist.name, tracks: playlist.tracks, playlist, cover: playlist.cover,
     context: { type: "playlist", id: playlist.id },
-    empty: "В плейлисте пока пусто. Найди трек через поиск и добавь его: «⋯» → «Добавить в плейлист»." };
+    empty: "В плейлисте пока пусто. Найдите трек через поиск и добавьте его: «⋯» → «Добавить в плейлист»." };
 }
 
 const contextKey = (ctx) => (!ctx ? "" : ctx.id ? `${ctx.type}:${ctx.id}` : ctx.type);
@@ -294,7 +294,7 @@ function renderHome() {
     // Пусто — подсказываем, с чего начать
     const start = el("div", "home-start");
     start.append(el("h2", "", "С чего начать"),
-      el("p", "", "Найди трек через поиск сверху — или перенеси свои плейлисты из Spotify, YouTube или SoundCloud."));
+      el("p", "", "Найдите трек через поиск сверху — или перенесите свои плейлисты из Spotify, YouTube или SoundCloud."));
     const importBtn = el("button", "btn primary", "Импортировать плейлист");
     importBtn.type = "button";
     importBtn.addEventListener("click", () => openImportDialog({ onOpen: (id) => showView(`playlist:${id}`) }));
@@ -515,7 +515,7 @@ function renderUpNext() {
   } else {
     scroll.append(el("p", "up-next-empty", state.repeat === "all"
       ? "Это последний трек — потом очередь начнётся сначала."
-      : "Дальше ничего нет. Включи плейлист или добавь трек: «⋯» → «Играть следующим»."));
+      : "Дальше ничего нет. Включите плейлист или добавьте трек: «⋯» → «Играть следующим»."));
   }
   upNext.replaceChildren(head, scroll);
   scroll.scrollTop = keepScroll;
@@ -557,7 +557,8 @@ function enableQueueDrag(list) {
 // Кнопка «Очередь»: показывает очередь справа от плеера (на месте текста песни)
 function setQueueVisible(show) {
   document.body.classList.toggle("show-queue", show);
-  document.querySelectorAll('[data-np="queue"]').forEach((b) => b.classList.toggle("on", show));
+  const on = show && !document.body.classList.contains("show-lyrics");   // текст закрывает очередь
+  document.querySelectorAll('[data-np="queue"]').forEach((b) => b.classList.toggle("on", on));
   setSetting("showQueue", show);
 }
 
@@ -624,7 +625,8 @@ function artistItem(a) {
   return li;
 }
 
-/** Папка плейлистов: щелчок — раскрыть/свернуть, правая кнопка — переименовать/удалить */
+/** Папка плейлистов: щелчок — раскрыть/свернуть; «⋯» (видна при наведении) или правая кнопка —
+ *  переименовать/удалить. Раньше меню было только по правой кнопке — его никто не находил. */
 function folderItem(folder, count) {
   const li = el("li", `lib-item lib-folder${folder.open ? " open" : ""}`);
   li.tabIndex = 0;
@@ -632,19 +634,19 @@ function folderItem(folder, count) {
   cover.innerHTML = icons.folder;
   const text = el("div", "lib-text");
   text.append(el("div", "lib-name", folder.name), el("div", "lib-sub", `Папка · ${plural(count, "плейлист", "плейлиста", "плейлистов")}`));
+  const more = iconButton(icons.more, "Ещё", "lib-more");
   const arrow = el("span", "lib-folder-arrow");
   arrow.innerHTML = icons.chevron;
-  li.append(cover, text, arrow);
+  li.append(cover, text, more, arrow);
+  const menuAt = (anchor) => openMenu(anchor, [
+    { label: "Переименовать", icon: icons.edit, action: () => renameFolder(folder) },
+    { label: "Удалить папку", icon: icons.trash, danger: true, action: () => deleteFolder(folder) },
+  ]);
+  more.addEventListener("click", (e) => { e.stopPropagation(); menuAt(more); });
   const toggle = () => toggleFolder(folder);
   li.addEventListener("click", toggle);
-  li.addEventListener("keydown", (e) => { if (e.key === "Enter") toggle(); });
-  li.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    openMenu({ x: e.clientX, y: e.clientY }, [
-      { label: "Переименовать", icon: icons.edit, action: () => renameFolder(folder) },
-      { label: "Удалить папку", icon: icons.trash, danger: true, action: () => deleteFolder(folder) },
-    ]);
-  });
+  li.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === li) toggle(); });
+  li.addEventListener("contextmenu", (e) => { e.preventDefault(); menuAt({ x: e.clientX, y: e.clientY }); });
   return li;
 }
 

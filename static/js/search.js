@@ -38,7 +38,7 @@ let searchToken = 0;       // чтобы ответ старого поиска 
 
 function renderSource(animate = false) {
   sourceBtn.innerHTML = `<span>${sourceIcons[source]}</span>`;
-  sourceBtn.title = `Ищем на ${SOURCE_NAMES[source]}. Нажми, чтобы сменить`;
+  sourceBtn.title = `Ищем на ${SOURCE_NAMES[source]}. Нажмите, чтобы сменить`;
   sourceBtn.setAttribute("aria-label", sourceBtn.title);
   if (animate) sourceBtn.firstElementChild.classList.add("flip");
 }
@@ -144,7 +144,7 @@ function showResults(src) {
   panelTitle.textContent = `Результаты · ${SOURCE_NAMES[src]}`;
   panelAction.hidden = true;
   panelMessage.classList.remove("error");
-  panelMessage.textContent = results.length ? "" : "Ничего не нашлось. Попробуй по-другому или на другом сайте";
+  panelMessage.textContent = results.length ? "" : "Ничего не нашлось. Попробуйте по-другому или на другом сайте";
   renderRows();
 }
 

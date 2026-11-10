@@ -36,6 +36,25 @@ user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 WM_USER, WM_APP, WM_COMMAND, WM_DESTROY = 0x0400, 0x8000, 0x0111, 0x0002
 WM_TRAY = WM_APP + 0x60          # сообщения от значка
 WM_TRAY_UPDATE = WM_APP + 0x61   # обновить подсказку (из другого потока)
+WM_TRAY_HOTKEYS = WM_APP + 0x62  # включить/выключить глобальные клавиши (wParam 1/0) — в потоке значка
+WM_HOTKEY = 0x0312
+user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+user32.SendMessageW.restype = LRESULT
+user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
+user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
+
+# Глобальные клавиши — работают из любой программы, даже когда Sono в трее (настройка, по умолчанию выключена:
+# Ctrl+Alt+стрелки заняты в некоторых программах, например в редакторах кода). id → (клавиши, VK, действие)
+MOD_ALT, MOD_CONTROL, MOD_NOREPEAT = 0x1, 0x2, 0x4000
+HOTKEYS = {
+    # Пауза — P, а не пробел: Ctrl+Alt+Пробел часто занят (быстрый ввод разных программ — у автора был занят)
+    1: ("Ctrl+Alt+P", 0x50, "toggle"),
+    2: ("Ctrl+Alt+→", 0x27, "next"),
+    3: ("Ctrl+Alt+←", 0x25, "prev"),
+    4: ("Ctrl+Alt+↑", 0x26, "volup"),
+    5: ("Ctrl+Alt+↓", 0x28, "voldown"),
+    6: ("Ctrl+Alt+L", 0x4C, "like"),
+}
 WM_LBUTTONUP, WM_RBUTTONUP, WM_LBUTTONDBLCLK = 0x0202, 0x0205, 0x0203
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
 NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 1, 2, 4, 0x10
@@ -62,7 +81,8 @@ _main_hwnd = None       # его HWND (titlebar.install знает его ран
 _tray_hwnd = None
 _proc = None            # держим ссылку на обработчик — иначе сборщик мусора удалит его
 _nid = None
-_state = {"tip": "Sono", "playing": False, "close_to_tray": True, "quitting": False}
+_state = {"tip": "Sono", "playing": False, "close_to_tray": True, "quitting": False,
+          "hotkeys": False, "busy": []}   # busy — клавиши, которые уже заняла другая программа
 
 
 def _icon():
@@ -114,6 +134,20 @@ def _wndproc(hwnd, msg, wparam, lparam):
         _nid.szTip = _state["tip"][:127]
         shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(_nid))
         return 0
+    if msg == WM_TRAY_HOTKEYS:
+        # RegisterHotKey привязывает клавиши к окну, поэтому (раз)регистрируем в потоке окна значка
+        for hid in HOTKEYS:
+            user32.UnregisterHotKey(hwnd, hid)
+        busy = []
+        if wparam:
+            for hid, (label, vk, _action) in HOTKEYS.items():
+                if not user32.RegisterHotKey(hwnd, hid, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, vk):
+                    busy.append(label)   # уже заняла другая программа — у неё и останется
+        _state["busy"] = busy
+        return 0
+    if msg == WM_HOTKEY and wparam in HOTKEYS:
+        _page(HOTKEYS[wparam][2])
+        return 0
     return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
 
@@ -127,6 +161,8 @@ def _run() -> None:
                            uFlags=NIF_MESSAGE | NIF_ICON | NIF_TIP, uCallbackMessage=WM_TRAY, hIcon=_icon())
     _nid.szTip = _state["tip"]
     shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(_nid))
+    if _state["hotkeys"]:   # страница успела включить клавиши раньше, чем появилось окно значка
+        _wndproc(_tray_hwnd, WM_TRAY_HOTKEYS, 1, 0)
     msg = wintypes.MSG()
     while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
         user32.TranslateMessage(ctypes.byref(msg))
@@ -182,3 +218,13 @@ def set_status(title: str, playing: bool) -> None:
 
 def set_close_to_tray(on: bool) -> None:
     _state["close_to_tray"] = bool(on)
+
+
+def set_hotkeys(on: bool) -> dict:
+    """Глобальные клавиши вкл/выкл. Вернёт {ok, keys: [[клавиши, действие]], busy: [занятые другими]}."""
+    _state["hotkeys"] = bool(on)
+    keys = [[label, action] for label, _vk, action in HOTKEYS.values()]
+    if not _tray_hwnd:   # значок ещё не появился — _run включит клавиши сам, как только появится
+        return {"ok": False, "keys": keys, "busy": []}
+    user32.SendMessageW(_tray_hwnd, WM_TRAY_HOTKEYS, 1 if on else 0, 0)   # ждёт, пока поток значка выполнит
+    return {"ok": True, "keys": keys, "busy": _state["busy"]}

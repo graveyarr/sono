@@ -112,7 +112,7 @@ function renderForm(box, close) {
   let field;
   const detected = el("div", "import-detected");   // под полем — какой сервис узнали по ссылке
   if (mode === "link") {
-    box.append(el("p", "", "Вставь ссылку на открытый плейлист или альбом — он появится в медиатеке."));
+    box.append(el("p", "", "Вставьте ссылку на открытый плейлист или альбом — он появится в медиатеке."));
     const services = el("div", "import-services");
     for (const k of KINDS) {
       const s = el("span", "import-service");
@@ -232,7 +232,7 @@ function renderForm(box, close) {
 // Тут ничего искать не нужно: в коде уже лежат готовые треки — плейлист появляется сразу.
 
 function renderShareForm(box, close) {
-  box.append(el("p", "", "Вставь код плейлиста (начинается с «SONO1:») или выбери файл .sono.json, который тебе прислали."));
+  box.append(el("p", "", "Вставьте код плейлиста (начинается с «SONO1:») или выберите файл .sono.json, который вам прислали."));
   const field = el("textarea", "dialog-input import-textarea");
   field.placeholder = "SONO1:…";
   field.rows = 4;

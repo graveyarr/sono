@@ -42,3 +42,5 @@ android/.gradle/
 android/.kotlin/
 # Свои темы оформления при запуске из исходников (встроенные — в static/themes, их не трогаем)
 /themes/
+/themes-deleted/
+android/

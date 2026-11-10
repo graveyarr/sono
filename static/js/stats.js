@@ -213,9 +213,11 @@ function avatar(a, box) {
 export function renderStats(box, extra = null) {
   const s = data();
   const top = topArtists(50);
+  // Считаем тех же, кого показываем (от 30 секунд), — иначе «4 исполнителя», а в списке трое
+  const counted = topArtists(Infinity).length;
   const head = el("div", "stats-head");
   head.append(el("div", "pl-kind", "Ваша статистика"), el("h1", "pl-name", formatListen(s.total || 0)),
-    el("div", "pl-meta", `музыки с ${formatDate(s.since)} · ${plural(Object.keys(s.artists).length, "исполнитель", "исполнителя", "исполнителей")}`));
+    el("div", "pl-meta", `музыки с ${formatDate(s.since)} · ${plural(counted, "исполнитель", "исполнителя", "исполнителей")}`));
   if (extra) head.append(extra);
   const list = el("ol", "stats-list");
   const max = top[0]?.sec || 1;

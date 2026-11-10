@@ -50,6 +50,7 @@ export const icons = {
   smartShuffle: outline('<path d="M16 4h4v4M4 20L20 4M20 16v4h-4M14 14l6 6"/><path d="M6.5 2.5c.45 2.3 1.7 3.55 4 4-2.3.45-3.55 1.7-4 4-.45-2.3-1.7-3.55-4-4 2.3-.45 3.55-1.7 4-4z" fill="currentColor" stroke-width="1"/>'),
   search: outline('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/>'),
   sortList: outline('<path d="M4 7h16M4 12h11M4 17h6"/>'),
+  monitor: outline('<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/>'),
   moon: outline('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'),
   clock: outline('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
   remove: outline('<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>'),

@@ -10,12 +10,14 @@ import { icons } from "./icons.js";
 import { getSetting, lib, likeTarget, likeTargetName, motionOff, setSetting } from "./library.js";
 import { setMinibarLarge, syncLikeButtons } from "./player.js";
 import { presenceEnabled, updatePresence } from "./presence.js";
-import { el, openMenu, syncAllRows, toast } from "./ui.js";
+import { confirmDialog, el, iconButton, openMenu, syncAllRows, toast } from "./ui.js";
 import { VIZ_PRESETS, applyVizColors, paletteFor, refreshViz, vizColorsSetting, vizEnabled } from "./viz.js";
 import { showWelcome, startTour } from "./welcome.js";
+import { BACK_PLACES, backPlace, setBackPlace } from "./backbtn.js";
+import { systemSection } from "./system.js";
 import { CHANGELOG } from "./changelog.js";
 import { showWhatsNew } from "./whatsnew.js";
-import { chooseTheme, createTheme, currentThemeId, loadThemes, onThemesChange, openThemesFolder, themeList, themesFolder } from "./themes.js";
+import { chooseTheme, createTheme, currentThemeId, deleteTheme, loadThemes, onThemesChange, openThemesFolder, themeList, themesFolder } from "./themes.js";
 
 const box = document.getElementById("view-settings");
 let network = null;      // { mode, strategy, strategySc, fakeTtl, proxy, direct }
@@ -261,6 +263,7 @@ function appearanceSection() {
   section.append(switchRow("Большой нижний плеер",
     "Крупнее обложка, название и кнопки — удобнее, если плеер внизу нужен под рукой.",
     !!getSetting("minibarLarge", false), (on) => { setSetting("minibarLarge", on); setMinibarLarge(on); }));
+  section.append(choiceRow("Кнопка «Назад»", BACK_PLACES, backPlace, setBackPlace));
   // Медиатека как в Spotify: папки, фильтр «Плейлисты / Исполнители», поиск и сортировка (libtools.js)
   section.append(switchRow("Папки и фильтры в медиатеке",
     "Папки для плейлистов, подписки на исполнителей, поиск и сортировка над медиатекой. Выключите — будет простой список.",
@@ -329,8 +332,34 @@ function drawThemes() {
     card.title = [t.description, t.version && `Версия ${t.version}`].filter(Boolean).join("\n");
     card.append(themeSwatch(t), name, sub);
     card.addEventListener("click", () => chooseTheme(t.id));
-    return card;
+    if (t.kind !== "user") return card;
+    // Свою тему можно удалить: корзина в углу (видна при наведении) или правая кнопка
+    const item = el("div", "theme-item");
+    const del = iconButton(icons.trash, "Удалить тему", "theme-del");
+    del.addEventListener("click", () => askDeleteTheme(t));
+    card.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      openMenu({ x: e.clientX, y: e.clientY }, [
+        { label: "Удалить тему", icon: icons.trash, danger: true, action: () => askDeleteTheme(t) },
+      ]);
+    });
+    item.append(card, del);
+    return item;
   }));
+}
+
+async function askDeleteTheme(t) {
+  const ok = await confirmDialog({
+    title: `Удалить тему «${t.name}»?`,
+    text: "Папка темы уйдёт в Корзину — если передумаете, её можно будет восстановить оттуда.",
+  });
+  if (!ok) return;
+  try {
+    const data = await deleteTheme(t.id);
+    toast(data?.where === "trash" ? `Тема «${t.name}» в Корзине` : `Тема «${t.name}» удалена`);
+  } catch (err) {
+    toast(err.message, { error: true });
+  }
 }
 
 function themesRow() {
@@ -599,7 +628,9 @@ function updateSection() {
 // Sono сам смотрит на GitHub, нет ли новой версии, и скачивает установщик. Обновиться — одна кнопка.
 
 function appUpdateText(u) {
-  if (!u?.enabled) return "Автообновление включится, когда Sono будет выложен на GitHub.";
+  if (!u?.enabled) return u?.current === "0"
+    ? "Автообновление работает в установленной программе; версию из исходников обновляйте через git pull."
+    : "Автообновление выключено.";
   if (u.state === "available" || u.state === "ready") {
     return u.error ? `Не получилось скачать версию ${u.latest}: ${u.error}` : `Доступна новая версия ${u.latest}. Обновить сейчас?`;
   }
@@ -1018,6 +1049,7 @@ function render() {
     ["Оформление", icons.palette, appearanceSection()],
     ["Медиатека", icons.album, librarySection()],
     ["Мои файлы", icons.folder, localSection()],
+    ["Система", icons.monitor, systemSection({ switchRow, choiceRow })],
     ["Из браузера", icons.plus, browserSection()],
     ["Обход блокировок", icons.compass, networkSection()],
     ["zapret", icons.fx, zapretCard()],
@@ -1057,7 +1089,9 @@ function render() {
     if (Date.now() - clickedAt < 900) return;   // едем к разделу, который выбрали щелчком
     // Колонка слева — раздел «на экране», когда его верх у верха окна; строки сверху — когда он под ними
     const column = getComputedStyle(nav).flexDirection === "column";
-    const top = (column ? scroller.getBoundingClientRect().top + 24 : nav.getBoundingClientRect().bottom) + 40;
+    // …или когда он поднялся до трети экрана: иначе подсвечен прошлый раздел, от которого видна одна полоска
+    const area = scroller.getBoundingClientRect();
+    const top = Math.max((column ? area.top + 24 : nav.getBoundingClientRect().bottom) + 40, area.top + area.height / 3);
     let current = links[0];
     for (const pair of links) {
       const shown = pair[1].offsetHeight > 0;   // карточка zapret прячется, если zapret не найден

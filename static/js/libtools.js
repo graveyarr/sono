@@ -73,8 +73,11 @@ export async function renameFolder(folder) {
 
 /** Удалить папку — плейлисты остаются в медиатеке */
 export function deleteFolder(folder) {
+  const before = getSetting("folders", []);
   saveFolders(folders().filter((f) => f.id !== folder.id));
-  toast(`Папка «${folder.name}» удалена — плейлисты остались в медиатеке`);
+  toast(`Папка «${folder.name}» удалена — плейлисты остались в медиатеке`, {
+    action: { label: "Отменить", run: () => saveFolders(before) },
+  });
 }
 
 export function toggleFolder(folder) {

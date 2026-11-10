@@ -229,7 +229,7 @@ PRIVATE_HINT = {
 def _friendly(e: Exception, kind: str = "") -> str:
     text = str(e)
     if "404" in text or "403" in text or "401" in text or "private" in text.lower():
-        return PRIVATE_HINT.get(kind, "Плейлист не найден или закрыт. Проверь ссылку и что плейлист открыт для всех")
+        return PRIVATE_HINT.get(kind, "Плейлист не найден или закрыт. Проверьте ссылку и что плейлист открыт для всех")
     return re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?", "", text)
 
 

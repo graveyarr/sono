@@ -86,12 +86,16 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
     </button>
     <header class="top">
+      <!-- «Назад» на панели — если в настройках выбрано «На панели» (backbtn.js), вместо стрелки в полоске окна -->
+      <button type="button" class="panel-back" id="panel-back" aria-label="Назад" title="Назад (Alt+←)" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
       <div class="search" id="search">
         <form class="search-bar" id="search-form" autocomplete="off">
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>
           </svg>
-          <input id="query" placeholder="Что хочешь включить?" spellcheck="false" aria-label="Поиск">
+          <input id="query" placeholder="Что включим?" spellcheck="false" aria-label="Поиск">
           <button type="button" class="icon-btn clear" id="clear" aria-label="Очистить" tabindex="-1">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>
           </button>
@@ -139,7 +143,7 @@
           <div class="np-row">
             <div class="info" id="np-info">
               <h1 data-np="title">Ничего не играет</h1>
-              <p data-np="artist">Найди трек через поиск сверху</p>
+              <p data-np="artist">Найдите трек через поиск сверху</p>
             </div>
             <div class="np-actions">
               <!-- Клип вместо обложки (clip.js): видна, только когда у трека нашёлся клип -->
@@ -147,7 +151,7 @@
               <!-- Звуковые эффекты: slowed + reverb, nightcore, басы (fx.js) -->
               <button type="button" class="icon-btn toggle-btn" data-np="fx" title="Звуковые эффекты" aria-label="Звуковые эффекты"></button>
               <button type="button" class="icon-btn toggle-btn" data-np="sleep" title="Таймер сна" aria-label="Таймер сна"></button>
-              <button type="button" class="icon-btn" data-np="lyrics" title="Текст песни" aria-label="Текст песни" disabled>
+              <button type="button" class="icon-btn toggle-btn" data-np="lyrics" title="Текст песни" aria-label="Текст песни" disabled>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
               </button>
               <button type="button" class="icon-btn" data-np="dislike" aria-label="Не нравится" disabled></button>

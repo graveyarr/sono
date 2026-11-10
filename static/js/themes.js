@@ -116,6 +116,19 @@ export async function createTheme(name) {
   return data;
 }
 
+/** Удалить свою тему (встроенные нельзя). Была включена — возвращаем обычную. */
+export async function deleteTheme(id) {
+  const theme = themes.find((t) => t.id === id && t.kind === "user");
+  if (!theme) return null;
+  if (currentThemeId() === id) chooseTheme(null);   // сначала выключить — иначе слежка решит, что папка «пропала»
+  const res = await fetch(`/api/themes/user/${encodeURIComponent(theme.folder)}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  await loadThemes();
+  changed();
+  if (!res.ok) throw new Error(data.error || "не получилось удалить тему");
+  return data;
+}
+
 export async function openThemesFolder() {
   const res = await fetch("/api/themes/open-folder", { method: "POST" });
   return res.json().catch(() => ({}));

@@ -246,6 +246,11 @@ class WindowApi:
         import tray
         tray.set_close_to_tray(bool(on))
 
+    def set_hotkeys(self, on):
+        """Глобальные клавиши Ctrl+Alt+… (работают из любой программы). Вернёт список клавиш и занятые другими."""
+        import tray
+        return tray.set_hotkeys(bool(on))
+
     def pick_folder(self):
         """Окно Windows «Выбор папки» — для «Мои файлы» в настройках. Возвращает путь или None."""
         import webview

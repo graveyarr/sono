@@ -26,7 +26,8 @@ import { flush, getSetting, loadLibrary, onChange, onSaveError } from "./library
 import { markRecent } from "./libtools.js";
 import { initLyrics } from "./lyrics.js";
 import { initMobile } from "./mobile.js";
-import { initPlayer, isPlaying, restoreSession, onPlayState, onTrackChange, playNext, playPrev, seekBy, state, syncLikeButtons, togglePlay } from "./player.js";
+import { initPlayer, isPlaying, restoreSession, onPlayState, onTrackChange, playNext, playPrev, seekBy, state, stepVolume, syncLikeButtons, togglePlay } from "./player.js";
+import { initSystem } from "./system.js";
 import { focusSearch, initSearch, refreshHistory } from "./search.js";
 import { displayTrack, syncAllRows, toast } from "./ui.js";
 import { initViews, refreshDownloads, refreshPlaying, refreshViews, syncPlayButtons } from "./views.js";
@@ -64,8 +65,14 @@ maybeWelcome();   // первый запуск — приветствие и э�
 setTimeout(maybeWhatsNew, 1200);
 
 // ---------- Значок в трее (tray.py) ----------
-// Меню значка просит страницу: пауза, следующий, предыдущий. А страница сообщает значку, что играет
-window.sonoTray = (action) => ({ toggle: togglePlay, next: playNext, prev: playPrev })[action]?.();
+// Меню значка и глобальные клавиши (Ctrl+Alt+…, system.js) просят страницу: пауза, следующий, предыдущий,
+// громкость, ♡. А страница сообщает значку, что играет
+window.sonoTray = (action) => ({
+  toggle: togglePlay, next: playNext, prev: playPrev,
+  volup: () => stepVolume(0.05), voldown: () => stepVolume(-0.05),
+  like: () => { if (state.current) toggleLike(state.current); },
+})[action]?.();
+initSystem();   // автозапуск, глобальные клавиши, кэш (system.js)
 const trayApi = () => window.pywebview?.api?.tray_status ? window.pywebview.api : null;
 const sendTray = () => {
   const api = trayApi();
