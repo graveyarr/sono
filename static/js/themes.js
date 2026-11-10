@@ -1,27 +1,39 @@
-// Темы оформления. Тема — папка с theme.json и theme.css (встроенные — static/themes, свои —
-// %LOCALAPPDATA%\Sono\themes; сервер — themes.py). CSS темы подключается поверх style.css отдельным
-// <link>, сервер отдаёт его уже очищенным (без внешних адресов и @import). Как писать темы — THEMES.md.
-// Пока выбрана своя тема, страница раз в 1,5 с спрашивает время правки theme.css и перечитывает её —
-// автор темы видит изменения сразу после сохранения файла.
+// Темы оформления и виды «Сейчас играет». Обе — папки с theme.json и theme.css (встроенные — static/themes,
+// свои — %LOCALAPPDATA%\Sono\themes; сервер — themes.py), отличаются полем "part" в theme.json:
+// - тема ("theme") меняет весь Sono: цвета, размеры, шрифт, вид и место кнопок, свои значки (папка icons/);
+// - вид «Сейчас играет» ("now") — только этот экран: раскладку, фон, полосу перемотки. Выбирается отдельно
+//   и подключается вторым <link> поверх темы — любую тему можно сочетать с любым видом.
+// CSS сервер отдаёт уже очищенным (без внешних адресов и @import), значки — тоже. Как писать — THEMES.md.
+// Пока выбрана своя тема/вид, страница раз в 1,5 с спрашивает время правки и перечитывает её —
+// автор видит изменения сразу после сохранения файла.
 
 import { getSetting, setSetting } from "./library.js";
+import { setThemeIcons } from "./icons.js";
 import { setCoverColorsMode } from "./player.js";
 import { toast } from "./ui.js";
 
-let themes = [];          // с сервера: [{id, kind, folder, name, author, coverColors, preview, image, needs, stamp, …}]
+let themes = [];          // с сервера: [{id, kind, folder, part, name, author, coverColors, icons, preview, image, needs, stamp, …}]
 let folder = "";          // папка своих тем (показываем в настройках)
-let link = document.getElementById("theme-css");   // <link> с CSS темы (выбранную сервер вписывает в страницу сам — app.py index)
-let watchTimer = 0;
-let shownStamp = null;
 const listeners = new Set();
 
-export const themeList = () => themes;
+// Два «места»: тема всего Sono и вид «Сейчас играет». Выбранные сервер вписывает в страницу сам (app.py index)
+const SLOTS = {
+  theme: { setting: "theme", linkId: "theme-css", data: "theme", title: "Тема" },
+  now: { setting: "nowStyle", linkId: "now-css", data: "nowStyle", title: "Вид" },
+};
+const slot = {
+  theme: { link: document.getElementById("theme-css"), timer: 0, stamp: null, icons: false },
+  now: { link: document.getElementById("now-css"), timer: 0, stamp: null },
+};
+
+export const themeList = (part = "theme") => themes.filter((t) => t.part === part);
 export const themesFolder = () => folder;
-export const currentThemeId = () => getSetting("theme", null);
+export const currentThemeId = (part = "theme") => getSetting(SLOTS[part].setting, null);
 export const onThemesChange = (fn) => listeners.add(fn);
 
 const changed = () => listeners.forEach((fn) => fn());
-const cssUrl = (t, stamp) => `/api/themes/${t.kind}/${encodeURIComponent(t.folder)}/theme.css?v=${stamp}`;
+const base = (t) => `/api/themes/${t.kind}/${encodeURIComponent(t.folder)}`;
+const cssUrl = (t, stamp) => `${base(t)}/theme.css?v=${stamp}`;
 
 export async function loadThemes() {
   try {
@@ -33,99 +45,124 @@ export async function loadThemes() {
   return themes;
 }
 
-/** Применить тему (id или null — стандартная Sono) без сохранения в настройки */
-function apply(theme) {
-  clearTimeout(watchTimer);
-  if (!theme) {
-    link?.remove();
-    link = null;
-    shownStamp = null;
-    delete document.documentElement.dataset.theme;
-    setCoverColorsMode("on");
+/** Свои значки темы (папка icons/). Нет их — обычные значки Sono */
+async function applyIcons(theme) {
+  const s = slot.theme;
+  if (!theme?.icons) {
+    if (s.icons) { s.icons = false; setThemeIcons({}); }
     return;
   }
-  if (!link) {
-    link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.id = "theme-css";
-    document.head.append(link);
-  }
-  shownStamp = theme.stamp;
-  const href = cssUrl(theme, theme.stamp);
-  if (link.getAttribute("href") !== href) link.href = href;   // уже подключена сервером — не перечитываем
-  document.documentElement.dataset.theme = theme.folder;   // для тем, которым нужно знать себя (THEMES.md)
-  setCoverColorsMode(theme.coverColors);
-  if (theme.kind === "user") watch(theme);
+  try {
+    const res = await fetch(`${base(theme)}/icons?v=${theme.stamp}`);
+    const { icons } = await res.json();
+    if (currentThemeId("theme") !== theme.id) return;   // пока ждали ответа, тему уже сменили
+    s.icons = true;
+    setThemeIcons(icons || {});
+  } catch { /* не ответил — значки останутся прежними */ }
 }
 
-/** Своя тема: перечитываем, как только сохранили theme.css (заодно перечитываем и theme.json —
+/** Подключить тему или вид (null — обычные Sono) без сохранения в настройки */
+function apply(part, theme) {
+  const s = slot[part];
+  const { linkId, data } = SLOTS[part];
+  clearTimeout(s.timer);
+  if (!theme) {
+    s.link?.remove();
+    s.link = null;
+    s.stamp = null;
+    delete document.documentElement.dataset[data];
+    if (part === "theme") { setCoverColorsMode("on"); applyIcons(null); }
+    return;
+  }
+  if (!s.link) {
+    s.link = document.createElement("link");
+    s.link.rel = "stylesheet";
+    s.link.id = linkId;
+    // Вид «Сейчас играет» всегда после темы — он главнее на своём экране
+    if (part === "theme" && slot.now.link) slot.now.link.before(s.link);
+    else document.head.append(s.link);
+  }
+  s.stamp = theme.stamp;
+  const href = cssUrl(theme, theme.stamp);
+  if (s.link.getAttribute("href") !== href) s.link.href = href;   // уже подключена сервером — не перечитываем
+  document.documentElement.dataset[data] = theme.folder;   // для тем, которым нужно знать себя (THEMES.md)
+  if (part === "theme") { setCoverColorsMode(theme.coverColors); applyIcons(theme); }
+  if (theme.kind === "user") watch(part, theme);
+}
+
+/** Своя тема: перечитываем, как только сохранили theme.css или значки (заодно и theme.json —
     вдруг поменяли название или coverColors) */
-function watch(theme) {
+function watch(part, theme) {
+  const s = slot[part];
   const tick = async () => {
-    if (currentThemeId() !== theme.id) return;
+    if (currentThemeId(part) !== theme.id) return;
     if (document.visibilityState === "visible") {
       try {
-        const res = await fetch(`/api/themes/${theme.kind}/${encodeURIComponent(theme.folder)}/stamp`);
+        const res = await fetch(`${base(theme)}/stamp`);
         const { stamp } = await res.json();
-        if (stamp == null) {                // папку темы удалили или переименовали
-          toast(`Тема «${theme.name}» пропала из папки — включена обычная`);
-          setSetting("theme", null);
-          apply(null);
+        if (stamp == null) {                // папку удалили или переименовали
+          toast(`${SLOTS[part].title} «${theme.name}» пропал${part === "theme" ? "а" : ""} из папки — включен${part === "theme" ? "а обычная" : " обычный"}`);
+          setSetting(SLOTS[part].setting, null);
+          apply(part, null);
           await loadThemes();
           changed();
           return;
         }
-        if (stamp !== shownStamp) {
-          shownStamp = stamp;
-          link.href = cssUrl(theme, stamp);
+        if (stamp !== s.stamp) {
+          s.stamp = stamp;
+          s.link.href = cssUrl(theme, stamp);
           await loadThemes();               // вдруг поменяли и theme.json (название, coverColors)
           const fresh = themes.find((t) => t.id === theme.id);
-          if (fresh) { theme = fresh; setCoverColorsMode(fresh.coverColors); }
+          if (fresh) {
+            theme = fresh;
+            if (part === "theme") { setCoverColorsMode(fresh.coverColors); applyIcons(fresh); }
+          }
           changed();
         }
       } catch { /* не ответил — спросим в следующий раз */ }
     }
-    watchTimer = setTimeout(tick, 1500);
+    s.timer = setTimeout(tick, 1500);
   };
-  watchTimer = setTimeout(tick, 1500);
+  s.timer = setTimeout(tick, 1500);
 }
 
-export function chooseTheme(id) {
-  const theme = id ? themes.find((t) => t.id === id) : null;
+/** Выбрать тему (part "theme") или вид «Сейчас играет» (part "now"); id null — обычные */
+export function chooseTheme(id, part = "theme") {
+  const theme = id ? themes.find((t) => t.id === id && t.part === part) : null;
   if (id && !theme) return;
   if (theme?.needs) {
-    toast(`Тема «${theme.name}» сделана для Sono ${theme.needs} или новее — обновите Sono`, { error: true });
+    toast(`«${theme.name}» сделан${part === "theme" ? "а" : ""} для Sono ${theme.needs} или новее — обновите Sono`, { error: true });
     return;
   }
-  setSetting("theme", theme ? theme.id : null);
-  apply(theme);
+  setSetting(SLOTS[part].setting, theme ? theme.id : null);
+  apply(part, theme);
   changed();
 }
 
-/** «Создать свою тему»: копия заготовки + сразу включить её и открыть папку */
-export async function createTheme(name) {
+/** «Создать свою тему» / «Создать свой вид»: копия заготовки + сразу включить её и открыть папку */
+export async function createTheme(name, part = "theme") {
   const res = await fetch("/api/themes/create", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, part }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "не получилось");
   await loadThemes();
-  chooseTheme(data.id);
+  chooseTheme(data.id, part);
   return data;
 }
 
-/** Удалить свою тему (встроенные нельзя). Была включена — возвращаем обычную. */
+/** Удалить свою тему или вид (встроенные нельзя). Был включён — возвращаем обычный. */
 export async function deleteTheme(id) {
   const theme = themes.find((t) => t.id === id && t.kind === "user");
   if (!theme) return null;
-  if (currentThemeId() === id) chooseTheme(null);   // сначала выключить — иначе слежка решит, что папка «пропала»
+  if (currentThemeId(theme.part) === id) chooseTheme(null, theme.part);   // сначала выключить — иначе слежка решит, что папка «пропала»
   const res = await fetch(`/api/themes/user/${encodeURIComponent(theme.folder)}`, { method: "DELETE" });
   const data = await res.json().catch(() => ({}));
   await loadThemes();
   changed();
-  if (!res.ok) throw new Error(data.error || "не получилось удалить тему");
+  if (!res.ok) throw new Error(data.error || "не получилось удалить");
   return data;
 }
 
@@ -135,15 +172,18 @@ export async function openThemesFolder() {
 }
 
 export async function initThemes() {
-  const id = currentThemeId();
-  if (!id) return;
+  if (!currentThemeId("theme") && !currentThemeId("now")) return;
   await loadThemes();
-  const theme = themes.find((t) => t.id === id);
-  if (!theme || theme.needs) {
+  // До 0.9.7 «Горизонт», «Волна» и «Луна» были темами. Теперь это виды «Сейчас играет» — переносим выбор
+  const old = themes.find((t) => t.id === currentThemeId("theme"));
+  if (old?.part === "now") {
+    if (!currentThemeId("now")) setSetting("nowStyle", old.id);
+    setSetting("theme", null);
+  }
+  for (const part of ["theme", "now"]) {
+    const theme = themes.find((t) => t.id === currentThemeId(part) && t.part === part);
     // Тему удалили или она для более новой Sono — молча возвращаем обычную, настройку не трогаем:
     // папку могли временно переименовать
-    apply(null);
-    return;
+    apply(part, theme && !theme.needs ? theme : null);
   }
-  apply(theme);
 }

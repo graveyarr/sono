@@ -1,0 +1,36 @@
+/* Свой вид экрана «Сейчас играет».
+   Сохраните файл — Sono сразу перечитает его (пока он выбран в «Настройки → Оформление → Вид «Сейчас играет»»).
+   Подробно — THEMES.md в репозитории Sono на GitHub.
+
+   Вид меняет только экран «Сейчас играет» и сочетается с любой темой. Поэтому:
+   - пишите правила для body.on-now .main (основная панель, пока открыт этот экран) и #view-now (сам экран);
+   - свои цвета объявляйте там же, а не в :root — иначе перекрасится весь Sono.
+   В theme.json "part": "now" — это и отличает вид от темы. */
+
+body.on-now .main {
+  /* Свои цвета только для этого экрана (уберите знаки комментария вокруг строки, чтобы включить).
+     Если меняете --fg-rgb, объявите заново и производные от него --text, --muted, --faint, --line, --hover */
+  /* --accent: var(--cover-accent, #ff7a59); */   /* --cover-accent / --cover-tint — цвета обложки, есть всегда */
+  /* background: var(--cover-tint, #161616); */
+}
+
+/* Плеер — сетка из частей: .cover-stage (обложка), .np-row с .info (название) и .np-actions (кнопки),
+   .progress (перемотка), .controls (кнопки управления), .status. Рядом — .up-next («Очередь»).
+   Пример: обложка слева, всё остальное справа.
+body:not(.mobile):not(.show-queue):not(.show-lyrics) #view-now .deck {
+  display: grid; width: min(100%, calc(var(--deck) * 2.4)); max-width: none;
+  grid-template-columns: var(--deck) minmax(0, 1fr);
+  grid-template-areas: "cover info" "cover acts" "cover prog" "cover ctrl" "stat stat";
+  column-gap: 40px; align-items: center;
+}
+body:not(.mobile):not(.show-queue):not(.show-lyrics) #view-now .np-row { display: contents; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) #view-now .cover-stage { grid-area: cover; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) #view-now .info { grid-area: info; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) #view-now .np-actions { grid-area: acts; justify-self: start; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) #view-now .progress { grid-area: prog; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) #view-now .controls { grid-area: ctrl; }
+body:not(.mobile):not(.show-queue):not(.show-lyrics) #view-now .status { grid-area: stat; }
+*/
+
+/* Живая полоса перемотки (полоски под музыку) — уберите знаки комментария у строки ниже */
+/* #view-now { --seek-viz: live; } */

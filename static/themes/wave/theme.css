@@ -1,18 +1,21 @@
 /* «Волна» — по макету автора: название сверху, перемотка — полосками «звуковой волны»,
    кнопки по центру, «Далее» — ряд карточек внизу (кнопка «Очередь») */
-:root {
-  --bg: #121012;
+body.on-now .main {
+  /* Свои цвета — только на этом экране: остальной Sono остаётся в цветах выбранной темы.
+     Производные от --fg-rgb переменные объявляем заново — иначе они остались бы цвета темы */
+  --fg-rgb: 240 234 236;
+  --text: rgb(var(--fg-rgb)); --muted: rgb(var(--fg-rgb) / 0.62); --faint: rgb(var(--fg-rgb) / 0.38);
+  --line: rgb(var(--fg-rgb) / 0.1); --hover: rgb(var(--fg-rgb) / 0.08);
   --tint: #1c1214;
   --accent: #f0645c;
-  --fg-rgb: 240 234 236;
-  --glass: rgba(22, 17, 19, 0.86);
+  --shade-rgb: 0 0 0;
   --panel: rgba(32, 24, 26, 0.96);
-  --menu-bg: rgba(38, 28, 30, 0.98);
-  --dialog-bg: rgba(34, 25, 27, 0.98);
   --search-bg: rgba(26, 20, 22, 0.7);
   --search-bg-hover: rgba(38, 28, 30, 0.8);
+  color: var(--text); color-scheme: dark;
 }
-.bg-art, .now-bg, .np-glow { display: none !important; }
+/* Свой фон вместо подсветки и живого фона «Сейчас играет» */
+body.on-now .now-bg, .np-glow { display: none !important; }
 body.on-now .viz { display: none; }
 body.on-now .main {
   background:

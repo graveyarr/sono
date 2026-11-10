@@ -18,7 +18,8 @@ let bars = [], idle = [];
 let running = false, size = { W: 0, H: 0 };
 let colors = { on: "#fff", off: "rgba(255,255,255,0.2)" };
 
-const wanted = () => getComputedStyle(document.documentElement).getPropertyValue("--seek-viz").trim() === "live";
+// Свойство читаем у самого ползунка: вид «Сейчас играет» может задать его только для своего экрана
+const wanted = () => getComputedStyle(input).getPropertyValue("--seek-viz").trim() === "live";
 const visible = () => document.body.classList.contains("on-now") && !document.hidden;
 
 /** Спокойная форма, когда звука нет (пауза): холмы, как у неподвижных полосок, а не ровная линия */
@@ -48,7 +49,7 @@ function resize() {
 }
 
 function readColors() {
-  const css = getComputedStyle(document.body);
+  const css = getComputedStyle(input);   // цвета вида «Сейчас играет» действуют только на его экране
   const fg = css.getPropertyValue("--fg-rgb").trim() || "255 255 255";
   colors = { on: css.getPropertyValue("--accent").trim() || "#fff", off: `rgb(${fg} / 0.2)` };
 }

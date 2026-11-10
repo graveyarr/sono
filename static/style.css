@@ -2992,6 +2992,13 @@ body.mini-mode .toast { font-size: 12.5px; max-width: 360px; }
 .ts-main i:nth-child(3) { width: 50%; opacity: 0.45; }
 .ts-bar { left: 6%; right: 6%; bottom: 8%; height: 16%; display: flex; align-items: center; padding: 0 8%; }
 .ts-bar b { display: block; width: 100%; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--c-accent) 45%, color-mix(in srgb, var(--c-fg) 25%, transparent) 45%); }
+/* Образец вида «Сейчас играет»: обложка, две строки названия, полоса перемотки */
+.tn-cover { position: absolute; left: 8%; top: 12%; width: 30%; aspect-ratio: 1; border-radius: 4px; background: linear-gradient(135deg, var(--c-accent), var(--c-panel) 75%); }
+.tn-text { position: absolute; left: 44%; right: 8%; top: 22%; display: flex; flex-direction: column; gap: 6px; }
+.tn-text i { display: block; height: 5px; border-radius: 2px; background: var(--c-fg); opacity: 0.85; }
+.tn-text i:nth-child(2) { width: 60%; opacity: 0.45; }
+.theme-swatch.now .ts-bar { background: none; }
+.theme-icons-mark { top: auto; bottom: 5px; }
 .theme-card.on .theme-swatch { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
 /* Своя тема: карточка + корзина в левом верхнем углу образца (справа — пометка «по обложке») */
 .theme-item { position: relative; min-width: 0; display: grid; }

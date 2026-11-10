@@ -10,6 +10,12 @@ CSS-переменные (цвета, скругления, шрифт) и мо�
 - @import убирается целиком (через него подгрузился бы неочищенный CSS);
 - \\-экранирование вне строк убирается (им можно спрятать «url» от проверки).
 Файлы из папки темы отдаются только картинки и шрифты, CSS напрямую не отдаётся. Скрипты темы не умеют.
+
+Два вида папок (поле "part" в theme.json):
+- "theme" (по умолчанию) — тема всего интерфейса: цвета, размеры, шрифт, вид и место кнопок, свои значки
+  (папка icons/ — SVG-файлы с именами значков, их чистит clean_svg);
+- "now" — вид экрана «Сейчас играет» (раскладка, фон, полоса перемотки). Выбирается отдельно от темы
+  и подключается поверх неё вторым <link>.
 """
 
 import json
@@ -27,6 +33,10 @@ FILE_TYPES = {
     ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".otf": "font/otf",
 }
 COVER_MODES = ("on", "off", "accent", "tint")   # что тема разрешает брать из обложки
+PARTS = ("theme", "now")                         # тема всего Sono / вид «Сейчас играет»
+TEMPLATES = {"theme": "_template", "now": "_template-now"}
+MAX_ICON = 16 * 1024                             # один значок SVG
+MAX_ICONS = 120
 
 BUILTIN_DIR: Path = Path()
 USER_DIR: Path = Path()
@@ -111,6 +121,15 @@ def read_theme(kind: str, name: str, current: str) -> dict | None:
     except OSError:
         return None
     image = next((f"preview{ext}" for ext in (".png", ".jpg", ".webp") if (folder / f"preview{ext}").is_file()), "")
+    part = meta.get("part") if meta.get("part") in PARTS else "theme"
+    icons_dir = folder / "icons"
+    try:
+        icon_files = list(icons_dir.glob("*.svg"))[:MAX_ICONS] if part == "theme" and icons_dir.is_dir() else []
+        has_icons = bool(icon_files)
+        # Поправили значок — для страницы это тоже «тема изменилась» (перечитает и значки)
+        stamp = max([stamp] + [int(f.stat().st_mtime * 1000) for f in icon_files])
+    except OSError:
+        has_icons = False
     return {
         "id": f"{kind}:{name}",
         "kind": kind,
@@ -119,7 +138,9 @@ def read_theme(kind: str, name: str, current: str) -> dict | None:
         "author": _text(meta.get("author"), 60),
         "version": _text(str(meta.get("version", "")), 20),
         "description": _text(meta.get("description"), 300),
-        "coverColors": cover,
+        "part": part,
+        "coverColors": cover if part == "theme" else "on",   # у вида «Сейчас играет» цвета обложки решает тема
+        "icons": has_icons,
         "preview": preview,
         "image": image,
         "needs": needs_newer(meta.get("sono"), current),
@@ -244,16 +265,89 @@ def theme_file(kind: str, name: str, rel: str) -> tuple[Path, str]:
     return path, mime
 
 
+# ---------- Свои значки темы (папка icons/) ----------
+
+_SVG_NS = "{http://www.w3.org/2000/svg}"
+_SVG_TAGS = {"svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon"}
+_SVG_ATTRS = {
+    "viewBox", "d", "x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "x1", "y1", "x2", "y2", "points",
+    "fill", "fill-opacity", "fill-rule", "clip-rule", "stroke", "stroke-width", "stroke-opacity",
+    "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset",
+    "opacity", "transform", "shape-rendering", "vector-effect",
+}
+# Значения — только цифры, буквы, знаки чисел и путей; никаких url(…), кавычек, < > & ; и т.п.
+_SVG_VALUE = re.compile(r"^[\w\s.,#%()+-]*$")
+
+
+def clean_svg(text: str) -> str | None:
+    """SVG-значок темы → безопасная разметка для вставки прямо в страницу (иначе <script>, onload=,
+    ссылки и внешние картинки сработали бы внутри Sono). Оставляем только фигуры и их рисующие атрибуты,
+    всё остальное выкидываем. Не разобрался — None."""
+    import xml.etree.ElementTree as ET
+    if len(text) > MAX_ICON or "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
+        return None
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return None
+
+    def tag(el) -> str:
+        t = el.tag if isinstance(el.tag, str) else ""
+        return t[len(_SVG_NS):] if t.startswith(_SVG_NS) else t
+
+    def attrs(el) -> str:
+        out = []
+        for k, v in el.attrib.items():
+            if k not in _SVG_ATTRS or "url" in v.lower() or not _SVG_VALUE.match(v) or len(v) > 4000:
+                continue
+            out.append(f' {k}="{v}"')
+        return "".join(out)
+
+    def walk(el, depth=0) -> str:
+        if depth > 8:
+            return ""
+        t = tag(el)
+        if t not in _SVG_TAGS or (t == "svg" and depth):
+            return ""
+        inner = "".join(walk(c, depth + 1) for c in el)
+        return f"<{t}{attrs(el)}>{inner}</{t}>"
+
+    if tag(root) != "svg":
+        return None
+    svg = walk(root)
+    if 'viewBox="' not in svg[:200]:
+        svg = svg.replace("<svg", '<svg viewBox="0 0 24 24"', 1)
+    return svg
+
+
+def theme_icons(kind: str, name: str) -> dict[str, str]:
+    """Значки темы: icons/<имя значка>.svg → {имя: очищенная разметка}. Имена — как в static/js/icons.js."""
+    folder = theme_dir(kind, name) / "icons"
+    out: dict[str, str] = {}
+    if not folder.is_dir():
+        return out
+    for path in sorted(folder.glob("*.svg"))[:MAX_ICONS]:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,39}", path.stem):
+            continue
+        try:
+            svg = clean_svg(path.read_bytes()[:MAX_ICON + 1].decode("utf-8-sig", errors="replace"))
+        except OSError:
+            continue
+        if svg:
+            out[path.stem] = svg
+    return out
+
+
 # ---------- Своя тема из шаблона ----------
 
-def create_from_template(title: str) -> str:
-    """Копия шаблона «Заготовка» в папку своих тем под новым именем. Вернёт имя папки."""
+def create_from_template(title: str, part: str = "theme") -> str:
+    """Копия заготовки (темы или вида «Сейчас играет») в папку своих тем под новым именем. Вернёт имя папки."""
     USER_DIR.mkdir(parents=True, exist_ok=True)
     base = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", title or "").strip(" .")[:40] or "Моя тема"
     name, n = base, 2
     while (USER_DIR / name).exists():
         name, n = f"{base} {n}", n + 1
-    template = BUILTIN_DIR / "_template"
+    template = BUILTIN_DIR / TEMPLATES.get(part, "_template")
     shutil.copytree(template, USER_DIR / name)
     meta_file = USER_DIR / name / "theme.json"
     meta = json.loads(meta_file.read_text(encoding="utf-8"))

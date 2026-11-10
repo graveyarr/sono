@@ -1,20 +1,22 @@
 /* «Горизонт» — по макету автора: закатное небо с холмами на «Сейчас играет»,
    крупное тонкое название слева, обложка справа, кнопки внизу во всю ширину */
-:root {
-  --bg: #0b0810;
-  --tint: #1a1224;
-  --accent: #e8a393;
+body.on-now .main {
+  /* Свои цвета — только на этом экране: остальной Sono остаётся в цветах выбранной темы.
+     Производные от --fg-rgb переменные объявляем заново — иначе они остались бы цвета темы */
   --fg-rgb: 239 230 238;
-  --glass: rgba(21, 16, 26, 0.86);
+  --text: rgb(var(--fg-rgb)); --muted: rgb(var(--fg-rgb) / 0.62); --faint: rgb(var(--fg-rgb) / 0.38);
+  --line: rgb(var(--fg-rgb) / 0.1); --hover: rgb(var(--fg-rgb) / 0.08);
+  /* Небо — по обложке, даже если тема свои цвета от обложки не берёт; без трека — закат */
+  --tint: var(--cover-tint, #1a1224);
+  --accent: var(--cover-accent, #e8a393);
+  --shade-rgb: 0 0 0;
   --panel: rgba(30, 22, 38, 0.96);
-  --menu-bg: rgba(36, 26, 44, 0.98);
-  --dialog-bg: rgba(32, 23, 40, 0.98);
   --search-bg: rgba(18, 12, 30, 0.55);
   --search-bg-hover: rgba(30, 20, 44, 0.7);
-  --radius: 22px;
+  color: var(--text); color-scheme: dark;
 }
-/* Свой фон вместо размытой обложки и подсветки */
-.bg-art, .now-bg, .np-glow { display: none !important; }
+/* Свой фон вместо подсветки и живого фона «Сейчас играет» */
+body.on-now .now-bg, .np-glow { display: none !important; }
 body.on-now .viz { display: none; }
 
 body.on-now .main {

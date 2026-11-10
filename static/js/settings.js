@@ -259,7 +259,8 @@ function switchRow(title, text, on, onToggle) {
 function appearanceSection() {
   const section = el("section", "set-card");
   section.append(el("h2", "", "Оформление"));
-  section.append(themesRow());
+  section.append(themesRow("theme"));
+  section.append(themesRow("now"));
   section.append(switchRow("Большой нижний плеер",
     "Крупнее обложка, название и кнопки — удобнее, если плеер внизу нужен под рукой.",
     !!getSetting("minibarLarge", false), (on) => { setSetting("minibarLarge", on); setMinibarLarge(on); }));
@@ -292,17 +293,37 @@ function appearanceSection() {
   return section;
 }
 
-// ---------- Темы (themes.js) ----------
+// ---------- Темы и виды «Сейчас играет» (themes.js) ----------
 
-const DEFAULT_THEME = { id: null, name: "Sono", description: "Обычная: тёмная, цвета подстраиваются под обложку.",
-  coverColors: "on", preview: ["#0b0b0b", "#242424", "#ffffff", "#ff7a59"] };
-let themesGrid = null;        // перерисовываем только сетку тем, не весь экран
+// part "theme" — тема всего Sono, part "now" — вид экрана «Сейчас играет» (выбирается отдельно)
+const THEME_PARTS = {
+  theme: {
+    title: "Тема",
+    sub: "Весь Sono: цвета, размеры, шрифт, вид и место кнопок, даже сами значки. Можно сделать свою — это обычный "
+      + "CSS-файл в папке тем; Sono подхватывает изменения сразу, как только вы сохраните файл.",
+    create: "Создать свою тему", newName: "Моя тема",
+    created: (f) => `Тема «${f}» создана и включена — откройте theme.css в Блокноте и меняйте цвета`,
+    builtin: "Встроенная", own: "Своя",
+    standard: { id: null, name: "Sono", description: "Обычная: тёмная, цвета подстраиваются под обложку.",
+      coverColors: "on", preview: ["#0b0b0b", "#242424", "#ffffff", "#ff7a59"] },
+  },
+  now: {
+    title: "Вид «Сейчас играет»",
+    sub: "Раскладка и фон экрана «Сейчас играет» — отдельно от темы: любую тему можно сочетать с любым видом.",
+    create: "Создать свой вид", newName: "Мой вид",
+    created: (f) => `Вид «${f}» создан и включён — откройте theme.css в Блокноте`,
+    builtin: "Встроенный", own: "Свой",
+    standard: { id: null, name: "Обычный", description: "Обложка сверху, название и кнопки под ней — как в теме.",
+      preview: ["#101010", "#2a2a2a", "#ffffff", "#ff7a59"] },
+  },
+};
+const themesGrids = {};       // part → сетка карточек (перерисовываем только её, не весь экран)
 let themesLoaded = false;
 
-/** Образец темы: картинка preview.png из её папки или маленькое «окно Sono» её цветами
-    (preview: [фон, панели, текст/акцент]) */
-function themeSwatch(t) {
-  const sw = el("span", "theme-swatch");
+/** Образец: картинка preview.png из папки или маленькое «окно Sono» её цветами
+    (preview: [фон, панели, текст, акцент]); у вида «Сейчас играет» — маленький плеер */
+function themeSwatch(t, part) {
+  const sw = el("span", `theme-swatch${part === "now" ? " now" : ""}`);
   if (t.image) {
     sw.style.backgroundImage = `url("/api/themes/${t.kind}/${encodeURIComponent(t.folder)}/${t.image}?v=${t.stamp}")`;
   } else {
@@ -311,36 +332,41 @@ function themeSwatch(t) {
     sw.style.setProperty("--c-panel", panel);
     sw.style.setProperty("--c-fg", fg);
     sw.style.setProperty("--c-accent", accent);
-    sw.innerHTML = '<span class="ts-side"></span><span class="ts-main"><i></i><i></i><i></i></span><span class="ts-bar"><b></b></span>';
+    sw.innerHTML = part === "now"
+      ? '<span class="tn-cover"></span><span class="tn-text"><i></i><i></i></span><span class="ts-bar"><b></b></span>'
+      : '<span class="ts-side"></span><span class="ts-main"><i></i><i></i><i></i></span><span class="ts-bar"><b></b></span>';
   }
-  if (t.coverColors && t.coverColors !== "off") sw.append(el("span", "theme-cover-mark", "по обложке"));
+  if (part === "theme" && t.coverColors && t.coverColors !== "off") sw.append(el("span", "theme-cover-mark", "по обложке"));
+  if (t.icons) sw.append(el("span", "theme-cover-mark theme-icons-mark", "свои значки"));
   return sw;
 }
 
-function drawThemes() {
-  if (!themesGrid) return;
-  const current = currentThemeId();
-  const list = [DEFAULT_THEME, ...themeList()];
-  themesGrid.replaceChildren(...list.map((t) => {
+function drawThemes(part) {
+  const grid = themesGrids[part];
+  if (!grid) return;
+  const info = THEME_PARTS[part];
+  const current = currentThemeId(part);
+  const list = [info.standard, ...themeList(part)];
+  grid.replaceChildren(...list.map((t) => {
     const card = el("button", `theme-card${t.id === current || (!t.id && !current) ? " on" : ""}`);
     card.type = "button";
     card.disabled = !!t.needs || t.tooBig;
     const name = el("span", "theme-name", t.name);
     const sub = el("span", "theme-sub",
-      t.needs ? `Нужна Sono ${t.needs}` : t.tooBig ? "Файл темы больше 512 КБ" : t.error ? t.error
-        : t.kind === "user" ? (t.author ? `Своя · ${t.author}` : "Своя") : t.author ? t.author : "Встроенная");
+      !t.id ? "Как обычно" : t.needs ? `Нужна Sono ${t.needs}` : t.tooBig ? "Файл темы больше 512 КБ" : t.error ? t.error
+        : t.kind === "user" ? (t.author ? `${info.own} · ${t.author}` : info.own) : t.author && t.author !== "Sono" ? t.author : info.builtin);
     card.title = [t.description, t.version && `Версия ${t.version}`].filter(Boolean).join("\n");
-    card.append(themeSwatch(t), name, sub);
-    card.addEventListener("click", () => chooseTheme(t.id));
+    card.append(themeSwatch(t, part), name, sub);
+    card.addEventListener("click", () => chooseTheme(t.id, part));
     if (t.kind !== "user") return card;
     // Свою тему можно удалить: корзина в углу (видна при наведении) или правая кнопка
     const item = el("div", "theme-item");
-    const del = iconButton(icons.trash, "Удалить тему", "theme-del");
+    const del = iconButton(icons.trash, "Удалить", "theme-del");
     del.addEventListener("click", () => askDeleteTheme(t));
     card.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       openMenu({ x: e.clientX, y: e.clientY }, [
-        { label: "Удалить тему", icon: icons.trash, danger: true, action: () => askDeleteTheme(t) },
+        { label: "Удалить", icon: icons.trash, danger: true, action: () => askDeleteTheme(t) },
       ]);
     });
     item.append(card, del);
@@ -348,41 +374,50 @@ function drawThemes() {
   }));
 }
 
+const drawAllThemes = () => Object.keys(themesGrids).forEach(drawThemes);
+
 async function askDeleteTheme(t) {
+  const what = t.part === "now" ? "вид" : "тему";
   const ok = await confirmDialog({
-    title: `Удалить тему «${t.name}»?`,
-    text: "Папка темы уйдёт в Корзину — если передумаете, её можно будет восстановить оттуда.",
+    title: `Удалить ${what} «${t.name}»?`,
+    text: "Папка уйдёт в Корзину — если передумаете, её можно будет восстановить оттуда.",
   });
   if (!ok) return;
   try {
     const data = await deleteTheme(t.id);
-    toast(data?.where === "trash" ? `Тема «${t.name}» в Корзине` : `Тема «${t.name}» удалена`);
+    toast(data?.where === "trash" ? `«${t.name}» в Корзине` : `«${t.name}» удалён${t.part === "now" ? "" : "а"}`);
   } catch (err) {
     toast(err.message, { error: true });
   }
 }
 
-function themesRow() {
+function themesRow(part) {
+  const info = THEME_PARTS[part];
   const row = el("div", "set-themes");
   const textBox = el("span", "set-switch-text");
-  textBox.append(el("span", "set-switch-title", "Тема"),
-    el("span", "set-switch-sub", "Цвета и вид всего Sono. Можно сделать свою — это обычный CSS-файл в папке тем; "
-      + "Sono подхватывает изменения сразу, как только вы сохраните файл."));
-  themesGrid = el("div", "theme-grid");
+  textBox.append(el("span", "set-switch-title", info.title), el("span", "set-switch-sub", info.sub));
+  themesGrids[part] = el("div", "theme-grid");
   const tools = el("div", "set-actions theme-tools");
-  const create = el("button", "btn ghost", "Создать свою тему");
+  const create = el("button", "btn ghost", info.create);
   create.type = "button";
   create.addEventListener("click", async () => {
     create.disabled = true;
     try {
-      const data = await createTheme("Моя тема");
-      toast(`Тема «${data.folder}» создана и включена — откройте theme.css в Блокноте и меняйте цвета`);
+      const data = await createTheme(info.newName, part);
+      toast(info.created(data.folder));
     } catch (err) {
       toast(err.message, { error: true });
     } finally {
       create.disabled = false;
     }
   });
+  tools.append(create);
+  if (part === "now") {
+    // Папка и список — общие с темами; кнопки показываем один раз, под темами
+    row.append(textBox, themesGrids[part], tools);
+    drawThemes(part);
+    return row;
+  }
   const open = el("button", "btn ghost", "Открыть папку тем");
   open.type = "button";
   open.addEventListener("click", async () => {
@@ -391,17 +426,15 @@ function themesRow() {
   });
   const refresh = el("button", "btn ghost", "Обновить список");
   refresh.type = "button";
-  refresh.addEventListener("click", async () => { await loadThemes(); drawThemes(); });
-  tools.append(create, open, refresh);
-  row.append(textBox, themesGrid, tools);
-  drawThemes();
+  refresh.addEventListener("click", async () => { await loadThemes(); drawAllThemes(); });
+  tools.append(open, refresh);
+  row.append(textBox, themesGrids[part], tools);
+  drawThemes(part);
   if (!themesLoaded) {
     themesLoaded = true;
-    onThemesChange(drawThemes);
-    loadThemes().then(drawThemes);
-  } else {
-    loadThemes().then(drawThemes);   // могли положить новую тему в папку, пока настройки были закрыты
+    onThemesChange(drawAllThemes);
   }
+  loadThemes().then(drawAllThemes);   // могли положить новую тему в папку, пока настройки были закрыты
   return row;
 }
 

@@ -13,7 +13,7 @@
     <div class="tb-edge tb-topleft" data-edge="topleft"></div>
     <div class="tb-edge tb-topright" data-edge="topright"></div>
     <button type="button" class="tb-btn tb-back" id="tb-back" aria-label="Назад" title="Назад (Alt+←)" disabled>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+      <svg data-i="back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
     </button>
     <span class="tb-logo">sono.</span>
     <div class="tb-space"></div>
@@ -47,19 +47,19 @@
   <aside class="sidebar glass">
     <button type="button" class="nav-item" id="nav-home">
       <span class="nav-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg>
+        <svg data-i="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg>
       </span>
       Главная
     </button>
     <button type="button" class="nav-item" id="nav-flow">
       <span class="nav-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12c2.5-4 5-4 7.5 0s5 4 7.5 0 3.5-3 5-1.5"/><path d="M2 17c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/><path d="M2 7c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/></svg>
+        <svg data-i="flow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12c2.5-4 5-4 7.5 0s5 4 7.5 0 3.5-3 5-1.5"/><path d="M2 17c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/><path d="M2 7c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/></svg>
       </span>
       Flow
     </button>
     <button type="button" class="nav-item" id="nav-now">
       <span class="nav-icon">
-        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="10" width="3" height="10" rx="1"/><rect x="10.5" y="4" width="3" height="16" rx="1"/><rect x="17" y="13" width="3" height="7" rx="1"/></svg>
+        <svg data-i="nowPlaying" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="10" width="3" height="10" rx="1"/><rect x="10.5" y="4" width="3" height="16" rx="1"/><rect x="17" y="13" width="3" height="7" rx="1"/></svg>
       </span>
       Сейчас играет
     </button>
@@ -67,14 +67,14 @@
     <div class="lib-head">
       <span>Медиатека</span>
       <button type="button" class="icon-btn small" id="new-playlist" title="Создать или импортировать плейлист" aria-label="Создать или импортировать плейлист">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <svg data-i="plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       </button>
     </div>
     <ul class="lib-list" id="lib-list"></ul>
 
     <button type="button" class="nav-item nav-bottom" id="nav-settings">
       <span class="nav-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1z"/></svg>
+        <svg data-i="settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1z"/></svg>
       </span>
       Настройки
     </button>
@@ -83,21 +83,21 @@
   <div class="main glass">
     <!-- «Ручка» у левого края: прячет и показывает медиатеку -->
     <button type="button" class="sidebar-toggle" id="sidebar-toggle" title="Спрятать медиатеку" aria-label="Спрятать медиатеку">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+      <svg data-i="sidebar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
     </button>
     <header class="top">
       <!-- «Назад» на панели — если в настройках выбрано «На панели» (backbtn.js), вместо стрелки в полоске окна -->
       <button type="button" class="panel-back" id="panel-back" aria-label="Назад" title="Назад (Alt+←)" disabled>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+        <svg data-i="back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
       </button>
       <div class="search" id="search">
         <form class="search-bar" id="search-form" autocomplete="off">
-          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <svg data-i="search" class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>
           </svg>
           <input id="query" placeholder="Что включим?" spellcheck="false" aria-label="Поиск">
           <button type="button" class="icon-btn clear" id="clear" aria-label="Очистить" tabindex="-1">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>
+            <svg data-i="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>
           </button>
           <span class="divider"></span>
           <button type="button" class="source-btn" id="source-btn"></button>
@@ -132,7 +132,7 @@
             <div class="np-glow" aria-hidden="true"></div>
             <div class="cover-wrap">
               <div class="cover-placeholder">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V6l11-2v11.5a2.5 2.5 0 1 1-2-2.45V7.4l-7 1.27v8.83z"/></svg>
+                <svg data-i="note" viewBox="0 0 24 24" fill="currentColor"><path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V6l11-2v11.5a2.5 2.5 0 1 1-2-2.45V7.4l-7 1.27v8.83z"/></svg>
               </div>
               <img id="cover" alt="">
               <!-- Клип вместо обложки (clip.js) — без звука, идёт вместе с музыкой -->
@@ -152,11 +152,11 @@
               <button type="button" class="icon-btn toggle-btn" data-np="fx" title="Звуковые эффекты" aria-label="Звуковые эффекты"></button>
               <button type="button" class="icon-btn toggle-btn" data-np="sleep" title="Таймер сна" aria-label="Таймер сна"></button>
               <button type="button" class="icon-btn toggle-btn" data-np="lyrics" title="Текст песни" aria-label="Текст песни" disabled>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+                <svg data-i="lyrics" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
               </button>
               <button type="button" class="icon-btn" data-np="dislike" aria-label="Не нравится" disabled></button>
               <button type="button" class="icon-btn" data-np="add" title="Добавить в плейлист" aria-label="Добавить в плейлист" disabled>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+                <svg data-i="addTo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
               </button>
               <button type="button" class="icon-btn like" data-np="like" aria-label="В избранное" disabled></button>
             </div>
@@ -173,21 +173,21 @@
             <div class="buttons">
               <button type="button" class="icon-btn small toggle-btn" data-np="shuffle" aria-label="Перемешать"></button>
               <button class="icon-btn" data-np="prev" aria-label="Предыдущий" disabled>
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
+                <svg data-i="prev" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
               </button>
               <button class="play" data-np="play" aria-label="Играть" disabled>
-                <svg class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
-                <svg class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
+                <svg data-i="play" class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
+                <svg data-i="pause" class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
               </button>
               <button class="icon-btn" data-np="next" aria-label="Следующий" disabled>
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
+                <svg data-i="next" viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
               </button>
               <button type="button" class="icon-btn small toggle-btn" data-np="repeat" aria-label="Повтор"></button>
             </div>
             <div class="volume">
               <button class="icon-btn small" data-np="mute" aria-label="Выключить звук">
-                <svg class="i-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
-                <svg class="i-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M16 10l4 4M20 10l-4 4"/></svg>
+                <svg data-i="volume" class="i-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+                <svg data-i="muted" class="i-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M16 10l4 4M20 10l-4 4"/></svg>
               </button>
               <div class="volume-pop">
                 <input type="range" data-np="volume" min="0" max="1" step="0.01" value="1" aria-label="Громкость">
@@ -220,19 +220,19 @@
   <!-- Нижние вкладки — только на телефоне (mobile.js, body.mobile) -->
   <nav class="tabbar" id="tabbar" hidden>
     <button type="button" class="tab" data-tab="home">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg>
+      <svg data-i="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg>
       <span>Главная</span>
     </button>
     <button type="button" class="tab" data-tab="search">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      <svg data-i="search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
       <span>Поиск</span>
     </button>
     <button type="button" class="tab" data-tab="flow">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12c2.5-4 5-4 7.5 0s5 4 7.5 0 3.5-3 5-1.5"/><path d="M2 17c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/><path d="M2 7c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/></svg>
+      <svg data-i="flow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12c2.5-4 5-4 7.5 0s5 4 7.5 0 3.5-3 5-1.5"/><path d="M2 17c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/><path d="M2 7c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/></svg>
       <span>Flow</span>
     </button>
     <button type="button" class="tab" data-tab="library">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4v16M10 4v16M15 4.5l4.5 15"/></svg>
+      <svg data-i="library" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4v16M10 4v16M15 4.5l4.5 15"/></svg>
       <span>Медиатека</span>
     </button>
   </nav>
@@ -256,14 +256,14 @@
       <div class="buttons">
         <button type="button" class="icon-btn small toggle-btn" data-np="shuffle" aria-label="Перемешать"></button>
         <button class="icon-btn small" data-np="prev" aria-label="Предыдущий" disabled>
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
+          <svg data-i="prev" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
         </button>
         <button class="play small-play" data-np="play" aria-label="Играть" disabled>
-          <svg class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
-          <svg class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
+          <svg data-i="play" class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
+          <svg data-i="pause" class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
         </button>
         <button class="icon-btn small" data-np="next" aria-label="Следующий" disabled>
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
+          <svg data-i="next" viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
         </button>
         <button type="button" class="icon-btn small toggle-btn" data-np="repeat" aria-label="Повтор"></button>
       </div>
@@ -280,8 +280,8 @@
       <button type="button" class="icon-btn small toggle-btn" data-np="queue" aria-label="Очередь"></button>
       <div class="volume inline">
         <button class="icon-btn small" data-np="mute" aria-label="Выключить звук">
-          <svg class="i-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
-          <svg class="i-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M16 10l4 4M20 10l-4 4"/></svg>
+          <svg data-i="volume" class="i-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+          <svg data-i="muted" class="i-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="currentColor"/><path d="M16 10l4 4M20 10l-4 4"/></svg>
         </button>
         <input type="range" data-np="volume" min="0" max="1" step="0.01" value="1" aria-label="Громкость">
         <!-- Проценты над шариком — видны, пока наводят или тянут (player.js → placeVolumeTips) -->
@@ -300,23 +300,23 @@
           <span class="cp-artist" data-np="artist"></span>
         </div>
         <button type="button" class="cp-btn" id="cp-expand" aria-label="Развернуть Sono" title="Развернуть Sono (Ctrl+M)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
+          <svg data-i="expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
         </button>
         <button type="button" class="cp-btn cp-close" id="cp-close" aria-label="Закрыть" title="Закрыть">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          <svg data-i="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </div>
       <div class="cp-controls">
         <button type="button" class="icon-btn small like" data-np="like" aria-label="В избранное" disabled></button>
         <button class="icon-btn small" data-np="prev" aria-label="Предыдущий" disabled>
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
+          <svg data-i="prev" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
         </button>
         <button class="play small-play" data-np="play" aria-label="Играть" disabled>
-          <svg class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
-          <svg class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
+          <svg data-i="play" class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
+          <svg data-i="pause" class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
         </button>
         <button class="icon-btn small" data-np="next" aria-label="Следующий" disabled>
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
+          <svg data-i="next" viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
         </button>
         <button type="button" class="icon-btn small dislike" data-np="dislike" aria-label="Не нравится" disabled></button>
       </div>

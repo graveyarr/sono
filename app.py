@@ -1514,14 +1514,31 @@ def index():
     на долю секунды мелькала бы обычная тёмная тема, пока страница сама не узнает про тему (themes.js)."""
     html = (BASE_DIR / "static" / "index.html").read_text(encoding="utf-8")
     try:
+        from urllib.parse import quote
         with _library_lock:
-            chosen = load_library()["settings"].get("theme")
-        kind, _, name = chosen.partition(":") if isinstance(chosen, str) else ("", "", "")
-        info = themes.read_theme(kind, name, appupdate.current_version()) if kind in ("builtin", "user") else None
-        if info and not info["needs"] and not info["tooBig"]:
-            from urllib.parse import quote
-            href = f"/api/themes/{kind}/{quote(name)}/theme.css?v={info['stamp']}"
-            html = html.replace("</head>", f'  <link rel="stylesheet" id="theme-css" data-cover="{info["coverColors"]}" href="{href}">\n</head>', 1)
+            settings = load_library()["settings"]
+        version = appupdate.current_version()
+
+        def usable(chosen):
+            kind, _, name = chosen.partition(":") if isinstance(chosen, str) else ("", "", "")
+            info = themes.read_theme(kind, name, version) if kind in ("builtin", "user") else None
+            return info if info and not info["needs"] and not info["tooBig"] else None
+
+        # Тема всего Sono и отдельно — вид «Сейчас играет» (второй <link> поверх темы)
+        theme, now = usable(settings.get("theme")), usable(settings.get("nowStyle"))
+        if theme and theme["part"] == "now":   # до 0.9.7 «Горизонт»/«Волна»/«Луна» были темами (themes.js переносит)
+            now, theme = now or theme, None
+        if now and now["part"] != "now":
+            now = None
+        links = ""
+        if theme:
+            href = f"/api/themes/{theme['kind']}/{quote(theme['folder'])}/theme.css?v={theme['stamp']}"
+            links += f'  <link rel="stylesheet" id="theme-css" data-cover="{theme["coverColors"]}" href="{href}">\n'
+        if now:
+            href = f"/api/themes/{now['kind']}/{quote(now['folder'])}/theme.css?v={now['stamp']}"
+            links += f'  <link rel="stylesheet" id="now-css" href="{href}">\n'
+        if links:
+            html = html.replace("</head>", links + "</head>", 1)
     except Exception as e:   # тема — украшение: что бы ни случилось, страница должна открыться
         print(f"[themes] не подключил тему: {e}")
     resp = Response(html, mimetype="text/html")
@@ -2139,6 +2156,18 @@ def api_theme_file(kind, name, rel):
     return send_file(path, mimetype=mime, max_age=0)
 
 
+@app.get("/api/themes/<kind>/<name>/icons")
+def api_theme_icons(kind, name):
+    """Свои значки темы (папка icons/), уже очищенные: {имя значка: SVG}."""
+    try:
+        icons = themes.theme_icons(kind, name)
+    except (ValueError, OSError):
+        icons = {}
+    resp = jsonify(icons=icons)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @app.get("/api/themes/<kind>/<name>/stamp")
 def api_theme_stamp(kind, name):
     info = themes.read_theme(kind, name, appupdate.current_version())
@@ -2148,8 +2177,9 @@ def api_theme_stamp(kind, name):
 @app.post("/api/themes/create")
 def api_theme_create():
     """«Создать свою тему»: копия заготовки в папку своих тем + открыть её в Проводнике."""
+    body = _body()   # part: "now" — свой вид «Сейчас играет» (заготовка _template-now)
     try:
-        name = themes.create_from_template(_body().get("name") or "")
+        name = themes.create_from_template(body.get("name") or "", "now" if body.get("part") == "now" else "theme")
     except (OSError, ValueError) as e:
         return jsonify(error=f"Не получилось создать тему: {e}"), 500
     _open_folder(themes.USER_DIR / name)

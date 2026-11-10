@@ -521,23 +521,27 @@ let lastCoverImg = null;
 function applyCoverColors(img) {
   lastCoverImg = img;
   resetCoverColors();
-  if (coverMode === "off") return;
   let h, s, l;
   try { [h, s, l] = imageHsl(img); } catch { return; }
   const root = document.documentElement.style;
-  // Фон — тёмный вариант цвета обложки, чтобы белый текст всегда читался
-  if (coverMode !== "accent") {
-    root.setProperty("--tint", `hsl(${h.toFixed(0)} ${Math.min(s, 65).toFixed(0)}% ${Math.min(Math.max(l * 0.45, 9), 20).toFixed(0)}%)`);
-  }
-  // Акцент (ползунок, текущий трек) — светлый вариант; у серых обложек — просто белый
-  if (coverMode !== "tint") {
-    root.setProperty("--accent", s < 12 ? "hsl(0 0% 92%)" : `hsl(${h.toFixed(0)} ${Math.max(s, 55).toFixed(0)}% 72%)`);
-  }
+  // Цвета обложки — всегда, какой бы ни была тема: вид «Сейчас играет» может брать их сам
+  // (var(--cover-tint, свой цвет)), даже если тема свои --tint/--accent от обложки не меняет
+  // Фон — тёмный вариант цвета обложки, чтобы белый текст всегда читался;
+  // акцент (ползунок, текущий трек) — светлый вариант; у серых обложек — просто белый
+  const tint = `hsl(${h.toFixed(0)} ${Math.min(s, 65).toFixed(0)}% ${Math.min(Math.max(l * 0.45, 9), 20).toFixed(0)}%)`;
+  const accent = s < 12 ? "hsl(0 0% 92%)" : `hsl(${h.toFixed(0)} ${Math.max(s, 55).toFixed(0)}% 72%)`;
+  root.setProperty("--cover-tint", tint);
+  root.setProperty("--cover-accent", accent);
+  if (coverMode === "off") return;
+  if (coverMode !== "accent") root.setProperty("--tint", tint);
+  if (coverMode !== "tint") root.setProperty("--accent", accent);
 }
 
 function resetCoverColors() {
   document.documentElement.style.removeProperty("--tint");
   document.documentElement.style.removeProperty("--accent");
+  document.documentElement.style.removeProperty("--cover-tint");
+  document.documentElement.style.removeProperty("--cover-accent");
 }
 
 export function setCoverColorsMode(mode) {

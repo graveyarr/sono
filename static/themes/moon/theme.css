@@ -1,30 +1,27 @@
 /* «Луна» — по макету автора: фиолетовая ночь, обложка слева, название и кнопки справа */
-:root {
-  --bg: #0d0a18;
+body.on-now .main {
+  /* Свои цвета — только на этом экране: остальной Sono остаётся в цветах выбранной темы.
+     Производные от --fg-rgb переменные объявляем заново — иначе они остались бы цвета темы */
+  --fg-rgb: 236 232 255;
+  --text: rgb(var(--fg-rgb)); --muted: rgb(var(--fg-rgb) / 0.62); --faint: rgb(var(--fg-rgb) / 0.38);
+  --line: rgb(var(--fg-rgb) / 0.1); --hover: rgb(var(--fg-rgb) / 0.08);
   --tint: #1a1230;
   --accent: #9d7bff;
-  --fg-rgb: 236 232 255;
-  --glass: rgba(22, 16, 40, 0.62);
+  --shade-rgb: 14 9 30;
   --panel: rgba(34, 26, 58, 0.96);
-  --menu-bg: rgba(38, 29, 64, 0.98);
-  --dialog-bg: rgba(34, 26, 58, 0.98);
   --search-bg: rgba(24, 18, 42, 0.7);
   --search-bg-hover: rgba(36, 27, 60, 0.8);
-  --shade-rgb: 14 9 30;
+  color: var(--text); color-scheme: dark;
 }
-/* Размытая обложка — еле видна и в лиловых тонах, поверх — ночное свечение */
-.bg-art { filter: saturate(0.4) hue-rotate(0deg); }
-.bg-art.on, body.on-now .bg-art.on { opacity: 0.22 !important; }
 .np-glow { display: none; }
 body.on-now .main {
   background:
     radial-gradient(60% 50% at 25% 0%, rgba(124, 84, 230, 0.22), transparent 70%),
-    radial-gradient(50% 50% at 100% 100%, rgba(80, 50, 170, 0.18), transparent 70%);
+    radial-gradient(50% 50% at 100% 100%, rgba(80, 50, 170, 0.18), transparent 70%),
+    rgb(13 10 24 / 0.86);   /* ночь поверх фона темы (размытая обложка еле видна) */
   /* фон до самого края, без повтора: иначе в 1 px рамки панели вылезал повтор градиента — светлые линии по краям */
   background-origin: border-box; background-repeat: no-repeat;
 }
-.nav-item.active { background: rgb(157 123 255 / 0.14); box-shadow: inset 3px 0 0 var(--accent); }
-.nav-item.active .nav-icon { color: var(--accent); }
 .up-next { background: rgb(var(--shade-rgb) / 0.5); }
 .up-next-item.now { background: rgb(157 123 255 / 0.12); box-shadow: inset 3px 0 0 var(--accent); }
 .cover-wrap { border-radius: 16px; }

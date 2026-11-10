@@ -74,3 +74,33 @@ export const sourceIcons = {
   youtube: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="4.5" fill="#ff0033"/><path d="M10 9.2v5.6l4.8-2.8z" fill="#fff"/></svg>`,
   soundcloud: `<svg viewBox="0 0 24 24" fill="#ff5500" aria-hidden="true"><path d="M1.5 14h1v3h-1zM3.5 12.5h1V17h-1zM5.5 11.5h1V17h-1zM7.5 10.5h1V17h-1zM9.5 9h1v8h-1z"/><path d="M11.5 8.3a5 5 0 0 1 2.6-.7c2.6 0 4.7 1.9 5 4.4a2.6 2.6 0 0 1 3.4 2.5c0 1.4-1.2 2.5-2.6 2.5h-8.4z"/></svg>`,
 };
+
+// ---------- Свои значки темы ----------
+// Тема может заменить любой значок: файл icons/<имя>.svg в её папке (themes.py чистит SVG, themes.js
+// присылает сюда). Имена — ключи `icons` выше и data-i у значков в index.html (home, prev, volume…).
+// Каждый значок помечен data-i="имя": при смене темы уже нарисованные значки заменяются на месте,
+// а новые берутся из `icons`, который мы подменяем.
+
+const mark = (name, svg) => svg.replace(/^<svg\b/, `<svg data-i="${name}"`);
+for (const [name, svg] of Object.entries(icons)) icons[name] = mark(name, svg);
+const defaultIcons = { ...icons };
+
+/** map — {имя: SVG} от темы; пустой объект — вернуть обычные значки Sono */
+export function setThemeIcons(map = {}) {
+  const themed = (name) => (map[name] ? mark(name, map[name].replace(/^<svg\b/, '<svg aria-hidden="true"')) : null);
+  for (const name of Object.keys(defaultIcons)) icons[name] = themed(name) ?? defaultIcons[name];
+  for (const old of document.querySelectorAll("svg[data-i]")) {
+    const name = old.dataset.i;
+    const orig = old._sonoOrig ?? (map[name] ? old.outerHTML : null);   // как было до темы
+    const html = themed(name) ?? orig;
+    if (!html) continue;
+    const tpl = document.createElement("template");
+    tpl.innerHTML = html;
+    const svg = tpl.content.firstElementChild;
+    if (!svg) continue;
+    const cls = old.getAttribute("class");   // i-play / i-pause / search-icon — по ним CSS прячет и показывает
+    if (cls) svg.setAttribute("class", cls);
+    if (orig) svg._sonoOrig = orig;
+    old.replaceWith(svg);
+  }
+}
