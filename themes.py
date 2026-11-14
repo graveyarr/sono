@@ -418,11 +418,12 @@ MAX_FONT = 3 * 1024 * 1024
 # Файлы, которые кладёт редактор: картинка фона и свой шрифт. Имя с номером — новая картинка не затирает
 # старую, пока тему не сохранили (передумали — тема осталась прежней). Лишние убирает tidy()
 _EDITOR_FILE = re.compile(r"^(background|font)-\d{1,16}\.(jpg|png|webp|ttf|otf|woff2?)$")
-# Шрифты, которые уже лежат во встроенных темах: при выборе их копируем в свою тему (с лицензией)
+# Шрифты, которые лежат в Sono (static/fonts): при выборе в редакторе их копируем в свою тему (с лицензией).
+# Раньше они лежали во встроенных темах «Хром» и «2010» — с 0.9.9 эти темы в мастерской
 BUNDLED_FONTS = {
-    "unbounded": ("chrome", ("Unbounded-Variable.ttf", "OFL-Unbounded.txt")),
-    "marck": ("y2010", ("MarckScript-Regular.ttf", "OFL-MarckScript.txt")),
-    "gothic": ("chrome", ("SonoGothic.ttf",)),
+    "unbounded": ("Unbounded-Variable.ttf", "OFL-Unbounded.txt"),
+    "marck": ("MarckScript-Regular.ttf", "OFL-MarckScript.txt"),
+    "gothic": ("SonoGothic.ttf",),
 }
 
 
@@ -567,15 +568,12 @@ def save_from_editor(name: str, data: dict, current: str) -> dict | None:
     meta["editor"] = values
     meta.setdefault("sono", ">=0.9.3")
 
-    # Шрифт из встроенной темы — копия в эту тему (вместе с лицензией): тема должна жить сама по себе
+    # Шрифт из Sono — копия в эту тему (вместе с лицензией): тема должна жить сама по себе
     for font_id in data.get("fonts") or []:
-        if font_id not in BUNDLED_FONTS:
-            continue
-        src_name, files = BUNDLED_FONTS[font_id]
-        for file_name in files:
+        for file_name in BUNDLED_FONTS.get(font_id, ()):
             target = folder / file_name
             if not target.exists():
-                shutil.copyfile(BUILTIN_DIR / src_name / file_name, target)
+                shutil.copyfile(BUILTIN_DIR.parent / "fonts" / file_name, target)
 
     _write_text(css_file, text)
     _write_text(folder / "theme.json", json.dumps(meta, ensure_ascii=False, indent=2))

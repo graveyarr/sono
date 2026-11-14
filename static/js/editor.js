@@ -51,7 +51,7 @@ const PRESETS = [
 ];
 
 // Шрифты: системные Windows (на телефоне их нет — там только общие и встроенные в Sono)
-// и шрифты из встроенных тем — их файл при сохранении копируется в свою тему (themes.py BUNDLED_FONTS)
+// и шрифты из static/fonts — их файл при сохранении копируется в свою тему (themes.py BUNDLED_FONTS)
 const FONTS = [
   { id: "default", label: "Обычный" },
   { id: "bahnschrift", label: "Bahnschrift — узкий", stack: '"Bahnschrift", "Segoe UI", sans-serif', pc: true },
@@ -60,9 +60,9 @@ const FONTS = [
   { id: "georgia", label: "С засечками", stack: 'Georgia, "Noto Serif", serif' },
   { id: "mono", label: "Моноширинный", stack: '"Cascadia Mono", Consolas, "Roboto Mono", monospace' },
   { id: "comic", label: "Comic Sans MS", stack: '"Comic Sans MS", "Segoe UI", cursive', pc: true },
-  { id: "unbounded", label: "Unbounded — крупный", family: "Unbounded", dir: "chrome", file: "Unbounded-Variable.ttf", weight: "200 900" },
-  { id: "gothic", label: "Sono Gothic — готика", family: "Sono Gothic", dir: "chrome", file: "SonoGothic.ttf", weight: "100 900" },
-  { id: "marck", label: "Marck Script — рукописный", family: "Marck Script", dir: "y2010", file: "MarckScript-Regular.ttf" },
+  { id: "unbounded", label: "Unbounded — крупный", family: "Unbounded", file: "Unbounded-Variable.ttf", weight: "200 900" },
+  { id: "gothic", label: "Sono Gothic — готика", family: "Sono Gothic", file: "SonoGothic.ttf", weight: "100 900" },
+  { id: "marck", label: "Marck Script — рукописный", family: "Marck Script", file: "MarckScript-Regular.ttf" },
   { id: "custom", label: "Свой файл…", family: "Sono Custom" },
 ];
 const fontById = (id) => FONTS.find((f) => f.id === id) ?? FONTS[0];
@@ -111,7 +111,7 @@ function buildCss(v, mode, theme) {
     if (font.id === "custom" && !v.fontFile) return null;
     if (!faces.has(font.id)) {
       faces.add(font.id);
-      const url = font.id === "custom" ? own(v.fontFile) : mode === "draft" ? `/api/themes/builtin/${font.dir}/${font.file}` : font.file;
+      const url = font.id === "custom" ? own(v.fontFile) : mode === "draft" ? `/fonts/${font.file}` : font.file;
       out.push(`@font-face {\n  font-family: "${font.family}";\n  src: url("${url}");\n${font.weight ? `  font-weight: ${font.weight};\n` : ""}  font-display: swap;\n}`);
     }
     return `"${font.family}", ${BASE_STACK}`;
@@ -841,7 +841,7 @@ function updateStatus() {
 // ---------- Сохранить и закрыть ----------
 
 function usedFonts(v) {
-  return [v.font, v.headFont].filter((id) => FONTS.some((f) => f.id === id && f.dir));
+  return [v.font, v.headFont].filter((id) => FONTS.some((f) => f.id === id && f.file));
 }
 
 async function saveTheme() {

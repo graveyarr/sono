@@ -208,5 +208,51 @@ export async function initThemes() {
     // Тему удалили или она для более новой Sono — молча возвращаем обычную, настройку не трогаем:
     // папку могли временно переименовать
     apply(part, theme && !theme.needs ? theme : null);
+    if (!theme && part === "theme") offerMoved(currentThemeId(part));
+  }
+}
+
+// С 0.9.9 эти темы не встроены в Sono, а лежат в мастерской (id в каталоге — то же имя папки).
+// Кто сидел на такой теме — один раз видит подсказку с кнопкой «Установить»; дальше — обычная тема
+const MOVED_TO_WORKSHOP = { "builtin:y2010": "y2010", "builtin:chrome": "chrome", "builtin:alucard": "alucard", "builtin:blocks": "blocks" };
+
+function offerMoved(oldId) {
+  const wsId = MOVED_TO_WORKSHOP[oldId];
+  if (!wsId) return;
+  setSetting("theme", null);   // подсказка — один раз, без напоминаний при каждом запуске
+  toast("Ваша тема теперь в мастерской тем — её можно поставить оттуда", {
+    action: { label: "Установить", run: () => installMoved(wsId) },
+    duration: 15000,
+  });
+}
+
+async function installMoved(wsId) {
+  const post = (url, body) => fetch(url, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}),
+  });
+  const note = toast("Ставлю тему из мастерской…");
+  try {
+    let cat = await fetch("/api/workshop/catalog").then((r) => r.json());
+    let entry = cat.themes?.find((t) => t.id === wsId);
+    if (!entry || cat.stale) {
+      await post("/api/workshop/refresh");
+      cat = await fetch("/api/workshop/catalog").then((r) => r.json());
+      entry = cat.themes?.find((t) => t.id === wsId);
+    }
+    if (!entry) throw new Error("каталог мастерской не загрузился — проверьте интернет");
+    let id = entry.themeId;
+    if (!entry.installed || entry.hasUpdate) {
+      const res = await post("/api/workshop/install", { id: wsId });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "не получилось");
+      id = data.id;
+    }
+    await loadThemes();
+    chooseTheme(id, "theme");
+    note.close();
+    toast(`«${entry.name}» установлена и включена`);
+  } catch (err) {
+    note.close();
+    toast(`Тема не поставилась: ${err.message}`, { error: true });
   }
 }

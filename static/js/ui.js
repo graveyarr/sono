@@ -506,8 +506,9 @@ const toasts = el("div", "toasts");
 toasts.setAttribute("aria-live", "polite");
 document.body.append(toasts);
 
-/** Уведомление внизу. action: { label, run } — кнопка в уведомлении (например, «Отменить»); тогда оно висит дольше */
-export function toast(text, { error = false, action = null } = {}) {
+/** Уведомление внизу. action: { label, run } — кнопка в уведомлении (например, «Отменить»); тогда оно висит дольше.
+ *  duration — сколько висеть (мс), если обычного времени мало */
+export function toast(text, { error = false, action = null, duration = 0 } = {}) {
   const item = el("div", `toast${error ? " error" : ""}${action ? " with-action" : ""}`, text);
   const leave = () => {
     item.classList.add("leaving");
@@ -521,6 +522,6 @@ export function toast(text, { error = false, action = null } = {}) {
   }
   toasts.append(item);
   while (toasts.children.length > 3) toasts.firstElementChild.remove();
-  setTimeout(leave, action ? 6000 : error ? 4500 : 2600);
+  setTimeout(leave, duration || (action ? 6000 : error ? 4500 : 2600));
   return { close: leave };   // убрать раньше времени (например, «долго отдаёт», когда пришла ошибка)
 }
