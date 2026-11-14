@@ -6,6 +6,7 @@ import { renderAlbum, renderArtist } from "./artist.js";
 import { FLOW_MODES, cachedMixes, flowMode, hasTaste, setFlowMode, smartShuffle, startFlow, tasteMixes, warmFlow } from "./flow.js";
 import { renderFlowView } from "./flowview.js";
 import { renderStats, statsCard } from "./stats.js";
+import { renderWorkshop } from "./workshop.js";
 import { wrappedButton, wrappedCard } from "./wrapped.js";
 import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
@@ -35,6 +36,7 @@ const navNow = document.getElementById("nav-now");
 const navFlow = document.getElementById("nav-flow");
 const viewFlow = document.getElementById("view-flow");
 const viewStats = document.getElementById("view-stats");
+const viewWorkshop = document.getElementById("view-workshop");
 
 // Какой экран открыт: "home" | "now" | "liked" | "disliked" | "playlist:<id>" | "artist:<id>" | "album:<id>"
 let view = "";
@@ -112,7 +114,7 @@ export function prefetchFirst(tracks, key) {
 
 // ---------- Переключение экранов ----------
 
-const FIXED_VIEWS = ["home", "flow", "now", "settings", "stats"];   // экраны со своей секцией (остальные — списки)
+const FIXED_VIEWS = ["home", "flow", "now", "settings", "stats", "workshop"];   // экраны со своей секцией (остальные — списки)
 
 export function showView(key, { back = false } = {}) {
   if (!FIXED_VIEWS.includes(key) && !isMetaView(key) && !describe(key)) key = "home";
@@ -128,17 +130,19 @@ export function showView(key, { back = false } = {}) {
   viewSettings.hidden = view !== "settings";
   viewFlow.hidden = view !== "flow";
   viewStats.hidden = view !== "stats";
+  viewWorkshop.hidden = view !== "workshop";
   viewList.hidden = !isList;
   if (view === "home") renderHome();
   if (view === "now") renderUpNext();
   if (view === "settings" && changed) renderSettings();
   if (view === "flow") renderFlowView();
   if (view === "stats") renderStats(viewStats, wrappedButton());
+  if (view === "workshop" && changed) renderWorkshop(viewWorkshop);
   if (isMetaView(view)) { if (changed) renderMeta(); }
   else if (isList) renderList(changed);
   document.body.classList.toggle("on-flow", view === "flow");
   if (changed) {
-    const shown = { home: viewHome, now: viewNow, settings: viewSettings, flow: viewFlow, stats: viewStats }[view] ?? viewList;
+    const shown = { home: viewHome, now: viewNow, settings: viewSettings, flow: viewFlow, stats: viewStats, workshop: viewWorkshop }[view] ?? viewList;
     shown.classList.remove("entering");
     void shown.offsetWidth;
     shown.classList.add("entering");
@@ -656,7 +660,7 @@ export function renderSidebar({ keepFocus = false } = {}) {
   navHome.classList.toggle("active", view === "home");
   navNow.classList.toggle("active", view === "now");
   navFlow.classList.toggle("active", view === "flow");
-  navSettings.classList.toggle("active", view === "settings");
+  navSettings.classList.toggle("active", view === "settings" || view === "workshop");   // мастерская открывается из настроек
   lastSidebarSig = sidebarSignature();
   const tools = libToolsOn();
   const playlistItem = (p) => libItem(`playlist:${p.id}`, describe(`playlist:${p.id}`), `Плейлист · ${plural(p.tracks.length, "трек", "трека", "треков")}`);

@@ -1,0 +1,312 @@
+/* «2010» — ночная съёмка «на мыльницу» и графика из интернета 2010-х поверх неё:
+   - фон: ночной город с телебашней (city.svg), плёночное зерно;
+   - панели тёмно-синие, по краю — розовая неоновая линия;
+   - приветствие и название трека — розовый неон с блёстками (рукописный шрифт);
+   - Flow — лаймовая наклейка в звёздах и «2010», круглый стикер (sticker.svg) медленно крутится;
+   - обложки — фото-наклейки с белой рамкой, полоса перемотки — лаймовая лента со звёздами;
+   - на «Сейчас играет» (вид «Обычный») внизу бежит строка «★ 2010 ★».
+   Шрифты: Segoe Script (рукописный, есть в Windows), Impact и Bahnschrift (узкие). На телефоне Segoe Script нет —
+   его заменяет Marck Script из папки темы (SIL OFL 1.1, OFL-MarckScript.txt). */
+
+@font-face {
+  font-family: "Marck Script";
+  src: url(MarckScript-Regular.ttf) format("truetype");
+  font-display: swap;
+}
+
+:root {
+  --bg: #0b0d1a;
+  --fg-rgb: 255 255 255;
+  --shade-rgb: 8 9 22;
+  --glass: rgba(10, 12, 28, 0.5);
+  --panel: rgba(16, 17, 40, 0.97);
+  --menu-bg: rgba(20, 19, 46, 0.98);
+  --dialog-bg: rgba(18, 17, 42, 0.99);
+  --search-bg: rgba(10, 12, 30, 0.78);
+  --search-bg-hover: rgba(20, 20, 48, 0.85);
+  --tint: #0b0d1a;
+  --accent: #ff3fb4;
+  --radius: 14px;
+
+  /* Свои цвета и шрифты темы */
+  --y-pink: #ff3fb4;
+  --y-lime: #b6ff00;
+  --y-cyan: #22e0ff;
+  --y-red: #ff2a2a;
+  --y-ink: #0b0d1a;
+  --y-script: "Segoe Script", "Marck Script", cursive;
+  --y-heavy: Impact, "Bahnschrift", "sans-serif-condensed", "Arial Narrow", sans-serif;
+  --y-cond: "Bahnschrift", "sans-serif-condensed", "Arial Narrow", sans-serif;
+  /* Блёстки: две сетки мелких искр поверх розового */
+  --y-glitter:
+    radial-gradient(circle at 30% 30%, #fff 0 0.9px, transparent 1.6px) 0 0 / 13px 11px,
+    radial-gradient(circle at 70% 70%, #ffe3f5 0 0.7px, transparent 1.3px) 0 0 / 9px 14px,
+    linear-gradient(180deg, #ff9ad9 0%, #ff3fb4 55%, #e3168f 100%);
+  --y-neon: drop-shadow(0 0 5px rgb(255 63 180 / 0.85)) drop-shadow(0 0 16px rgb(255 63 180 / 0.45));
+}
+
+@keyframes y-spin { to { rotate: 360deg; } }
+@keyframes y-glitter { to { background-position: 13px 11px, -9px 14px, 0 0; } }
+@keyframes y-ticker { to { background-position: -200px 50%; } }
+
+/* ---------- Фон: ночной город, зерно, без размытой обложки ---------- */
+.bg-art { display: none !important; }
+.bg-tint {
+  background: url(city.svg) center bottom / cover no-repeat, var(--bg);
+  filter: blur(1.4px) saturate(1.1);
+  transform: scale(1.02);   /* края размытия не видны */
+}
+.bg-shade {
+  background:
+    radial-gradient(120% 90% at 50% 40%, transparent 0%, rgb(4 5 14 / 0.2) 60%, rgb(4 5 14 / 0.65) 100%),
+    linear-gradient(to bottom, rgb(4 5 14 / 0.3), rgb(4 5 14 / 0.05) 45%, rgb(4 5 14 / 0.45));
+}
+body .bg-grain { opacity: 0.16; }
+
+/* Растр голубых точек в левом верхнем углу основной панели (вид «Сейчас играет» — только «Обычный») */
+body:not(.on-now) .main::before,
+html:not([data-now-style]) body.on-now .main::before {
+  content: ""; position: absolute; left: 0; top: 0; z-index: 0;
+  width: 300px; height: 240px;
+  background: radial-gradient(circle, var(--y-cyan) 0 1.7px, transparent 2.2px) 0 0 / 10px 10px;
+  -webkit-mask-image: radial-gradient(closest-side at 18% 22%, #000 0%, transparent 100%);
+          mask-image: radial-gradient(closest-side at 18% 22%, #000 0%, transparent 100%);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ---------- Панели, полоска окна, поиск ---------- */
+.glass {
+  border-color: rgb(255 63 180 / 0.3);
+  box-shadow: inset 0 0 0 1px rgb(34 224 255 / 0.05), 0 0 26px rgb(255 63 180 / 0.08);
+}
+body.on-now .main { background: rgb(var(--shade-rgb) / 0.22); }
+
+.tb-logo {
+  font-family: var(--y-script); font-weight: 700; font-size: 17px;
+  color: var(--y-pink);
+  text-shadow: 0 0 8px rgb(255 63 180 / 0.7);
+}
+.tb-logo::after { content: " ★"; font-family: var(--font); font-size: 14px; }
+
+.search-bar { border-color: rgb(255 63 180 / 0.4); }
+.search-bar:hover { border-color: rgb(255 63 180 / 0.65); }
+.search-bar:focus-within { border-color: var(--y-pink); box-shadow: 0 0 0 1px var(--y-pink), 0 0 22px rgb(255 63 180 / 0.35); }
+
+::-webkit-scrollbar-thumb { background-color: rgb(255 63 180 / 0.3); }
+::-webkit-scrollbar-thumb:hover { background-color: rgb(255 63 180 / 0.5); }
+
+.menu, .dialog, .panel { border: 1px solid rgb(255 63 180 / 0.35); }
+
+/* ---------- Медиатека ---------- */
+.nav-item.active {
+  color: #fff;
+  background: linear-gradient(90deg, #ff3fb4, #d81b8f);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3), 0 0 18px rgb(255 63 180 / 0.45);
+}
+.nav-item.active::after { content: "★"; margin-left: auto; font-size: 14px; color: rgb(255 255 255 / 0.9); }
+.lib-head { font-family: var(--y-cond); font-size: 15px; letter-spacing: 0.02em; color: var(--text); }
+.lib-item.active { background: rgb(255 63 180 / 0.16); }
+.lib-item .collection-cover, .mini-track img { border-radius: 4px; box-shadow: 0 0 0 2px rgb(255 255 255 / 0.85); }
+.collection-cover.liked { background: linear-gradient(135deg, #6a1fd1 0%, #ff3fb4 100%); }
+
+/* ---------- Кнопки ---------- */
+.btn.primary { background: var(--y-pink); color: #fff; }
+.seg-btn.on { background: var(--y-pink); color: #fff; }
+.tile-play { background: var(--y-pink); color: #fff; box-shadow: 0 0 18px rgb(255 63 180 / 0.6); }
+.toggle-btn.on, .icon-btn.on { color: var(--y-pink); }
+
+/* Круглая «играть» — белая с розовым свечением и розовым значком */
+.play { background: #fff; color: var(--y-pink); box-shadow: 0 0 0 3px rgb(255 63 180 / 0.35), 0 0 26px rgb(255 63 180 / 0.55); }
+.play::after { border-top-color: var(--y-lime); }
+
+/* ---------- Ползунки ---------- */
+/* Перемотка — лаймовая лента со звёздами, сыгранное — розовым, «шарик» — звезда */
+input[data-np="seek"] { height: 26px; }
+input[data-np="seek"]::-webkit-slider-runnable-track {
+  height: 12px; border-radius: 6px;
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><polygon points='8,1 9.7,5.65 14.66,5.84 10.76,8.9 12.11,13.66 8,10.9 3.89,13.66 5.24,8.9 1.34,5.84 6.3,5.65' fill='white' opacity='0.9'/></svg>") 2px 50% / 11px 11px repeat-x,
+    linear-gradient(to right, var(--y-pink) var(--p), transparent var(--p)),
+    var(--y-lime);
+  box-shadow: 0 0 0 1.5px rgb(11 13 26 / 0.85), 0 0 14px rgb(182 255 0 / 0.22);
+}
+input[data-np="seek"]::-webkit-slider-thumb {
+  width: 26px; height: 26px; margin-top: -7px;
+  border-radius: 0;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><polygon points='12,1.5 14.55,8.48 21.99,8.76 16.14,13.35 18.17,20.49 12,16.35 5.84,20.49 7.86,13.35 2.01,8.76 9.45,8.48' fill='%23ff3fb4' stroke='white' stroke-width='1.6' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+  box-shadow: none;
+  filter: drop-shadow(0 0 5px rgb(255 63 180 / 0.9));
+  transform: scale(1);
+}
+input[data-np="seek"]:disabled::-webkit-slider-thumb { opacity: 0; }
+.mini-progress input[data-np="seek"] { height: 20px; }
+.mini-progress input[data-np="seek"]::-webkit-slider-runnable-track { height: 8px; background-size: 8px 8px, auto, auto; }
+.mini-progress input[data-np="seek"]::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -6px; }
+input[data-np="volume"] { --fill: var(--y-pink); }
+input[data-np="volume"]::-webkit-slider-thumb { background: #fff; box-shadow: 0 0 8px rgb(255 63 180 / 0.9); }
+
+/* ---------- Главная ---------- */
+/* Приветствие — розовый неон с блёстками */
+.home-greet {
+  font-family: var(--y-script); font-weight: 700; letter-spacing: 0;
+  font-size: clamp(36px, 4.4vw, 58px); line-height: 1.3; padding-bottom: 0.12em;
+  background: var(--y-glitter);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: var(--y-neon);
+  animation: y-glitter 2.4s steps(4) infinite;
+}
+.home-greet::after { content: " ✦★"; font-family: var(--font); font-size: 0.6em; vertical-align: 0.5em; }
+.home-sub {
+  margin-top: 0;
+  font-family: var(--y-cond); font-weight: 700; font-size: 17px;
+  text-transform: uppercase; letter-spacing: 0.06em; color: #fff;
+}
+.home-h {
+  font-family: var(--y-heavy); font-weight: 400; font-size: 26px;
+  text-transform: uppercase; letter-spacing: 0.02em; font-style: italic;
+  color: var(--y-red);
+  text-shadow: 2px 2px 0 rgb(0 0 0 / 0.6);
+}
+
+/* Flow — лаймовая наклейка: звёзды и «2010» рядами, справа — круглый стикер */
+.flow-card {
+  background:
+    linear-gradient(90deg, rgb(182 255 0 / 0.92) 0%, rgb(182 255 0 / 0.7) 38%, transparent 62%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='150' height='92'><g fill='white' opacity='0.85'><polygon transform='translate(4 12)' points='8,1 9.7,5.65 14.66,5.84 10.76,8.9 12.11,13.66 8,10.9 3.89,13.66 5.24,8.9 1.34,5.84 6.3,5.65'/><polygon transform='translate(79 58)' points='8,1 9.7,5.65 14.66,5.84 10.76,8.9 12.11,13.66 8,10.9 3.89,13.66 5.24,8.9 1.34,5.84 6.3,5.65'/></g><g font-family='Impact, Bahnschrift, Arial Narrow, sans-serif' font-size='26' font-style='italic' fill='none' stroke='white' stroke-width='1.3' opacity='0.75'><text x='26' y='30'>2010</text><text x='101' y='76'>2010</text><text x='-49' y='76'>2010</text></g></svg>") 0 0 / 150px 92px,
+    var(--y-lime);
+  border: 2px solid rgb(255 255 255 / 0.85);
+  box-shadow: 0 0 0 2px rgb(11 13 26 / 0.6), 0 14px 40px rgb(0 0 0 / 0.5), 0 0 40px rgb(182 255 0 / 0.18);
+  color: var(--y-ink);
+}
+.flow-aurora { display: none; }
+.flow-card::after {
+  inset: auto; right: 28px; top: 50%; z-index: -1;
+  width: min(180px, 30%); aspect-ratio: 1;
+  translate: 0 -50%;
+  background: url(sticker.svg) center / contain no-repeat;
+  filter: drop-shadow(0 8px 14px rgb(0 0 0 / 0.35));
+  animation: y-spin 26s linear infinite;
+}
+.flow-kind {
+  display: inline-block; padding: 4px 10px; border-radius: 6px;
+  background: var(--y-ink); color: #fff;
+  font-family: var(--y-cond); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.flow-title {
+  font-family: var(--y-heavy); font-weight: 400; font-style: italic; letter-spacing: 0.01em;
+  font-size: clamp(54px, 6vw, 80px); line-height: 1.15;
+  color: var(--y-ink);
+  text-shadow: 4px 4px 0 var(--y-pink);
+}
+.flow-sub { color: var(--y-ink); font-weight: 700; }
+.flow-card .big-play.flow-play { background: var(--y-ink); color: #fff; box-shadow: 0 0 0 3px rgb(255 255 255 / 0.7); }
+.flow-modes { background: none; backdrop-filter: none; padding: 0; gap: 6px; }
+.flow-modes .seg-btn { background: var(--y-ink); color: #fff; font-weight: 700; border-radius: 17px; }
+.flow-modes .seg-btn:hover { color: #fff; background: #23264a; }
+.flow-modes .seg-btn.on { background: var(--y-pink); color: #fff; box-shadow: 0 0 0 2px #fff; }
+
+/* Плитки плейлистов и карточки — фото-наклейки в белой рамке */
+.home-tile {
+  background: rgb(10 12 28 / 0.72);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  border-radius: 8px;
+}
+.home-tile:hover { background: rgb(30 18 52 / 0.85); box-shadow: inset 0 0 0 1px rgb(255 63 180 / 0.7), 0 0 18px rgb(255 63 180 / 0.25); }
+.home-tile .collection-cover { border: 3px solid #f4f4f4; border-radius: 6px; }
+.home-tile-name { font-family: var(--y-cond); font-size: 16px; letter-spacing: 0.01em; }
+
+.home-card { background: rgb(10 12 28 / 0.6); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08); }
+.home-card:hover { background: rgb(30 18 52 / 0.8); box-shadow: inset 0 0 0 1px rgb(255 63 180 / 0.6); }
+.home-card-art { border: 4px solid #f4f4f4; border-radius: 4px; rotate: -1.5deg; transition: rotate 0.3s var(--ease); }
+.home-card:nth-child(even) .home-card-art { rotate: 1.2deg; }
+.home-card:hover .home-card-art { rotate: 0deg; }
+.home-card-title { font-family: var(--y-cond); font-size: 15px; }
+
+/* «Микс» — розовая наклейка-звезда в углу */
+.mix-badge {
+  left: auto; right: 6px; top: 6px;
+  padding: 4px 9px; border-radius: 4px;
+  background: var(--y-pink); color: #fff;
+  font-family: var(--y-cond); font-size: 11.5px;
+  rotate: 8deg;
+  box-shadow: 0 0 0 2px #fff, 0 3px 8px rgb(0 0 0 / 0.4);
+}
+
+.stats-card { background: rgb(10 12 28 / 0.7); border-color: rgb(34 224 255 / 0.35); }
+
+/* ---------- Плейлист ---------- */
+/* Подложка списка плотнее: за ней светятся окна города */
+.tracklist-card, .set-card { background: rgb(8 9 22 / 0.74); }
+.pl-name { font-family: var(--y-heavy); font-weight: 400; letter-spacing: 0.01em; text-shadow: 4px 4px 0 rgb(255 63 180 / 0.85); }
+
+/* ---------- «Сейчас играет» ---------- */
+/* Обложка — фото-наклейка: белая рамка, чуть наклонена */
+.cover-wrap { border: 7px solid #f6f6f6; border-radius: 4px; rotate: -2deg; }
+body.playing .cover-wrap { box-shadow: 0 26px 70px rgb(0 0 0 / 0.65), 0 0 70px -10px rgb(255 63 180 / 0.55); }
+
+/* Стикеры на обложке: круглый крутится справа сверху, розовая звезда слева (только вид «Обычный») */
+html:not([data-now-style]) .cover-stage::after {
+  content: ""; position: absolute; z-index: 2;
+  top: -4%; right: -9%; width: 30%; aspect-ratio: 1;
+  background: url(sticker.svg) center / contain no-repeat;
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.5));
+  animation: y-spin 18s linear infinite;
+  pointer-events: none;
+}
+html:not([data-now-style]) .cover-stage::before {
+  content: ""; position: absolute; z-index: 2;
+  top: -4%; left: -8%; width: 22%; aspect-ratio: 1;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><polygon points='12,1.5 14.55,8.48 21.99,8.76 16.14,13.35 18.17,20.49 12,16.35 5.84,20.49 7.86,13.35 2.01,8.76 9.45,8.48' fill='%23ff3fb4' stroke='white' stroke-width='1.4' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+  rotate: -14deg;
+  filter: drop-shadow(0 4px 8px rgb(0 0 0 / 0.45));
+  pointer-events: none;
+}
+
+/* Название — розовый неон с блёстками, исполнитель — узкие заглавные */
+.info h1 {
+  font-family: var(--y-script); font-weight: 700; letter-spacing: 0;
+  font-size: 34px; line-height: 1.32; padding-bottom: 0.14em;
+  background: var(--y-glitter);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: var(--y-neon);
+  animation: y-glitter 2.4s steps(4) infinite;
+}
+.info p { font-family: var(--y-cond); font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 0.05em; color: #fff; }
+
+/* Кнопки — своей строкой под исполнителем: рукописному названию нужна вся ширина */
+.np-row .info { flex-basis: 100%; }
+.np-actions { gap: 6px; margin: 6px 0 0; }
+.np-actions .icon-btn { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.22); background: rgb(10 12 28 / 0.45); }
+.np-actions .icon-btn:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--y-pink), 0 0 12px rgb(255 63 180 / 0.4); }
+
+/* Очередь */
+.up-next, .lyrics { background: rgb(8 9 22 / 0.62); border-color: rgb(255 63 180 / 0.3); }
+.up-next-title, .lyrics-title { font-family: var(--y-cond); font-size: 18px; text-transform: uppercase; letter-spacing: 0.04em; }
+.up-next-item.now { background: rgb(255 63 180 / 0.14); box-shadow: inset 0 0 0 1.5px var(--y-pink), 0 0 16px rgb(255 63 180 / 0.25); }
+.up-next .panel-action { color: var(--y-pink); }
+
+/* Бегущая строка «★ 2010» внизу (вид «Обычный», не на телефоне) */
+html:not([data-now-style]) body.on-now:not(.mobile) .view-now { padding-bottom: 60px; }
+html:not([data-now-style]) body.on-now:not(.mobile) .main::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  height: 34px;
+  border-top: 2px solid var(--y-ink);
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='34'><g fill='white' stroke='%230b0d1a' stroke-width='0.8'><polygon transform='translate(6 9)' points='8,1 9.7,5.65 14.66,5.84 10.76,8.9 12.11,13.66 8,10.9 3.89,13.66 5.24,8.9 1.34,5.84 6.3,5.65'/><polygon transform='translate(106 9)' points='8,1 9.7,5.65 14.66,5.84 10.76,8.9 12.11,13.66 8,10.9 3.89,13.66 5.24,8.9 1.34,5.84 6.3,5.65'/></g><g font-family='Impact, Bahnschrift, Arial Narrow, sans-serif' font-size='23' font-style='italic' fill='%230b0d1a'><text x='32' y='26'>2010</text><text x='132' y='26'>2010</text></g></svg>") 0 50% / 200px 34px repeat-x,
+    var(--y-lime);
+  animation: y-ticker 9s linear infinite;
+  pointer-events: none;
+}
+
+/* ---------- Нижний плеер ---------- */
+.minibar { border-color: rgb(255 63 180 / 0.35); }
+
+/* ---------- Телефон ---------- */
+body.mobile .tab.on { color: var(--y-pink); }
+body.mobile .info h1 { font-size: 32px; }
+/* Обложка на телефоне — во всю ширину: стикеры чуть внутрь, иначе их режет край экрана */
+html:not([data-now-style]) body.mobile .cover-stage::after { top: -5%; right: -3%; width: 25%; }
+html:not([data-now-style]) body.mobile .cover-stage::before { top: -5%; left: -3%; width: 18%; }
+/* Узкий экран: стикер Flow — маленький, в правом верхнем углу, не на тексте */
+body.mobile .flow-card::after { width: 84px; top: 12px; right: 12px; translate: none; }

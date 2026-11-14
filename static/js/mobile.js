@@ -88,6 +88,11 @@ function back() {
     return true;
   }
   if (document.querySelector(".menu.open")) { closeMenu(); return true; }
+  // Редактор тем (editor.js) — закрыть его (спросит, сохранить ли изменения)
+  if (body.classList.contains("theme-editing")) {
+    dispatchEvent(new CustomEvent("sono:editor-back"));
+    return true;
+  }
   // Слои, которые на компьютере закрываются клавишей Esc (их обработчики висят на window):
   // экскурсия, «Итоги года», окно звуковых эффектов
   if (document.querySelector(".tour, .wrapped:not(.leaving), .fx-panel")) {

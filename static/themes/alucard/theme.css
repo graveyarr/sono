@@ -1,0 +1,521 @@
+/* «Алукард» — хоррор-клип, смонтированный на телефоне:
+   - почти чёрный фон, свет свечей, белый как кость текст, засохшая кровь (тёмно-красный);
+   - зерно, пыль и царапины старой плёнки поверх всего окна;
+   - три «голоса» надписей: жирный гротеск строчными со «стёртой печатью» (rough.svg), статья из словаря
+     с засечками и моноширинный шрифт для всего остального, подписи — в [квадратных скобках];
+   - Flow, меню и окна — окна старой ОС (серая рамка с фаской, строка заголовка);
+   - обложки — фото в белой рамке, на «Главной» — рваная наклейка из обложки играющего трека;
+   - свечи (candles.svg + мерцающее пламя flames.svg) рядом с приветствием;
+   - переходы между экранами — как склейки в клипе: вспышка, негатив, жалюзи; смена трека — распад
+     обложки на пиксели (фильтры #sono-pixel* из index.html); в такт басам (html[data-beat], beat.js) —
+     дрожь обложки, вспышка, прыжок наклейки.
+   Картинки рисует скрипт design/make_alucard.py (только SVG). Шрифты — системные: Arial Black, Georgia,
+   Consolas (на телефоне — Roboto Black, Noto Serif, моноширинный системный). */
+
+:root {
+  --bg: #0b0807;
+  --fg-rgb: 232 226 214;
+  --shade-rgb: 8 5 5;
+  --glass: rgba(13, 10, 9, 0.86);
+  --panel: rgba(22, 16, 14, 0.98);
+  --menu-bg: rgba(24, 18, 16, 0.99);
+  --dialog-bg: rgba(20, 15, 13, 0.99);
+  --search-bg: rgba(22, 16, 14, 0.9);
+  --search-bg-hover: rgba(34, 24, 21, 0.95);
+  --tint: #0b0807;
+  --accent: #d0443a;
+  --radius: 3px;
+  --font: Consolas, "Lucida Console", "Courier New", monospace;
+
+  /* Удары в такт (beat.js) */
+  --beat: on;
+
+  /* Свои цвета и шрифты темы */
+  --al-bone: #ece6da;
+  --al-blood: #7c1712;
+  --al-blood-hi: #c43a2c;
+  --al-ink: #0b0807;
+  --al-win: #aaa49b;
+  --al-win-hi: #e9e5dd;
+  --al-win-lo: #57524c;
+  --al-heavy: "Arial Black", "Segoe UI Black", "sans-serif-black", "Roboto Black", sans-serif;
+  --al-serif: Georgia, "Noto Serif", "Times New Roman", serif;
+  --al-mono: Consolas, "Lucida Console", "Courier New", monospace;
+  /* Выпуклая серая рамка старой ОС: свет слева сверху, тень справа снизу */
+  --al-bevel: inset 1px 1px 0 var(--al-win-hi), inset -1px -1px 0 #1d1b19, inset 2px 2px 0 #cbc6be, inset -2px -2px 0 var(--al-win-lo);
+  --al-sunken: inset 1px 1px 0 var(--al-win-lo), inset -1px -1px 0 var(--al-win-hi), inset 2px 2px 0 #1d1b19, inset -2px -2px 0 #cbc6be;
+  --al-close: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='18' height='16'><rect x='0.5' y='0.5' width='17' height='15' fill='%23c9c4bb' stroke='%23111'/><path d='M1.5 14.5v-13h15' stroke='%23fff' fill='none'/><path d='M5.5 4.5l7 7M12.5 4.5l-7 7' stroke='%23111' stroke-width='2'/></svg>");
+  --al-winbtns: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='38' height='12'><g fill='%23c9c4bb' stroke='%23111' stroke-width='0.8'><rect x='0.5' y='0.5' width='11' height='11'/><rect x='13.5' y='0.5' width='11' height='11'/><rect x='26.5' y='0.5' width='11' height='11'/></g><g stroke='%23111' stroke-width='1.4' fill='none'><path d='M3 9h6'/><rect x='16' y='3' width='6' height='6'/><path d='M29 3l6 6M35 3l-6 6'/></g></svg>");
+  --al-rough: url(rough.svg);
+}
+
+@keyframes al-flicker {
+  0%   { opacity: 0.92; translate: 0 0; }
+  13%  { opacity: 1;    translate: 0.6px -0.4px; }
+  27%  { opacity: 0.86; translate: -0.4px 0; }
+  41%  { opacity: 0.97; translate: 0.3px -0.6px; }
+  58%  { opacity: 0.9;  translate: 0 0; }
+  72%  { opacity: 1;    translate: -0.5px -0.3px; }
+  86%  { opacity: 0.88; translate: 0.4px 0; }
+}
+@keyframes al-dust {
+  0%   { translate: 0 0; }
+  25%  { translate: -311px -173px; }
+  50%  { translate: -97px -421px; }
+  75%  { translate: -463px -59px; }
+}
+
+/* ---------- Фон, зерно, пыль ---------- */
+.bg-art { filter: grayscale(1) sepia(0.9) hue-rotate(-25deg) saturate(2.2) brightness(0.42) contrast(1.15); }
+.bg-shade {
+  background:
+    radial-gradient(130% 100% at 50% 35%, transparent 0%, rgb(5 3 3 / 0.45) 55%, rgb(3 2 2 / 0.92) 100%),
+    linear-gradient(to bottom, rgb(5 3 3 / 0.35), rgb(5 3 3 / 0.6));
+}
+/* Пыль и царапины — поверх всего окна, но под меню и окнами; не ловят мышь */
+body::after {
+  content: ""; position: fixed; z-index: 90;
+  left: 0; top: 0; width: calc(100% + 900px); height: calc(100% + 700px);
+  background: url(dust.svg) 0 0 / 900px 700px repeat;
+  opacity: 0.32;
+  pointer-events: none;
+  animation: al-dust 0.5s steps(1) infinite;
+  will-change: translate;
+}
+/* Зерно — мелкий шум, тоже поверх панелей (а не только за ними) */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 89;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.92  0 0 0 0 0.88  0 0 0 0 0.8  0 0 0 1.4 -0.62'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  opacity: 0.13;
+  pointer-events: none;
+}
+body:not(.playing)::after { animation-play-state: paused; }
+
+/* ---------- Панели, полоска окна ---------- */
+.glass { border-color: rgb(var(--fg-rgb) / 0.09); border-radius: var(--radius); }
+.sidebar { background: rgba(10, 7, 6, 0.9); }
+body.on-now .main { background: rgb(var(--shade-rgb) / 0.35); }
+
+.tb-logo { font-family: var(--al-heavy); font-weight: 900; font-size: 17px; letter-spacing: -0.02em; color: var(--al-bone); }
+.tb-win {
+  width: 30px; height: 24px; margin: 4px 2px; border-radius: 0;
+  background: #b8b2a9; color: #111;
+  box-shadow: var(--al-bevel);
+}
+.tb-win:hover { background: #cdc8c0; color: #000; }
+.tb-win.tb-close:hover { background: var(--al-blood-hi); color: #fff; }
+
+::-webkit-scrollbar-thumb { background-color: rgb(196 58 44 / 0.35); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background-color: rgb(196 58 44 / 0.6); }
+
+/* Строка поиска — квадратная, моноширинная */
+.search-bar { border-radius: 2px; border-color: rgb(var(--fg-rgb) / 0.16); }
+.search-bar:hover { border-color: rgb(var(--fg-rgb) / 0.3); }
+.search-bar:focus-within { border-color: var(--al-blood-hi); box-shadow: 0 0 0 1px var(--al-blood-hi), 0 0 24px rgb(196 58 44 / 0.25); }
+.search-bar input::placeholder { text-transform: lowercase; }
+
+/* ---------- Меню и окна — как окна старой ОС: серая рамка, жёсткая тень ---------- */
+.menu, .dialog, .panel {
+  border: 2px solid var(--al-win); border-radius: 0;
+  box-shadow: inset 0 0 0 1px #000, 6px 6px 0 rgb(0 0 0 / 0.55), 0 18px 50px rgb(0 0 0 / 0.6);
+}
+.menu button:hover:not(:disabled), .menu .menu-item:hover:not(:disabled) { background: var(--al-blood); color: #fff; }
+.dialog h2, .dialog h3 { font-family: var(--al-heavy); font-weight: 900; text-transform: lowercase; letter-spacing: -0.01em; }
+
+/* ---------- Медиатека ---------- */
+.nav-item { text-transform: lowercase; border-radius: 2px; }
+.nav-item.active {
+  color: #fff;
+  background: url(grunge.svg) 0 0 / 300px auto, var(--al-blood);
+  box-shadow: inset 3px 0 0 var(--al-blood-hi);
+}
+.nav-item.active .nav-icon { color: #fff; }
+.lib-head { font-family: var(--al-heavy); font-weight: 900; font-size: 16px; text-transform: lowercase; letter-spacing: -0.01em; color: var(--al-bone); }
+.lib-chip { border-radius: 2px; text-transform: lowercase; }
+.lib-chip.on { background: var(--al-bone); color: var(--al-ink); }
+.lib-name { text-transform: lowercase; }
+.lib-item { border-radius: 2px; }
+.lib-item.active { background: rgb(196 58 44 / 0.16); box-shadow: inset 2px 0 0 var(--al-blood-hi); }
+.lib-item .collection-cover, .mini-track img { border-radius: 0; box-shadow: 0 0 0 1.5px rgb(236 230 218 / 0.85); }
+.collection-cover.liked { background: url(grunge.svg) center / cover, var(--al-blood); color: var(--al-bone); }
+
+/* ---------- Кнопки ---------- */
+.btn { border-radius: 2px; text-transform: lowercase; }
+.btn.primary { background: var(--al-blood); color: #fff; box-shadow: inset 0 0 0 1px rgb(236 230 218 / 0.7); }
+.btn.primary:hover { background: var(--al-blood-hi); }
+.seg { border-radius: 2px; }
+.seg-btn { border-radius: 1px; text-transform: lowercase; }
+.seg-btn.on { background: var(--al-bone); color: var(--al-ink); }
+.tile-play { background: var(--al-blood-hi); color: #fff; border-radius: 0; box-shadow: 3px 3px 0 #000; }
+.toggle-btn.on, .icon-btn.on { color: var(--al-blood-hi); }
+
+/* Круглая «играть» — серый металл старой техники с фаской */
+.play {
+  background: radial-gradient(circle at 34% 28%, #f1ede6 0%, #b4aea5 38%, #6d6862 75%, #3d3936 100%);
+  color: #120d0b;
+  box-shadow: 0 0 0 2px #070505, 0 0 0 3px rgb(236 230 218 / 0.35), 0 6px 18px rgb(0 0 0 / 0.6);
+}
+.play:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* ---------- Ползунки ---------- */
+/* Перемотка — тонкая красная нить, «шарик» — тлеющая точка */
+input[data-np="seek"]::-webkit-slider-runnable-track {
+  height: 3px; border-radius: 0;
+  background: linear-gradient(to right, var(--al-blood-hi) var(--p), rgb(var(--fg-rgb) / 0.16) var(--p));
+}
+input[data-np="seek"]::-webkit-slider-thumb {
+  width: 11px; height: 11px; margin-top: -4px; border-radius: 50%;
+  background: #ffd9c9;
+  box-shadow: 0 0 0 2px var(--al-blood-hi), 0 0 12px 3px rgb(255 90 60 / 0.75);
+}
+input[data-np="volume"] { --fill: var(--al-bone); }
+input[data-np="volume"]::-webkit-slider-thumb { background: var(--al-bone); border-radius: 0; box-shadow: 2px 2px 0 #000; }
+
+/* ---------- Главная ---------- */
+/* На ПК: приветствие слева, Flow — окно справа (если хватает ширины), остальное — ниже во всю ширину */
+/* Узкая панель (окно ~1100 px) — Flow во всю ширину под приветствием: рядом не хватает места свечам */
+.views { container: al-views / inline-size; }
+@container al-views (min-width: 1000px) {
+  body:not(.mobile) #view-home:not([hidden]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 33%, 430px);
+    column-gap: 30px;
+    align-items: start;
+  }
+  body:not(.mobile) #view-home > * { grid-column: 1 / -1; }
+  body:not(.mobile) #view-home > .home-hero { grid-column: 1; grid-row: 1; }
+  body:not(.mobile) #view-home > .flow-card { grid-column: 2; grid-row: 1; }
+}
+
+/* Приветствие + свечи справа */
+.home-hero {
+  position: relative; isolation: isolate;
+  min-height: 280px; padding-bottom: 18px;
+  background: url(candles.svg) right -10px bottom 0 / auto 100% no-repeat;
+}
+/* Пламя и свет — отдельным слоем поверх свечей: мерцает */
+.home-hero::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: url(flames.svg) right -10px bottom 0 / auto 100% no-repeat;
+  animation: al-flicker 1.9s steps(1) infinite;
+  pointer-events: none;
+}
+.home-greet {
+  position: relative;
+  font-family: var(--al-heavy); font-weight: 900;
+  font-size: clamp(40px, 4.4vw, 66px); line-height: 1.02; padding-bottom: 0.1em;
+  letter-spacing: -0.035em; text-transform: lowercase;
+  color: #d9d2c4;
+  text-shadow: 0 0 1px rgb(255 255 255 / 0.3), 0 6px 30px rgb(0 0 0 / 0.8);
+  -webkit-mask: var(--al-rough) 0 0 / 260px 180px; mask: var(--al-rough) 0 0 / 260px 180px;
+  max-width: 11ch;
+}
+.home-greet::after { content: "."; }
+/* «Что послушаем?» → статья из словаря (заголовок слова — ::before, толкование — ::after) */
+.home-sub { font-size: 0; margin-top: 18px; color: transparent; }
+.home-sub::before {
+  content: "звук [сущ.] —"; display: block;
+  font: 700 25px/1.2 var(--al-serif); color: #e6dfd2; letter-spacing: 0.01em;
+}
+.home-sub::after {
+  content: "то, что остаётся,\A когда гаснет свет."; white-space: pre-line; display: block;
+  margin-top: 6px;
+  font: 400 19px/1.25 var(--al-serif); color: rgb(var(--fg-rgb) / 0.72);
+}
+.home-h {
+  font-family: var(--al-heavy); font-weight: 900; font-size: 27px; line-height: 1.15; padding-bottom: 0.1em;
+  letter-spacing: -0.02em; text-transform: lowercase; color: #ddd6c8;
+  -webkit-mask: var(--al-rough) 40px 20px / 260px 180px; mask: var(--al-rough) 40px 20px / 260px 180px;
+}
+
+/* Flow — окно старой ОС: серая рамка, строка заголовка «Flow» и крестик, внутри — кровавая фактура */
+.flow-card {
+  border-radius: 0; overflow: visible; isolation: isolate;
+  min-height: 0; margin-bottom: 26px;
+  padding: 28px 5px 5px;
+  background: linear-gradient(#cfcac2, #a7a198) top / 100% 26px no-repeat, var(--al-win);
+  box-shadow: var(--al-bevel), 0 0 0 1px #000, 8px 8px 0 rgb(0 0 0 / 0.55), 0 24px 60px rgb(0 0 0 / 0.6);
+  color: var(--al-bone);
+}
+.flow-card::before {
+  content: "Flow"; position: absolute; left: 9px; top: 5px; z-index: 1;
+  font: 700 14px/18px var(--al-mono); color: #141010;
+  pointer-events: none;
+}
+.flow-card::after {
+  inset: auto; right: 8px; top: 5px; z-index: 1;
+  width: 18px; height: 16px;
+  background: var(--al-close) center / contain no-repeat;
+}
+.flow-aurora { display: none; }
+.flow-body {
+  position: relative;
+  min-height: 250px; padding: 28px 22px 24px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  background: radial-gradient(70% 60% at 50% 45%, rgb(150 20 14 / 0.35), transparent 70%), url(grunge.svg) center / cover, #1b0707;
+  box-shadow: var(--al-sunken);
+}
+.flow-kind { font-family: var(--al-mono); font-size: 12px; text-transform: lowercase; letter-spacing: 0.04em; color: rgb(var(--fg-rgb) / 0.6); }
+.flow-kind::before { content: "[ "; }
+.flow-kind::after { content: " ]"; }
+.flow-title {
+  font-family: var(--al-mono); font-weight: 400; letter-spacing: 0.02em;
+  font-size: clamp(44px, 4vw, 60px); line-height: 1.15; padding-bottom: 0.08em;
+  color: #e9e3d8;
+  text-shadow: 0 0 18px rgb(255 120 90 / 0.35), 2px 2px 0 rgb(0 0 0 / 0.6);
+}
+.flow-sub { font-family: var(--al-mono); color: rgb(var(--fg-rgb) / 0.75); text-transform: lowercase; }
+.flow-sub { margin-bottom: 20px; }
+.flow-controls { flex-direction: column; justify-content: center; gap: 14px; }
+.flow-card .big-play.flow-play {
+  background: radial-gradient(circle at 34% 28%, #f1ede6 0%, #b4aea5 38%, #6d6862 75%, #3d3936 100%);
+  color: #120d0b;
+}
+.flow-modes { background: rgb(0 0 0 / 0.5); backdrop-filter: none; border-radius: 0; box-shadow: inset 0 0 0 1px rgb(236 230 218 / 0.25); }
+.flow-modes .seg-btn { border-radius: 0; color: rgb(var(--fg-rgb) / 0.75); }
+.flow-modes .seg-btn.on { background: var(--al-bone); color: var(--al-ink); }
+
+/* Рваная наклейка из обложки играющего трека — прилеплена к углу окна Flow (только ПК).
+   Пока обложки нет (ничего не играло), наклейки тоже нет: player.js пишет --cover-url в style у <html> */
+html[style*="--cover-url"] body:not(.mobile) .flow-body::before,
+html[style*="--cover-url"] body:not(.mobile) .flow-body::after {
+  content: ""; position: absolute; z-index: 3;
+  right: -34px; bottom: -58px; width: 132px; aspect-ratio: 1;
+  rotate: 9deg;
+  pointer-events: none;
+}
+body:not(.mobile) .flow-body::before {
+  background: #efe9dd;
+  -webkit-mask: url(torn.svg) center / contain no-repeat; mask: url(torn.svg) center / contain no-repeat;
+}
+body:not(.mobile) .flow-body::after {
+  background: var(--cover-url, url(grunge.svg)) center / cover no-repeat, #3a0d0b;
+  -webkit-mask: url(torn-in.svg) center / contain no-repeat; mask: url(torn-in.svg) center / contain no-repeat;
+  filter: grayscale(1) contrast(1.3) brightness(1.15) sepia(1) hue-rotate(-38deg) saturate(3.2);
+}
+
+/* Плитки плейлистов: тёмная плашка, обложка в белой рамке, название — [в скобках] */
+.home-tile { border-radius: 0; background: rgb(14 10 9 / 0.85); box-shadow: inset 0 0 0 1px rgb(var(--fg-rgb) / 0.08); }
+.home-tile:hover { background: rgb(40 14 12 / 0.9); box-shadow: inset 0 0 0 1px rgb(196 58 44 / 0.65); }
+.home-tile .collection-cover { border-radius: 0; box-shadow: 0 0 0 3px #e9e3d7; }
+.home-tile-name { text-transform: lowercase; }
+.home-tile-name::before { content: "["; color: rgb(var(--fg-rgb) / 0.45); }
+.home-tile-name::after { content: "]"; color: rgb(var(--fg-rgb) / 0.45); }
+
+/* Карточки — фото в белой рамке; при наведении — кадр-негатив, как склейка в клипе */
+.home-card { border-radius: 0; background: transparent; }
+.home-card:hover { background: rgb(40 14 12 / 0.55); }
+.home-card-art { border-radius: 0; border: 5px solid #e9e3d7; box-shadow: 0 10px 26px rgb(0 0 0 / 0.55); }
+.home-card-art .collection-cover { border-radius: 0; }
+.home-card:hover .home-card-art { animation: al-neg 0.22s steps(1); }
+@keyframes al-neg {
+  0%  { filter: invert(1) grayscale(1) contrast(1.3); translate: -2px 1px; }
+  35% { filter: brightness(1.8) sepia(1) hue-rotate(-30deg) saturate(2.5); translate: 2px -1px; }
+  70% { filter: none; translate: 0 0; }
+}
+.home-card-title { text-transform: lowercase; }
+.home-card-title::before { content: "["; color: rgb(var(--fg-rgb) / 0.45); }
+.home-card-title::after { content: "]"; color: rgb(var(--fg-rgb) / 0.45); }
+.home-card-artist { text-transform: lowercase; }
+.mix-badge {
+  border-radius: 0; padding: 3px 7px;
+  background: var(--al-blood); color: #fff;
+  font-family: var(--al-mono); font-size: 11px; text-transform: lowercase;
+  box-shadow: 2px 2px 0 #000;
+}
+.pick-name { font-family: var(--al-heavy); font-weight: 900; text-transform: lowercase; letter-spacing: -0.02em; }
+
+.home-start, .stats-card { border-radius: 0; background: rgb(14 10 9 / 0.85); border-color: rgb(var(--fg-rgb) / 0.12); }
+
+/* ---------- Плейлист, альбом, исполнитель ---------- */
+.tracklist-card, .set-card { background: rgb(10 7 6 / 0.82); border-radius: 0; }
+.pl-name {
+  font-family: var(--al-heavy); font-weight: 900; letter-spacing: -0.035em; text-transform: lowercase;
+  -webkit-mask: var(--al-rough) 0 0 / 260px 180px; mask: var(--al-rough) 0 0 / 260px 180px;
+}
+/* Шапка списка — цвет обложки, но притушенный в кровь: иначе зелёные/синие шапки спорят с темой */
+.pl-hero {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, color-mix(in srgb, var(--hero) 30%, #4a0f0b) 75%, transparent) 0%,
+    color-mix(in srgb, color-mix(in srgb, var(--hero) 30%, #4a0f0b) 28%, transparent) 65%,
+    transparent 100%);
+}
+.pl-hero .collection-cover, .pl-cover { border-radius: 0; box-shadow: 0 0 0 6px #e9e3d7, 0 20px 50px rgb(0 0 0 / 0.6); }
+.track { border-radius: 0; }
+.track:hover { background: rgb(var(--fg-rgb) / 0.05); }
+.track.current { background: rgb(196 58 44 / 0.13); box-shadow: inset 2px 0 0 var(--al-blood-hi); }
+.track img { border-radius: 0; }
+.set-card h2 { font-family: var(--al-heavy); font-weight: 900; text-transform: lowercase; letter-spacing: -0.02em; }
+
+/* ---------- «Сейчас играет» ---------- */
+/* Обложка — фото в толстой белой рамке, чуть наклонена */
+.cover-wrap {
+  border-radius: 0; overflow: hidden;
+  border: 8px solid #ece6da;
+  rotate: -1.2deg;
+  box-shadow: 0 30px 70px rgb(0 0 0 / 0.7);
+}
+body.playing .cover-wrap { box-shadow: 0 30px 80px rgb(0 0 0 / 0.75), 0 0 120px -30px rgb(196 58 44 / 0.65); }
+.deck.has-clip .cover-wrap { rotate: 0deg; border-width: 5px; }
+/* Вспышка на сильной доле — белый слой поверх обложки (виден только во время анимации) */
+.cover-wrap::after {
+  content: ""; position: absolute; inset: 0; z-index: 3;
+  background: #fff; opacity: 0; mix-blend-mode: overlay;
+  pointer-events: none;
+}
+/* Смена трека: новая обложка собирается из крупных пикселей, кадр негатива — и готово */
+#cover.shown { animation: al-pixel-in 0.6s both; }
+@keyframes al-pixel-in {
+  0%   { filter: url(#sono-pixel-lg) contrast(1.4) brightness(1.4); animation-timing-function: steps(1); }
+  18%  { filter: url(#sono-pixel) contrast(1.2); animation-timing-function: steps(1); }
+  36%  { filter: invert(1) grayscale(1); animation-timing-function: steps(1); }
+  44%  { filter: url(#sono-pixel-sm); animation-timing-function: steps(1); }
+  62%  { filter: none; }
+  100% { filter: none; }
+}
+
+/* Окна старой ОС с той же обложкой — за плеером (вид «Обычный», ПК): одно в негативе, другое — красное */
+html:not([data-now-style]) body:not(.mobile) .cover-stage::before,
+html:not([data-now-style]) body:not(.mobile) .cover-stage::after {
+  content: ""; position: absolute; z-index: 0;
+  aspect-ratio: 1 / 1.08;
+  padding: 18px 3px 3px; box-sizing: border-box;
+  border: 0;
+  background:
+    var(--al-winbtns) right 4px top 3px / 38px 12px no-repeat,
+    linear-gradient(#d2cdc5, #a7a198) 0 0 / 100% 18px no-repeat,
+    var(--cover-url, url(grunge.svg)) center / cover no-repeat content-box,
+    var(--al-win);
+  box-shadow: var(--al-bevel), 0 0 0 1px #000, 6px 6px 0 rgb(0 0 0 / 0.5);
+  pointer-events: none;
+  opacity: 0;
+}
+html:not([data-now-style]) body:not(.mobile) .cover-stage::before {
+  width: 38%; left: -24%; top: 6%;
+  filter: invert(1) grayscale(1) contrast(1.2);
+  rotate: -4deg;
+}
+html:not([data-now-style]) body:not(.mobile) .cover-stage::after {
+  z-index: 2;   /* это окно — поверх обложки, на её углу */
+  width: 30%; right: -14%; bottom: -6%;
+  filter: grayscale(1) contrast(1.5) brightness(0.9) sepia(1) hue-rotate(-38deg) saturate(3);
+  rotate: 3deg;
+}
+/* Появляются вместе с новой обложкой: выскакивают, как окна на рабочем столе */
+html:not([data-now-style]) body:not(.mobile) .cover-stage:has(#cover.shown)::before { animation: al-pop 0.5s 0.12s both; }
+html:not([data-now-style]) body:not(.mobile) .cover-stage:has(#cover.shown)::after { animation: al-pop 0.5s 0.28s both; }
+@keyframes al-pop {
+  0%   { opacity: 0; scale: 0.5; animation-timing-function: steps(1); }
+  20%  { opacity: 1; scale: 1.1; animation-timing-function: steps(1); }
+  40%  { opacity: 1; scale: 0.96; animation-timing-function: steps(1); }
+  60%  { opacity: 1; scale: 1.02; animation-timing-function: steps(1); }
+  80%, 100% { opacity: 1; scale: 1; }
+}
+/* Узко (открыта «Очередь» или «Текст») — окна не лезут за край: меньше и ближе к обложке */
+html:not([data-now-style]) body:not(.mobile).show-queue .cover-stage::before,
+html:not([data-now-style]) body:not(.mobile).show-lyrics .cover-stage::before { left: -12%; width: 30%; }
+html:not([data-now-style]) body:not(.mobile).show-queue .cover-stage::after,
+html:not([data-now-style]) body:not(.mobile).show-lyrics .cover-stage::after { right: -8%; width: 26%; }
+
+/* Название — жирный гротеск со стёртой печатью, исполнитель — [мелко в скобках] */
+.info h1 {
+  font-family: var(--al-heavy); font-weight: 900; letter-spacing: -0.03em; text-transform: lowercase;
+  font-size: 36px; line-height: 1.12; padding-bottom: 0.1em;
+  color: #e3dccf;
+  -webkit-mask: var(--al-rough) 0 0 / 260px 180px; mask: var(--al-rough) 0 0 / 260px 180px;
+}
+.info p { font-family: var(--al-mono); font-size: 15px; text-transform: lowercase; color: rgb(var(--fg-rgb) / 0.7); }
+.info p::before { content: "[ "; }
+.info p::after { content: " ]"; }
+.times { font-family: var(--al-mono); }
+/* Визуализатор — в цветах темы (кровь и свет свечей), какие бы цвета он ни взял от обложки.
+   Фильтр из одних цветовых матриц: видеокарта делает его за один проход, плавность не страдает */
+.viz { filter: grayscale(1) sepia(1) saturate(3.6) hue-rotate(-28deg) brightness(0.8) contrast(1.15); }
+
+.up-next, .lyrics { background: rgb(10 7 6 / 0.82); border-color: rgb(var(--fg-rgb) / 0.1); border-radius: 0; }
+.up-next-title, .lyrics-title { font-family: var(--al-heavy); font-weight: 900; text-transform: lowercase; letter-spacing: -0.02em; }
+.up-next-item { border-radius: 0; }
+.up-next-item.now { background: rgb(196 58 44 / 0.14); box-shadow: inset 2px 0 0 var(--al-blood-hi); }
+.up-next .panel-action { color: var(--al-blood-hi); }
+
+/* ---------- Нижний плеер ---------- */
+.minibar { background: rgba(9, 6, 6, 0.94); border-color: rgb(var(--fg-rgb) / 0.08); }
+.mini-title { text-transform: lowercase; }
+.mini-artist { text-transform: lowercase; }
+.mini-track img { box-shadow: 0 0 0 2px #e9e3d7; }
+
+/* ---------- Переходы между экранами — склейки, как в клипе ---------- */
+/* Каждый экран — своя склейка: «Главная» и настройки — вспышка и негатив, списки и Flow — жалюзи,
+   «Сейчас играет» — кадр выскакивает окном. Кадры сменяются рывками (steps), а не плавно */
+@property --al-slat { syntax: "<length>"; inherits: false; initial-value: 26px; }
+.view.entering { animation: al-cut 0.42s both; }
+@keyframes al-cut {
+  0%   { opacity: 1; filter: brightness(2.6) grayscale(1) contrast(1.8); translate: -8px 4px; scale: 1.03; animation-timing-function: steps(1); }
+  14%  { filter: invert(1) grayscale(1) contrast(1.3); translate: 6px -3px; scale: 1.015; animation-timing-function: steps(1); }
+  28%  { filter: brightness(1.5) sepia(1) hue-rotate(-30deg) saturate(2.6); translate: -3px 1px; scale: 1; animation-timing-function: steps(1); }
+  42%  { filter: none; translate: 1px 0; animation-timing-function: steps(1); }
+  56%, 100% { filter: none; translate: 0 0; scale: 1; }
+}
+/* Маска-жалюзи есть только во время анимации (в последнем кадре — none): постоянная маска на длинном
+   списке замедляла бы прокрутку */
+#view-list.entering, #view-flow.entering { animation: al-blinds 0.4s steps(7, end); }
+@keyframes al-blinds {
+  0% {
+    --al-slat: 2px; filter: brightness(1.8) grayscale(1);
+    -webkit-mask-image: repeating-linear-gradient(to bottom, #000 0 var(--al-slat), transparent var(--al-slat) 26px);
+            mask-image: repeating-linear-gradient(to bottom, #000 0 var(--al-slat), transparent var(--al-slat) 26px);
+  }
+  30% { filter: none; }
+  96% {
+    --al-slat: 26px;
+    -webkit-mask-image: repeating-linear-gradient(to bottom, #000 0 var(--al-slat), transparent var(--al-slat) 26px);
+            mask-image: repeating-linear-gradient(to bottom, #000 0 var(--al-slat), transparent var(--al-slat) 26px);
+  }
+  100% { --al-slat: 26px; -webkit-mask-image: none; mask-image: none; }
+}
+#view-now.entering { animation: al-pop-view 0.45s both; }
+@keyframes al-pop-view {
+  0%   { opacity: 0; scale: 0.92; filter: invert(1) grayscale(1); animation-timing-function: steps(1); }
+  16%  { opacity: 1; scale: 1.03; filter: brightness(2) grayscale(1); animation-timing-function: steps(1); }
+  32%  { scale: 0.99; filter: none; animation-timing-function: steps(1); }
+  48%, 100% { opacity: 1; scale: 1; filter: none; }
+}
+
+/* ---------- В такт басам (beat.js: html[data-beat] = 1, 2, 3, 4 по кругу; 4 — сильная доля) ---------- */
+/* Соседние удары — анимации с разными именами, иначе браузер не перезапустит одинаковую */
+html[data-beat="1"] body.on-now .cover-wrap,
+html[data-beat="3"] body.on-now .cover-wrap { animation: al-shake-a 0.16s steps(1); }
+html[data-beat="2"] body.on-now .cover-wrap { animation: al-shake-b 0.16s steps(1); }
+html[data-beat="4"] body.on-now .cover-wrap { animation: al-hit 0.2s steps(1); }
+html[data-beat="4"] body.on-now .cover-wrap::after { animation: al-flash 0.2s steps(1); }
+@keyframes al-shake-a { 0% { translate: -4px 2px; } 40% { translate: 3px -2px; } 80% { translate: 0 0; } }
+@keyframes al-shake-b { 0% { translate: 4px -2px; } 40% { translate: -3px 1px; } 80% { translate: 0 0; } }
+@keyframes al-hit { 0% { translate: -6px 3px; scale: 1.025; } 30% { translate: 5px -3px; scale: 1.01; } 65% { translate: 0 0; scale: 1; } }
+@keyframes al-flash { 0% { opacity: 0.85; } 30% { opacity: 0.35; } 60% { opacity: 0; } }
+
+/* Наклейка на «Главной» подпрыгивает, свечи вспыхивают */
+html[data-beat="2"] body:not(.mobile) .flow-body::before, html[data-beat="2"] body:not(.mobile) .flow-body::after,
+html[data-beat="4"] body:not(.mobile) .flow-body::before, html[data-beat="4"] body:not(.mobile) .flow-body::after { animation: al-jump 0.18s steps(1); }
+@keyframes al-jump { 0% { scale: 1.08; rotate: 12deg; } 50% { scale: 1.02; rotate: 10deg; } }
+html[data-beat="4"] .home-hero::before { animation: al-flare 0.3s steps(1), al-flicker 1.9s steps(1) infinite; }
+@keyframes al-flare { 0% { opacity: 1; filter: brightness(1.6); } 50% { filter: brightness(1.2); } }
+
+/* Пыль дёргается на сильной доле — как рывок плёнки */
+html[data-beat="4"] body::after { opacity: 0.5; }
+
+/* ---------- Телефон ---------- */
+/* Без тяжёлых фильтров на целом экране: только рывок и жалюзи */
+body.mobile .view.entering { animation: al-cut-lite 0.32s both; }
+@keyframes al-cut-lite {
+  0%   { opacity: 0.4; translate: -6px 3px; animation-timing-function: steps(1); }
+  25%  { opacity: 1; translate: 4px -2px; animation-timing-function: steps(1); }
+  50%, 100% { translate: 0 0; }
+}
+body.mobile::after { animation: none; }
+body.mobile .home-greet { font-size: 40px; max-width: none; }
+body.mobile .home-hero { min-height: 210px; background-size: auto 78%; }
+body.mobile .home-hero::before { background-size: auto 78%; }
+body.mobile .flow-card { margin-top: 8px; }
+body.mobile .flow-body { min-height: 0; }
+body.mobile .info h1 { font-size: 30px; }
+body.mobile .tab.on { color: var(--al-blood-hi); }

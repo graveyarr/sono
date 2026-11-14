@@ -33,7 +33,30 @@ export const onThemesChange = (fn) => listeners.add(fn);
 
 const changed = () => listeners.forEach((fn) => fn());
 const base = (t) => `/api/themes/${t.kind}/${encodeURIComponent(t.folder)}`;
-const cssUrl = (t, stamp) => `${base(t)}/theme.css?v=${stamp}`;
+// Пока открыт редактор тем (editor.js), свою тему подключаем без его куска: этот кусок страница рисует
+// сама из черновика, иначе убранное в редакторе (картинка фона, шрифт) оставалось бы видно из файла
+let editorPreview = false;
+const cssUrl = (t, stamp, part = "theme") =>
+  `${base(t)}/theme.css?v=${stamp}${editorPreview && part === "theme" && t.kind === "user" ? "&editor=0" : ""}`;
+
+export const themeById = (id) => themes.find((t) => t.id === id) ?? null;
+export const themeBase = (t) => base(t);
+
+/** Включить/выключить режим редактора для текущей темы. Вернёт обещание: тема перечитана */
+export function setEditorPreview(on) {
+  editorPreview = on;
+  const s = slot.theme;
+  const theme = themeById(currentThemeId("theme"));
+  if (!s.link || !theme) return Promise.resolve();
+  const href = cssUrl(theme, s.stamp ?? theme.stamp);
+  if (s.link.getAttribute("href") === href) return Promise.resolve();
+  return new Promise((resolve) => {
+    s.link.addEventListener("load", resolve, { once: true });
+    s.link.addEventListener("error", resolve, { once: true });
+    setTimeout(resolve, 2000);
+    s.link.href = href;
+  });
+}
 
 export async function loadThemes() {
   try {
@@ -83,7 +106,7 @@ function apply(part, theme) {
     else document.head.append(s.link);
   }
   s.stamp = theme.stamp;
-  const href = cssUrl(theme, theme.stamp);
+  const href = cssUrl(theme, theme.stamp, part);
   if (s.link.getAttribute("href") !== href) s.link.href = href;   // уже подключена сервером — не перечитываем
   document.documentElement.dataset[data] = theme.folder;   // для тем, которым нужно знать себя (THEMES.md)
   if (part === "theme") { setCoverColorsMode(theme.coverColors); applyIcons(theme); }
@@ -110,7 +133,7 @@ function watch(part, theme) {
         }
         if (stamp !== s.stamp) {
           s.stamp = stamp;
-          s.link.href = cssUrl(theme, stamp);
+          s.link.href = cssUrl(theme, stamp, part);
           await loadThemes();               // вдруг поменяли и theme.json (название, coverColors)
           const fresh = themes.find((t) => t.id === theme.id);
           if (fresh) {

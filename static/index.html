@@ -43,6 +43,85 @@
     <div class="bg-shade"></div>
   </div>
 
+  <!-- Фильтры для тем (THEMES.md): «жидкий хром» — буквы и формы как надутый металл с отражениями.
+       Тема пишет filter: url(#sono-chrome) — для текста ~30–40 px, -sm — мельче, -lg — крупнее;
+       url(#sono-mercury) — капли сливаются, как ртуть (белые фигуры внутри элемента).
+       Освещение считается заново при каждой перерисовке — анимировать сам элемент с фильтром нельзя
+       (тормозит); двигать можно только целиком, через transform. Шум для отражений — готовая картинка. -->
+  <svg class="fx-defs" width="0" height="0" aria-hidden="true" focusable="false" style="position: absolute; overflow: hidden">
+  <defs>
+    <filter id="sono-chrome-sm" x="-10%" y="-25%" width="120%" height="150%" color-interpolation-filters="sRGB">
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="A"/>
+      <feGaussianBlur in="A" stdDeviation="1.4" result="h"/>
+      <feImage href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27600%27%20height%3D%27300%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.008%27%20numOctaves%3D%271%27%20seed%3D%277%27%2F%3E%3CfeColorMatrix%20values%3D%271%200%200%200%200%20%201%200%200%200%200%20%201%200%200%200%200%20%200%200%200%200%201%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E" preserveAspectRatio="none" result="t"/>
+      <feDiffuseLighting in="h" surfaceScale="3" diffuseConstant="1" lighting-color="#fff" result="dif"><feDistantLight azimuth="250" elevation="30"/></feDiffuseLighting>
+      <feComposite in="dif" in2="t" operator="arithmetic" k2="1" k3="0.3" k4="-0.15" result="dif2"/>
+      <feComponentTransfer in="dif2" result="band"><feFuncR type="table" tableValues="0.25 0.92 0.62 1 0.78 0.5 0.95 1"/><feFuncG type="table" tableValues="0.27 0.93 0.66 1 0.8 0.55 0.96 1"/><feFuncB type="table" tableValues="0.42 1 0.86 1 0.93 0.75 1 1"/></feComponentTransfer>
+      <feSpecularLighting in="h" surfaceScale="3" specularConstant="1.2" specularExponent="28" lighting-color="#fff" result="spec"><feDistantLight azimuth="235" elevation="50"/></feSpecularLighting>
+      <feComposite in="spec" in2="band" operator="arithmetic" k2="1" k3="0.95" result="lit"/>
+      <feComposite in="lit" in2="A" operator="in" result="metal"/>
+      <feMorphology in="A" operator="dilate" radius="1" result="d"/><feOffset in="d" dy="1" result="d2"/>
+      <feFlood flood-color="#0a0b12"/><feComposite in2="d2" operator="in" result="rim"/>
+      <feMerge><feMergeNode in="rim"/><feMergeNode in="metal"/></feMerge>
+    </filter>
+    <filter id="sono-chrome" x="-10%" y="-25%" width="120%" height="150%" color-interpolation-filters="sRGB">
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="A"/>
+      <feGaussianBlur in="A" stdDeviation="2.4" result="h"/>
+      <feImage href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27600%27%20height%3D%27300%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.008%27%20numOctaves%3D%271%27%20seed%3D%277%27%2F%3E%3CfeColorMatrix%20values%3D%271%200%200%200%200%20%201%200%200%200%200%20%201%200%200%200%200%20%200%200%200%200%201%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E" preserveAspectRatio="none" result="t"/>
+      <feDiffuseLighting in="h" surfaceScale="5" diffuseConstant="1" lighting-color="#fff" result="dif"><feDistantLight azimuth="250" elevation="30"/></feDiffuseLighting>
+      <feComposite in="dif" in2="t" operator="arithmetic" k2="1" k3="0.3" k4="-0.15" result="dif2"/>
+      <feComponentTransfer in="dif2" result="band"><feFuncR type="table" tableValues="0.25 0.92 0.62 1 0.78 0.5 0.95 1"/><feFuncG type="table" tableValues="0.27 0.93 0.66 1 0.8 0.55 0.96 1"/><feFuncB type="table" tableValues="0.42 1 0.86 1 0.93 0.75 1 1"/></feComponentTransfer>
+      <feSpecularLighting in="h" surfaceScale="5" specularConstant="1.2" specularExponent="28" lighting-color="#fff" result="spec"><feDistantLight azimuth="235" elevation="50"/></feSpecularLighting>
+      <feComposite in="spec" in2="band" operator="arithmetic" k2="1" k3="0.95" result="lit"/>
+      <feComposite in="lit" in2="A" operator="in" result="metal"/>
+      <feMorphology in="A" operator="dilate" radius="1.2" result="d"/><feOffset in="d" dy="1.2" result="d2"/>
+      <feFlood flood-color="#0a0b12"/><feComposite in2="d2" operator="in" result="rim"/>
+      <feMerge><feMergeNode in="rim"/><feMergeNode in="metal"/></feMerge>
+    </filter>
+    <filter id="sono-chrome-lg" x="-10%" y="-25%" width="120%" height="150%" color-interpolation-filters="sRGB">
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="A"/>
+      <feGaussianBlur in="A" stdDeviation="4" result="h"/>
+      <feImage href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27600%27%20height%3D%27300%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.008%27%20numOctaves%3D%271%27%20seed%3D%277%27%2F%3E%3CfeColorMatrix%20values%3D%271%200%200%200%200%20%201%200%200%200%200%20%201%200%200%200%200%20%200%200%200%200%201%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E" preserveAspectRatio="none" result="t"/>
+      <feDiffuseLighting in="h" surfaceScale="8" diffuseConstant="1" lighting-color="#fff" result="dif"><feDistantLight azimuth="250" elevation="30"/></feDiffuseLighting>
+      <feComposite in="dif" in2="t" operator="arithmetic" k2="1" k3="0.3" k4="-0.15" result="dif2"/>
+      <feComponentTransfer in="dif2" result="band"><feFuncR type="table" tableValues="0.25 0.92 0.62 1 0.78 0.5 0.95 1"/><feFuncG type="table" tableValues="0.27 0.93 0.66 1 0.8 0.55 0.96 1"/><feFuncB type="table" tableValues="0.42 1 0.86 1 0.93 0.75 1 1"/></feComponentTransfer>
+      <feSpecularLighting in="h" surfaceScale="8" specularConstant="1.2" specularExponent="28" lighting-color="#fff" result="spec"><feDistantLight azimuth="235" elevation="50"/></feSpecularLighting>
+      <feComposite in="spec" in2="band" operator="arithmetic" k2="1" k3="0.95" result="lit"/>
+      <feComposite in="lit" in2="A" operator="in" result="metal"/>
+      <feMorphology in="A" operator="dilate" radius="2" result="d"/><feOffset in="d" dy="2" result="d2"/>
+      <feFlood flood-color="#0a0b12"/><feComposite in2="d2" operator="in" result="rim"/>
+      <feMerge><feMergeNode in="rim"/><feMergeNode in="metal"/></feMerge>
+    </filter>
+    <filter id="sono-mercury" x="-10%" y="-25%" width="120%" height="150%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14" result="gb"/>
+      <feColorMatrix in="gb" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 26 -11" result="A"/>
+      <feGaussianBlur in="A" stdDeviation="10" result="h"/>
+      <feImage href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27600%27%20height%3D%27300%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.008%27%20numOctaves%3D%271%27%20seed%3D%277%27%2F%3E%3CfeColorMatrix%20values%3D%271%200%200%200%200%20%201%200%200%200%200%20%201%200%200%200%200%20%200%200%200%200%201%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27%2F%3E%3C%2Fsvg%3E" preserveAspectRatio="none" result="t"/>
+      <feDiffuseLighting in="h" surfaceScale="14" diffuseConstant="1" lighting-color="#fff" result="dif"><feDistantLight azimuth="225" elevation="20"/></feDiffuseLighting>
+      <feComposite in="dif" in2="t" operator="arithmetic" k2="1" k3="0.6" k4="-0.3" result="dif2"/>
+      <feComponentTransfer in="dif2" result="band"><feFuncR type="table" tableValues="0.02 0.85 0.1 0.25 1 0.05 0.6 1"/><feFuncG type="table" tableValues="0.02 0.85 0.1 0.25 1 0.05 0.6 1"/><feFuncB type="table" tableValues="0.02 0.85 0.1 0.25 1 0.05 0.6 1"/></feComponentTransfer>
+      <feSpecularLighting in="h" surfaceScale="14" specularConstant="1.15" specularExponent="30" lighting-color="#fff" result="spec"><feDistantLight azimuth="235" elevation="30"/></feSpecularLighting>
+      <feComposite in="spec" in2="band" operator="arithmetic" k2="1" k3="0.9" result="lit"/>
+      <feComposite in="lit" in2="A" operator="in"/>
+    </filter>
+    <!-- Пиксели: картинка распадается на квадраты 28 / 14 / 7 px (переход «распад» в теме «Алукард»).
+         Берётся одна точка из середины каждого квадрата и раздувается на весь квадрат.
+         Дорогие, как и хром: только на короткие переходы, не на постоянную анимацию -->
+    <filter id="sono-pixel-lg" x="0" y="0" width="100%" height="100%">
+      <feFlood x="13" y="13" width="2" height="2"/><feComposite width="28" height="28"/><feTile result="a"/>
+      <feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="14"/>
+    </filter>
+    <filter id="sono-pixel" x="0" y="0" width="100%" height="100%">
+      <feFlood x="6" y="6" width="2" height="2"/><feComposite width="14" height="14"/><feTile result="a"/>
+      <feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="7"/>
+    </filter>
+    <filter id="sono-pixel-sm" x="0" y="0" width="100%" height="100%">
+      <feFlood x="3" y="3" width="1" height="1"/><feComposite width="7" height="7"/><feTile result="a"/>
+      <feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="3.5"/>
+    </filter>
+  </defs>
+  </svg>
+
   <!-- Медиатека: «Сейчас играет», избранное, плейлисты -->
   <aside class="sidebar glass">
     <button type="button" class="nav-item" id="nav-home">
@@ -214,6 +293,9 @@
 
       <!-- Flow: живой фон под музыку, запуск и режимы. Заполняет flowview.js -->
       <section class="view view-flow" id="view-flow" hidden></section>
+
+      <!-- Мастерская тем: темы от других слушателей. Заполняет workshop.js -->
+      <section class="view view-workshop" id="view-workshop" hidden></section>
     </div>
   </div>
 

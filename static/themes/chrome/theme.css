@@ -1,0 +1,232 @@
+/* «Хром» — жидкий металл на чёрном (по уроку «3D-эффект текста Chrome»):
+   - заголовки и название трека — надутые буквы из зеркального металла с чёрно-белыми отражениями
+     (SVG-фильтры Sono: filter: url(#sono-chrome…), см. index.html и THEMES.md);
+   - в карточке Flow — капли ртути, которые сливаются друг с другом (url(#sono-mercury));
+   - острые хромовые шипы (sigil.svg, тоже через фильтр — объёмные) в углу медиатеки и у обложки;
+   - монохром: чёрный, серебро, белый; панели — дымчатое стекло с кромкой «шлифованного металла».
+   Фильтры дорогие: элементы с ними не анимируем вообще (даже сдвиг целиком — телефон падал до 31 кадра/с).
+   Крупные надписи — Sono Gothic (свой готический шрифт Sono: латиница + кириллица, MIT, SonoGothic.ttf).
+   Мелкие подписи — Unbounded (SIL OFL 1.1, OFL-Unbounded.txt рядом): готика в 10–13 px не читается. */
+
+/* Толщина одна, но объявлена диапазоном — иначе браузер сам «утолщает» буквы при font-weight: 900 */
+@font-face {
+  font-family: "Sono Gothic";
+  src: url(SonoGothic.ttf) format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Unbounded";
+  src: url(Unbounded-Variable.ttf) format("truetype");
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+:root {
+  --bg: #050505;
+  --fg-rgb: 238 241 244;
+  --shade-rgb: 4 4 5;
+  --glass: rgba(14, 15, 17, 0.6);
+  --panel: rgba(18, 19, 21, 0.97);
+  --menu-bg: rgba(22, 23, 26, 0.98);
+  --dialog-bg: rgba(20, 21, 24, 0.99);
+  --search-bg: rgba(12, 12, 14, 0.78);
+  --search-bg-hover: rgba(22, 23, 26, 0.85);
+  --tint: #050505;
+  --accent: #e9eef3;
+  --radius: 10px;
+
+  /* Свои переменные темы */
+  --c-display: "Unbounded", "Segoe UI", sans-serif;
+  --c-gothic: "Sono Gothic", "Unbounded", serif;
+  --c-edge: inset 0 1px 0 rgb(255 255 255 / 0.12), inset 0 -1px 0 rgb(0 0 0 / 0.65);
+  --c-ring: 0 0 0 1.5px rgb(235 240 245 / 0.85), 0 0 14px rgb(235 240 245 / 0.22);
+  /* Металлический диск (кнопка «играть», шарик ползунка) */
+  --c-disc:
+    radial-gradient(circle at 34% 28%, rgb(255 255 255 / 0.95) 0%, rgb(255 255 255 / 0) 34%),
+    conic-gradient(from 210deg, #f2f4f6, #6f747a, #e6e9ec, #3b3f44, #dfe3e6, #858a90, #f2f4f6);
+}
+
+/* ---------- Жидкий хром: текст белый и сплошной — фильтр сам делает из него металл ---------- */
+.home-greet, .flow-title, .info h1, .pl-name, .home-h, .tb-logo {
+  font-family: var(--c-gothic);
+  letter-spacing: 0.01em;
+  background: none;
+  -webkit-background-clip: border-box; background-clip: border-box;
+  color: #fff;
+}
+.home-greet, .flow-title { filter: url(#sono-chrome-lg) drop-shadow(0 6px 14px rgb(0 0 0 / 0.7)); }
+.info h1, .pl-name { filter: url(#sono-chrome) drop-shadow(0 4px 10px rgb(0 0 0 / 0.7)); }
+.home-h, .tb-logo { filter: url(#sono-chrome-sm); }
+
+/* ---------- Фон: чернота, мягкий холодный свет, VHS-зерно и строки развёртки ---------- */
+.bg-art { display: none !important; }
+.bg-tint {
+  background:
+    radial-gradient(55% 45% at 72% 16%, rgb(120 130 145 / 0.16), transparent 70%),
+    radial-gradient(45% 45% at 10% 90%, rgb(90 95 105 / 0.12), transparent 70%),
+    var(--bg);
+}
+.bg-shade {
+  background:
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.02) 0 1px, transparent 1px 3px),
+    radial-gradient(120% 90% at 55% 40%, transparent 0%, rgb(0 0 0 / 0.35) 60%, rgb(0 0 0 / 0.8) 100%);
+}
+body .bg-grain { opacity: 0.12; }
+
+/* ---------- Панели, полоска окна, поиск ---------- */
+.glass {
+  border-color: rgb(220 225 230 / 0.14);
+  box-shadow: var(--c-edge), 0 12px 34px rgb(0 0 0 / 0.4);
+}
+body.on-now .main { background: rgb(var(--shade-rgb) / 0.3); }
+
+.tb-logo { font-weight: 900; font-size: 19px; letter-spacing: 0.02em; }
+
+.search-bar { border-color: rgb(220 225 230 / 0.2); box-shadow: var(--c-edge); }
+.search-bar:hover { border-color: rgb(220 225 230 / 0.38); }
+.search-bar:focus-within { border-color: #fff; box-shadow: var(--c-ring); }
+
+::-webkit-scrollbar-thumb { background-color: rgb(220 225 230 / 0.2); }
+::-webkit-scrollbar-thumb:hover { background-color: rgb(220 225 230 / 0.36); }
+
+.menu, .dialog, .panel { border: 1px solid rgb(220 225 230 / 0.18); box-shadow: var(--c-edge), 0 18px 50px rgb(0 0 0 / 0.65); }
+
+/* ---------- Медиатека ---------- */
+/* overflow: clip — узор в углу выступает за край, а с «hidden» панель можно было прокрутить вбок щелчком */
+.sidebar { position: relative; isolation: isolate; overflow: clip; }
+/* Объёмный шип, выглядывающий из правого верхнего угла (неподвижный: фильтр) */
+.sidebar::before {
+  content: ""; position: absolute; z-index: -1;
+  right: -64px; top: -64px; width: 170px; aspect-ratio: 1;
+  background: url(sigil.svg) center / contain no-repeat;
+  filter: url(#sono-chrome-sm);
+  opacity: 0.55;
+  rotate: 18deg;
+  pointer-events: none;
+}
+.nav-item.active {
+  color: #fff;
+  background: rgb(255 255 255 / 0.05);
+  border-radius: 22px;
+  box-shadow: var(--c-ring), inset 0 0 14px rgb(255 255 255 / 0.06);
+}
+.lib-head { font-family: var(--c-display); font-size: 13px; font-weight: 700; letter-spacing: 0.03em; color: var(--text); }
+.lib-item.active { background: rgb(255 255 255 / 0.07); }
+.lib-item .collection-cover, .mini-track img { border-radius: 6px; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.25); }
+.collection-cover.liked, .collection-cover.downloads, .collection-cover.local {
+  background: linear-gradient(135deg, #2a2d31 0%, #b4b9bf 46%, #1a1c1f 54%, #6b7078 100%);
+  color: #fff;
+}
+
+/* ---------- Кнопки ---------- */
+.play { background: var(--c-disc); color: #0c0d0f; box-shadow: inset 0 -2px 4px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.4), 0 6px 18px rgb(0 0 0 / 0.55); }
+.play::after { border-top-color: #fff; }
+.tile-play { background: var(--c-disc); color: #0c0d0f; box-shadow: 0 6px 18px rgb(0 0 0 / 0.55); }
+.btn.primary { background: var(--c-disc); color: #0c0d0f; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.4); }
+.seg-btn.on { background: rgb(255 255 255 / 0.08); color: #fff; box-shadow: var(--c-ring); }
+.toggle-btn.on, .icon-btn.on { color: #fff; }
+
+/* ---------- Ползунки ---------- */
+input[data-np="seek"], input[data-np="volume"] { --fill: #e9eef3; }
+input[data-np="seek"]::-webkit-slider-runnable-track { height: 4px; box-shadow: 0 0 10px rgb(255 255 255 / 0.12); }
+input[type="range"]::-webkit-slider-thumb { background: var(--c-disc); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.5), 0 2px 6px rgb(0 0 0 / 0.6); }
+input[data-np="seek"]::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -5px; transform: scale(1); }
+input[data-np="seek"]:disabled::-webkit-slider-thumb { opacity: 0; }
+
+/* ---------- Главная ---------- */
+.home-greet { font-weight: 900; font-size: clamp(40px, 4.4vw, 62px); line-height: 1.2; padding-bottom: 0.12em; letter-spacing: 0.01em; }
+.home-sub { margin-top: 2px; }
+.home-h { font-weight: 800; font-size: 25px; letter-spacing: 0.01em; padding-bottom: 0.1em; }
+
+/* Flow — тёмное стекло, справа капли ртути. Капли застывшие (фильтр), плавает вся группа целиком */
+.flow-card {
+  background: linear-gradient(100deg, rgb(10 10 12 / 0.94) 0%, rgb(16 17 19 / 0.82) 55%, rgb(24 26 29 / 0.7) 100%);
+  border: 1px solid rgb(220 225 230 / 0.2);
+  box-shadow: var(--c-edge), 0 16px 44px rgb(0 0 0 / 0.55);
+}
+.flow-aurora {
+  left: auto; right: 0; width: min(440px, 50%);
+  opacity: 1;
+  filter: url(#sono-mercury);
+  /* Без движения: даже сдвиг целиком пересчитывал фильтр каждый кадр (на телефоне 31 кадр/с вместо 120) */
+}
+.flow-aurora i, .flow-card:has(.flow-play.is-playing) .flow-aurora i {
+  background: #fff; aspect-ratio: 1; animation: none;
+}
+.flow-aurora i:nth-child(1) { left: auto; right: 30%; top: 14%; width: 30%; }
+.flow-aurora i:nth-child(2) { left: auto; right: 5%; top: 48%; width: 19%; }
+.flow-aurora i:nth-child(3) { left: auto; right: 60%; top: 60%; width: 11%; }
+.flow-card::after { background: linear-gradient(90deg, rgb(0 0 0 / 0.5) 0%, rgb(0 0 0 / 0.15) 55%, transparent 100%); }
+.flow-kind { color: var(--muted); }
+.flow-title { font-weight: 900; letter-spacing: 0.01em; font-size: clamp(60px, 6.4vw, 90px); line-height: 1.2; padding-bottom: 0.08em; }
+.flow-sub { color: rgb(var(--fg-rgb) / 0.82); }
+.flow-card .big-play.flow-play { background: var(--c-disc); color: #0c0d0f; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.45), 0 8px 22px rgb(0 0 0 / 0.6); }
+.flow-modes { background: rgb(255 255 255 / 0.04); backdrop-filter: none; border-radius: 22px; box-shadow: inset 0 0 0 1px rgb(220 225 230 / 0.16); }
+.flow-modes .seg-btn { border-radius: 18px; }
+.flow-modes .seg-btn.on { background: rgb(255 255 255 / 0.08); color: #fff; box-shadow: var(--c-ring); }
+
+/* Плитки и карточки — стекло с металлической кромкой */
+.home-tile { background: rgb(16 17 19 / 0.72); box-shadow: var(--c-edge), inset 0 0 0 1px rgb(220 225 230 / 0.12); }
+.home-tile:hover { background: rgb(26 28 31 / 0.85); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.5); }
+.home-tile .collection-cover { border-radius: 8px 0 0 8px; }
+.home-card { background: rgb(16 17 19 / 0.6); box-shadow: inset 0 0 0 1px rgb(220 225 230 / 0.1); }
+.home-card:hover { background: rgb(26 28 31 / 0.8); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.45); }
+.home-card-art { box-shadow: 0 0 0 1px rgb(255 255 255 / 0.22), 0 10px 28px rgb(0 0 0 / 0.55); }
+.mix-badge {
+  left: auto; right: 8px;
+  background: rgb(10 10 12 / 0.72);
+  box-shadow: inset 0 0 0 1px rgb(230 235 240 / 0.45);
+  font-family: var(--c-display); font-size: 10px; font-weight: 700;
+}
+.stats-card { background: rgb(16 17 19 / 0.7); border-color: rgb(220 225 230 / 0.16); }
+
+/* ---------- Плейлист ---------- */
+.tracklist-card, .set-card { background: rgb(10 10 12 / 0.74); }
+.pl-name { font-weight: 900; letter-spacing: 0.01em; line-height: 1.2; padding-bottom: 0.1em; }
+
+/* ---------- «Сейчас играет» ---------- */
+/* Обложка — в тонкой хромовой рамке */
+.cover-wrap {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.55), 0 0 0 3px #111214, 0 0 0 4px rgb(220 225 230 / 0.4), 0 24px 60px rgb(0 0 0 / 0.65);
+}
+body.playing .cover-wrap {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.65), 0 0 0 3px #111214, 0 0 0 4px rgb(235 240 245 / 0.6), 0 28px 70px rgb(0 0 0 / 0.7);
+}
+/* Объёмные шипы выглядывают из-за обложки — слева сверху и справа снизу (только вид «Обычный»; неподвижные) */
+html:not([data-now-style]) .cover-stage::before,
+html:not([data-now-style]) .cover-stage::after {
+  content: ""; position: absolute; z-index: 0;
+  width: 60%; aspect-ratio: 1;
+  background: url(sigil.svg) center / contain no-repeat;
+  filter: url(#sono-chrome-sm) drop-shadow(0 8px 16px rgb(0 0 0 / 0.6));
+  pointer-events: none;
+}
+html:not([data-now-style]) .cover-stage::before { left: -25%; top: -14%; rotate: -12deg; }
+html:not([data-now-style]) .cover-stage::after { right: -25%; bottom: -17%; rotate: 24deg; }
+
+/* Название — жидкий хром, исполнитель — серебро */
+.np-row .info { flex-basis: 100%; }
+.info h1 { font-weight: 900; font-size: 38px; line-height: 1.22; padding-bottom: 0.12em; letter-spacing: 0.01em; }
+.info p { font-size: 16px; color: rgb(var(--fg-rgb) / 0.78); letter-spacing: 0.02em; }
+.np-actions { gap: 6px; margin: 8px 0 0; }
+.np-actions .icon-btn { box-shadow: inset 0 0 0 1px rgb(220 225 230 / 0.28), var(--c-edge); background: rgb(14 15 17 / 0.55); }
+.np-actions .icon-btn:hover:not(:disabled) { box-shadow: var(--c-ring); }
+
+/* Очередь и текст песни */
+.up-next, .lyrics { background: rgb(12 12 14 / 0.65); border-color: rgb(220 225 230 / 0.16); box-shadow: var(--c-edge); }
+.up-next-title, .lyrics-title { font-family: var(--c-display); font-size: 15px; font-weight: 700; }
+.up-next-item.now { background: rgb(255 255 255 / 0.05); box-shadow: var(--c-ring); }
+.up-next-item.now .up-next-name { color: #fff; }
+
+/* ---------- Нижний плеер ---------- */
+.minibar { border-color: rgb(220 225 230 / 0.18); }
+
+/* ---------- Телефон ---------- */
+body.mobile .tab.on { color: #fff; }
+body.mobile .info h1 { font-size: 32px; }
+body.mobile .flow-aurora { width: 60%; right: -14%; opacity: 0.85; }
+html:not([data-now-style]) body.mobile .cover-stage::before { left: -10%; top: -10%; width: 42%; }
+html:not([data-now-style]) body.mobile .cover-stage::after { right: -10%; bottom: -10%; width: 42%; }

@@ -5,6 +5,7 @@
 
 import { applyBackPlace } from "./backbtn.js";
 import { canGoBack, goBack } from "./views.js";
+import { whenWindowApi } from "./winapi.js";
 
 const bar = document.getElementById("titlebar");
 const backBtn = document.getElementById("tb-back");
@@ -74,6 +75,5 @@ export function initTitlebar() {
     api = { drag: nothing, resize: nothing, minimize: nothing, toggle_maximize: nothing, close: nothing, is_maximized: nothing };
     return bind();
   }
-  if (window.pywebview?.api) start();
-  else addEventListener("pywebviewready", start, { once: true });
+  whenWindowApi(start);
 }

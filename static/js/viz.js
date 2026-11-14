@@ -77,6 +77,8 @@ function attachAnalyser() {
 
 // ---------- Палитра обложки ----------
 // Гистограмма оттенков насыщенных пикселей: берём до 4 самых заметных, отстоящих друг от друга.
+let coverLight = 0.6;   // средняя светлота последней обложки, 0–1
+
 function coverPalette(img) {
   const size = 32;
   const c = document.createElement("canvas");
@@ -85,25 +87,56 @@ function coverPalette(img) {
   x.drawImage(img, 0, 0, size, size);
   const px = x.getImageData(0, 0, size, size).data;
   const bins = new Float32Array(36);   // по 10°
+  const satSum = new Float32Array(36);
+  let colored = 0, lightAll = 0;
   for (let i = 0; i < px.length; i += 4) {
     const r = px[i] / 255, gg = px[i + 1] / 255, b = px[i + 2] / 255;
     const max = Math.max(r, gg, b), min = Math.min(r, gg, b), l = (max + min) / 2, d = max - min;
+    lightAll += l;
     if (d < 0.12 || l < 0.12 || l > 0.92) continue;   // серое, чёрное, белое — не цвет
     let h = max === r ? (gg - b) / d + (gg < b ? 6 : 0) : max === gg ? (b - r) / d + 2 : (r - gg) / d + 4;
-    bins[Math.floor(h * 6) % 36] += d;
+    const k = Math.floor(h * 6) % 36;
+    bins[k] += d;
+    satSum[k] += (l > 0.5 ? d / (2 - max - min) : d / (max + min)) * d;
+    colored++;
   }
+  const total = size * size;
+  coverLight = lightAll / total;   // для серой палитры (greyPalette)
+  const share = colored / total;   // какая часть обложки вообще цветная
+  // Почти вся обложка серая/белая/чёрная (карандашный рисунок, ч/б фото) — столбики серые.
+  // Раньше хватало одного маленького пятна: вся палитра становилась его цветом (баг 10 ноября:
+  // белая обложка с небольшим красным пятном → красно-оранжевые столбики)
+  if (share < 0.06) return null;
   const picks = [];
   const order = [...bins.keys()].sort((a, b) => bins[b] - bins[a]);
   for (const i of order) {
-    if (bins[i] <= 0 || picks.length >= 4) break;
+    // Оттенок, которого на обложке в разы меньше главного, — случайные пиксели, не цвет обложки
+    if (bins[i] <= bins[order[0]] * 0.18 || picks.length >= 4) break;
     if (picks.every((p) => Math.min(Math.abs(p - i), 36 - Math.abs(p - i)) >= 4)) picks.push(i);
   }
   if (!picks.length) return null;
-  let hues = picks.map((i) => i * 10 + 5).sort((a, b) => a - b);
-  // Один-два цвета — дополняем соседними оттенками, чтобы был перелив
-  if (hues.length === 1) hues = [hues[0] - 35, hues[0], hues[0] + 35];
-  if (hues.length === 2) hues = [hues[0], (hues[0] + hues[1]) / 2, hues[1]];
-  return hues.map((h, i) => [((h % 360) + 360) % 360, 82, 50 + (i % 2) * 6]);
+  // Насыщенность — как на самой обложке (приглушённая обложка — приглушённые столбики), а не всегда 82%.
+  // Если цветного на обложке мало (6–30%), цвет ещё бледнее: обложка в основном серая
+  const muted = Math.min(1, share / 0.3);
+  const satOf = (i) => Math.round(Math.min(85, Math.max(28, (satSum[i] / bins[i]) * 100 * 1.1)) * (0.45 + 0.55 * muted));
+  let cols = picks.map((i) => [i * 10 + 5, satOf(i)]).sort((a, b) => a[0] - b[0]);
+  // Один-два цвета — перелив соседними оттенками, но близкими (±12°): дальние (±35°) выдумывали цвета,
+  // которых на обложке нет (красное пятно давало малиновый и оранжевый)
+  if (cols.length === 1) cols = [[cols[0][0] - 12, cols[0][1]], cols[0], [cols[0][0] + 12, cols[0][1]]];
+  if (cols.length === 2) cols = [cols[0], [(cols[0][0] + cols[1][0]) / 2, (cols[0][1] + cols[1][1]) / 2], cols[1]];
+  const palette = cols.map(([h, s], i) => [((h % 360) + 360) % 360, s, 50 + (i % 2) * 6]);
+  // Цветного мало — между цветами вставляем серый цвета самой обложки: она в основном серая
+  if (share < 0.3) {
+    const grey = [0, 0, Math.round(Math.min(80, Math.max(55, coverLight * 100)))];
+    return [grey, ...palette.flatMap((c) => [c, grey])];
+  }
+  return palette;
+}
+
+/** Серая палитра для обложки без цвета: чем светлее обложка, тем светлее столбики */
+function greyPalette() {
+  const v = Math.round(Math.min(82, Math.max(52, coverLight * 100)));
+  return [[0, 0, v], [0, 0, v - 12], [0, 0, v]];
 }
 
 function colorAt(t) {
@@ -298,7 +331,8 @@ export function initViz() {
   coverEl.addEventListener("load", () => {
     let found = null;
     try { found = coverPalette(coverEl); } catch {}
-    if (found) coverColors = found;
+    // Обложка без цвета — серые столбики (раньше оставались цвета прошлого трека)
+    coverColors = found ?? greyPalette();
     applyVizColors();   // по обложке — новые цвета; свой набор — остаётся
     // Цвета обложки нужны и фону «Сейчас играет» (nowbg.js); null — серая обложка без цветов
     document.dispatchEvent(new CustomEvent("sono:cover-colors", { detail: found }));

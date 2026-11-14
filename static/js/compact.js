@@ -3,6 +3,8 @@
 // titlebar.py (set_mini), а страница прячет всё, кроме плашки #compact (body.mini-mode).
 // Только в программе (в браузере размер окна страница не меняет).
 
+import { whenWindowApi } from "./winapi.js";
+
 const box = document.getElementById("compact");
 const btn = document.getElementById("tb-mini");
 
@@ -58,6 +60,5 @@ export function initCompact() {
     api = candidate;
     bind();
   };
-  if (window.pywebview?.api) start();
-  else addEventListener("pywebviewready", start, { once: true });
+  whenWindowApi(start);
 }

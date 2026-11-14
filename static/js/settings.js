@@ -17,8 +17,10 @@ import { BACK_PLACES, backPlace, setBackPlace } from "./backbtn.js";
 import { systemSection } from "./system.js";
 import { CHANGELOG } from "./changelog.js";
 import { isMobile, shareFile } from "./device.js";
+import { openView } from "./nav.js";
 import { showWhatsNew } from "./whatsnew.js";
 import { chooseTheme, createTheme, currentThemeId, deleteTheme, loadThemes, onThemesChange, openThemesFolder, themeList, themesFolder } from "./themes.js";
+import { openThemeEditor } from "./editor.js";
 
 const box = document.getElementById("view-settings");
 let network = null;      // { mode, strategy, strategySc, fakeTtl, proxy, direct }
@@ -257,9 +259,26 @@ function switchRow(title, text, on, onToggle) {
   return row;
 }
 
+/** Вход в мастерскую тем (workshop.js): темы от других слушателей — поставить в один щелчок */
+function workshopEntry() {
+  const btn = el("button", "ws-entry");
+  btn.type = "button";
+  const icon = el("span", "ws-entry-icon");
+  icon.innerHTML = icons.palette;
+  const text = el("span", "ws-entry-text");
+  text.append(el("span", "ws-entry-title", "Мастерская тем"),
+    el("span", "ws-entry-sub", "Темы и виды «Сейчас играет» от других слушателей — ставятся одним щелчком"));
+  const arrow = el("span", "ws-entry-arrow");
+  arrow.innerHTML = icons.chevron;
+  btn.append(icon, text, arrow);
+  btn.addEventListener("click", () => openView("workshop"));
+  return btn;
+}
+
 function appearanceSection() {
   const section = el("section", "set-card");
   section.append(el("h2", "", "Оформление"));
+  section.append(workshopEntry());
   section.append(themesRow("theme"));
   section.append(themesRow("now"));
   // На телефоне нижний плеер — своя плашка над вкладками, а «Назад» — системная кнопка
@@ -367,18 +386,32 @@ function drawThemes(part) {
     card.title = [t.description, t.version && `Версия ${t.version}`].filter(Boolean).join("\n");
     card.append(themeSwatch(t, part), name, sub);
     card.addEventListener("click", () => chooseTheme(t.id, part));
-    if (t.kind !== "user") return card;
+    // Тему можно открыть в редакторе (editor.js): свою — править её саму, встроенную и из мастерской — копию
+    // (их файлы перезапишет обновление). Виды «Сейчас играет» редактор пока не умеет
+    const canEdit = part === "theme" && !t.needs && !t.tooBig;
+    const canDelete = t.kind === "user";
+    if (!canEdit && !canDelete) return card;
+    const editLabel = t.kind === "user" && !t.workshop ? "Изменить в редакторе" : "Изменить копию в редакторе";
+    const item = el("div", `theme-item${canDelete ? "" : " no-del"}`);
+    item.append(card);
+    const menuItems = [];
+    if (canEdit) {
+      const edit = iconButton(icons.edit, editLabel, "theme-edit");
+      edit.addEventListener("click", () => openThemeEditor({ themeId: t.id }));
+      item.append(edit);
+      menuItems.push({ label: editLabel, icon: icons.edit, action: () => openThemeEditor({ themeId: t.id }) });
+    }
     // Свою тему можно удалить: корзина в углу (видна при наведении) или правая кнопка
-    const item = el("div", "theme-item");
-    const del = iconButton(icons.trash, "Удалить", "theme-del");
-    del.addEventListener("click", () => askDeleteTheme(t));
+    if (canDelete) {
+      const del = iconButton(icons.trash, "Удалить", "theme-del");
+      del.addEventListener("click", () => askDeleteTheme(t));
+      item.append(del);
+      menuItems.push({ label: "Удалить", icon: icons.trash, danger: true, action: () => askDeleteTheme(t) });
+    }
     card.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      openMenu({ x: e.clientX, y: e.clientY }, [
-        { label: "Удалить", icon: icons.trash, danger: true, action: () => askDeleteTheme(t) },
-      ]);
+      openMenu({ x: e.clientX, y: e.clientY }, menuItems);
     });
-    item.append(card, del);
     return item;
   }));
 }
@@ -407,8 +440,15 @@ function themesRow(part) {
   // Свои темы — CSS-файлы в папке на компьютере; на телефоне до этой папки не добраться
   textBox.append(el("span", "set-switch-title", info.title), el("span", "set-switch-sub", isMobile ? info.subMobile : info.sub));
   themesGrids[part] = el("div", "theme-grid");
+  // Редактор тем: цвета, форма, шрифт и фон без кода, с живым просмотром (editor.js)
+  const editorBtn = el("button", "btn primary", "Создать в редакторе");
+  editorBtn.type = "button";
+  editorBtn.addEventListener("click", () => openThemeEditor());
   if (isMobile) {
+    const mobileTools = el("div", "set-actions theme-tools");
+    mobileTools.append(editorBtn);
     row.append(textBox, themesGrids[part]);
+    if (part === "theme") row.append(mobileTools);
     drawThemes(part);
     if (!themesLoaded) {
       themesLoaded = true;
@@ -431,6 +471,7 @@ function themesRow(part) {
       create.disabled = false;
     }
   });
+  if (part === "theme") tools.append(editorBtn);
   tools.append(create);
   if (part === "now") {
     // Папка и список — общие с темами; кнопки показываем один раз, под темами

@@ -33,6 +33,7 @@ import importer
 import localfiles
 import netbypass
 import themes
+import workshop
 import zapret
 
 from paths import BASE_DIR, DATA_DIR   # где данные: %LOCALAPPDATA%\Sono у .exe, рядом с кодом — из исходников
@@ -530,6 +531,8 @@ def _save_stream_links():
 _load_stream_links()
 localfiles.init(DATA_DIR, CACHE_DIR)
 themes.init(BASE_DIR, DATA_DIR)          # темы оформления: встроенные в static/themes, свои — в DATA_DIR/themes
+workshop.init(DATA_DIR)                  # мастерская тем: копия каталога и картинки — в DATA_DIR/workshop
+workshop.cleanup()
 localfiles.scan()   # при запуске — проверить, не появилось ли в папках нового (в фоне)
 
 
@@ -2149,7 +2152,8 @@ def api_themes():
 @app.get("/api/themes/<kind>/<name>/theme.css")
 def api_theme_css(kind, name):
     try:
-        css = themes.theme_css(kind, name)
+        # ?editor=0 — без куска редактора тем: пока он открыт, этот кусок страница рисует сама из черновика
+        css = themes.theme_css(kind, name, editor_block=request.args.get("editor") != "0")
     except (ValueError, OSError) as e:
         return Response(f"/* тема не загрузилась: {e} */", mimetype="text/css", status=404)
     resp = Response(css, mimetype="text/css")
@@ -2197,6 +2201,56 @@ def api_theme_create():
     return jsonify(ok=True, id=f"user:{name}", folder=name)
 
 
+# ---------- Редактор тем (themes.py, страница — js/editor.js) ----------
+
+@app.post("/api/themes/editor/new")
+def api_theme_editor_new():
+    """Новая тема для редактора: из заготовки или копия другой (base: "builtin:light"). Папку в Проводнике не открываем."""
+    body = _body()
+    try:
+        name = themes.new_for_editor(str(body.get("name") or ""), body.get("base") or None)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except OSError as e:
+        return jsonify(error=f"Не получилось создать тему: {e}"), 500
+    return jsonify(ok=True, id=f"user:{name}", folder=name)
+
+
+@app.post("/api/themes/editor/save")
+def api_theme_editor_save():
+    body = _body()
+    try:
+        info = themes.save_from_editor(str(body.get("folder") or ""), body, appupdate.current_version())
+    except ValueError as e:
+        return jsonify(error=f"Не получилось сохранить тему: {e}"), 400
+    except OSError as e:
+        return jsonify(error=f"Не получилось сохранить тему: {e}"), 500
+    return jsonify(ok=True, theme=info)
+
+
+@app.post("/api/themes/editor/discard")
+def api_theme_editor_discard():
+    """Закрыли редактор без сохранения: новую тему — убрать, у старой — прибрать лишние картинки."""
+    try:
+        removed = themes.discard_new(str(_body().get("folder") or ""))
+    except (ValueError, OSError) as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(ok=True, removed=removed)
+
+
+@app.post("/api/themes/editor/upload")
+def api_theme_editor_upload():
+    """Картинка фона или шрифт: файл — тело запроса целиком (?folder=…&what=image|font)."""
+    if (request.content_length or 0) > themes.MAX_BACKGROUND + 1024:
+        return jsonify(error="Файл слишком большой"), 413
+    try:
+        file_name = themes.save_upload(request.args.get("folder", ""), request.args.get("what", ""),
+                                       request.get_data(cache=False))
+    except (ValueError, OSError) as e:
+        return jsonify(error=f"Не получилось добавить файл: {e}"), 400
+    return jsonify(ok=True, file=file_name)
+
+
 @app.delete("/api/themes/user/<name>")
 def api_theme_delete(name):
     """Удалить свою тему: на Windows — в Корзину (можно восстановить), иначе — в DATA_DIR/themes-deleted."""
@@ -2207,6 +2261,58 @@ def api_theme_delete(name):
     except OSError as e:
         return jsonify(error=f"Не получилось удалить тему: {e}"), 500
     return jsonify(ok=True, where=where)
+
+
+# ---------- Мастерская тем (workshop.py) ----------
+
+@app.get("/api/workshop/catalog")
+def api_workshop_catalog():
+    """Сохранённый каталог — сразу, без сети. stale: пора обновить (страница сама позовёт refresh)."""
+    return jsonify(workshop.catalog(appupdate.current_version()))
+
+
+@app.post("/api/workshop/refresh")
+def api_workshop_refresh():
+    try:
+        workshop.refresh()
+    except ValueError as e:
+        cat = workshop.catalog(appupdate.current_version())
+        cat.update(offline=True, error=f"Нет связи с каталогом — показан сохранённый. ({e})")
+        return jsonify(cat)
+    return jsonify(workshop.catalog(appupdate.current_version()))
+
+
+@app.get("/api/workshop/preview/<name>")
+def api_workshop_preview(name):
+    try:
+        path = workshop.preview(name)
+    except Exception:   # нет в каталоге, нет сети, не картинка — страница покажет образец цветами
+        abort(404)
+    return send_file(path, max_age=86400)
+
+
+@app.post("/api/workshop/install")
+def api_workshop_install():
+    """Поставить или обновить тему из каталога (одно и то же: свежая версия заменяет старую)."""
+    try:
+        info = workshop.install(str(_body().get("id") or ""), appupdate.current_version())
+    except ValueError as e:
+        return jsonify(error=f"Не получилось поставить тему: {e}"), 400
+    except Exception as e:   # сеть, диск
+        return jsonify(error=f"Не получилось поставить тему: {e}"), 500
+    return jsonify(ok=True, **info)
+
+
+@app.post("/api/workshop/open/<what>")
+def api_workshop_open(what):
+    """«Предложить тему» / «Пожаловаться» / страница каталога — в обычном браузере (адреса только наши)."""
+    url = {"submit": workshop.ISSUES_URL, "report": workshop.ISSUES_URL,
+           "repo": f"https://github.com/{workshop.REPO}"}.get(what)
+    if not url:
+        abort(404)
+    if not ANDROID:   # на телефоне браузер открывает страница (device.js openExternal)
+        webbrowser.open(url)
+    return jsonify(ok=True, url=url)
 
 
 @app.post("/api/themes/open-folder")

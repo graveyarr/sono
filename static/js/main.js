@@ -6,6 +6,7 @@ import { initFlow } from "./flow.js";
 import { initPresence } from "./presence.js";
 import { initViz } from "./viz.js";
 import { initSeekViz } from "./seekviz.js";
+import { initBeat } from "./beat.js";
 import { initNowBackground } from "./nowbg.js";
 import { initClips } from "./clip.js";
 import { initAudio } from "./audio.js";
@@ -31,6 +32,7 @@ import { initSystem } from "./system.js";
 import { focusSearch, initSearch, refreshHistory } from "./search.js";
 import { displayTrack, syncAllRows, toast } from "./ui.js";
 import { initViews, refreshDownloads, refreshPlaying, refreshViews, syncPlayButtons } from "./views.js";
+import { whenWindowApi } from "./winapi.js";
 
 try {
   await loadLibrary();
@@ -51,6 +53,7 @@ initPresence();
 initAudio();
 initViz();
 initSeekViz();   // живая полоса перемотки — если её просит тема
+initBeat();   // удары в такт для тем (html[data-beat]) — если их просит тема
 initNowBackground();   // фон «Сейчас играет»: свет / тихий / градиент / линии
 initClips();   // клип вместо обложки, где он есть
 initFxButton();
@@ -83,8 +86,7 @@ const sendTray = () => {
 onTrackChange(sendTray);
 onPlayState(sendTray);
 const sendCloseToTray = () => trayApi()?.set_close_to_tray(getSetting("closeToTray", true) !== false).catch(() => {});
-if (window.pywebview?.api) sendCloseToTray();
-else addEventListener("pywebviewready", sendCloseToTray, { once: true });
+whenWindowApi(sendCloseToTray);
 document.addEventListener("sono:close-to-tray", sendCloseToTray);
 setTimeout(announceNewReleases, 6000);   // вышло что-то у исполнителей, на которых подписан, — уведомление   // обновились — коротко рассказать, что нового (после приветствия, если оно было)
 watchAppUpdate();   // скачалась новая версия Sono — предложим обновиться

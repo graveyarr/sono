@@ -4,6 +4,7 @@
 
 import { getSetting, setSetting } from "./library.js";
 import { confirmDialog, el, toast } from "./ui.js";
+import { whenWindowApi } from "./winapi.js";
 
 const api = () => window.pywebview?.api?.set_hotkeys ? window.pywebview.api : null;
 
@@ -24,8 +25,7 @@ async function applyHotkeys(tries = 3) {
 }
 
 export function initSystem() {
-  if (window.pywebview?.api) applyHotkeys();
-  else addEventListener("pywebviewready", () => applyHotkeys(), { once: true });
+  whenWindowApi(() => applyHotkeys());
 }
 
 // ---------- Кэш ----------

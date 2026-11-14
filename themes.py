@@ -130,10 +130,12 @@ def read_theme(kind: str, name: str, current: str) -> dict | None:
         stamp = max([stamp] + [int(f.stat().st_mtime * 1000) for f in icon_files])
     except OSError:
         has_icons = False
+    editor = meta.get("editor") if kind == "user" and isinstance(meta.get("editor"), dict) else None
     return {
         "id": f"{kind}:{name}",
         "kind": kind,
         "folder": name,
+        "editor": editor,   # положения ползунков редактора тем (editor.js), если тему делали в нём
         "name": _text(meta.get("name"), 60) or name,
         "author": _text(meta.get("author"), 60),
         "version": _text(str(meta.get("version", "")), 20),
@@ -147,7 +149,13 @@ def read_theme(kind: str, name: str, current: str) -> dict | None:
         "stamp": stamp,
         "tooBig": size > MAX_CSS,
         "error": error,
+        "workshop": _workshop_mark(folder) if kind == "user" else None,   # тема из мастерской: {id, version}
     }
+
+
+def _workshop_mark(folder: Path) -> dict | None:
+    import workshop   # здесь, а не сверху: workshop сам импортирует themes
+    return workshop.read_mark(folder)
 
 
 def list_themes(current: str) -> list[dict]:
@@ -245,12 +253,17 @@ def clean_css(css: str) -> str:
     return text
 
 
-def theme_css(kind: str, name: str) -> str:
+def theme_css(kind: str, name: str, editor_block: bool = True) -> str:
+    """editor_block=False — без куска, который пишет редактор тем: пока редактор открыт, этот кусок
+    страница рисует сама из черновика (иначе убранная в редакторе картинка фона осталась бы видна)."""
     folder = theme_dir(kind, name)
     raw = (folder / "theme.css").read_bytes()
     if len(raw) > MAX_CSS:
         raise ValueError("тема слишком большая (больше 512 КБ)")
-    return clean_css(raw.decode("utf-8-sig", errors="replace"))
+    text = raw.decode("utf-8-sig", errors="replace")
+    if not editor_block:
+        text = strip_editor_block(text)
+    return clean_css(text)
 
 
 def theme_file(kind: str, name: str, rel: str) -> tuple[Path, str]:
@@ -387,3 +400,184 @@ def delete_user_theme(name: str) -> str:
     bin_dir.mkdir(parents=True, exist_ok=True)
     shutil.move(str(path), str(bin_dir / f"{name} {time.strftime('%Y-%m-%d %H-%M-%S')}"))
     return "moved"
+
+
+# ---------- Редактор тем (страница — static/js/editor.js) ----------
+# Редактор не придумывает новый формат: результат — обычная своя тема (theme.json + theme.css), её можно
+# дальше править руками и отправить в мастерскую. Редактор пишет только свой кусок в конце theme.css
+# (между метками ниже); всё, что написано руками выше, не трогает. Положения ползунков хранятся
+# в theme.json → "editor" — при следующем открытии они стоят как были (CSS обратно не разбираем).
+
+EDITOR_START = "/* ==== Редактор тем Sono: начало."
+EDITOR_END = "Редактор тем Sono: конец ==== */"
+_EDITOR_BLOCK = re.compile(r"\n*/\* ==== Редактор тем Sono: начало\..*?Редактор тем Sono: конец ==== \*/\n*", re.S)
+MAX_EDITOR_CSS = 64 * 1024
+MAX_EDITOR_META = 8 * 1024
+MAX_BACKGROUND = 6 * 1024 * 1024     # картинка фона (страница сама уменьшает её до 2560 px и сжимает в JPEG)
+MAX_FONT = 3 * 1024 * 1024
+# Файлы, которые кладёт редактор: картинка фона и свой шрифт. Имя с номером — новая картинка не затирает
+# старую, пока тему не сохранили (передумали — тема осталась прежней). Лишние убирает tidy()
+_EDITOR_FILE = re.compile(r"^(background|font)-\d{1,16}\.(jpg|png|webp|ttf|otf|woff2?)$")
+# Шрифты, которые уже лежат во встроенных темах: при выборе их копируем в свою тему (с лицензией)
+BUNDLED_FONTS = {
+    "unbounded": ("chrome", ("Unbounded-Variable.ttf", "OFL-Unbounded.txt")),
+    "marck": ("y2010", ("MarckScript-Regular.ttf", "OFL-MarckScript.txt")),
+    "gothic": ("chrome", ("SonoGothic.ttf",)),
+}
+
+
+def strip_editor_block(css: str) -> str:
+    return _EDITOR_BLOCK.sub("\n\n", css).rstrip() + "\n"
+
+
+def _read_meta(folder: Path) -> dict:
+    try:
+        meta = json.loads((folder / "theme.json").read_bytes()[:MAX_JSON].decode("utf-8-sig"))
+        return meta if isinstance(meta, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_text(path: Path, text: str) -> None:
+    """Через временный файл: если Sono закроют посреди записи, тема не останется пустой."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+
+
+def new_for_editor(title: str, base: str | None = None) -> str:
+    """Новая своя тема для редактора: из заготовки или копия другой темы (base — "builtin:light",
+    "user:ws-…"). Помечена editorNew: если её так и не сохранят, discard_new() уберёт папку. Вернёт имя папки."""
+    USER_DIR.mkdir(parents=True, exist_ok=True)
+    source, based_on = BUILTIN_DIR / TEMPLATES["theme"], ""
+    if base:
+        kind, _, folder_name = str(base).partition(":")
+        source = theme_dir(kind, folder_name)
+        meta = _read_meta(source)
+        if meta.get("part", "theme") != "theme":
+            raise ValueError("за основу можно взять только тему, не вид «Сейчас играет»")
+        based_on = _text(meta.get("name"), 60) or folder_name
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", title or "").strip(" .")[:40] or "Моя тема"
+    base_name, n = name, 2
+    while (USER_DIR / name).exists():
+        name, n = f"{base_name} {n}", n + 1
+    # Метка мастерской не копируется: иначе копию считали бы установленной темой из каталога
+    shutil.copytree(source, USER_DIR / name,
+                    ignore=shutil.ignore_patterns(".workshop.json", ".ws-*", "*.tmp", "screenshots"))
+    meta = _read_meta(USER_DIR / name)
+    meta.update(name=name, editorNew=True, version="1.0")
+    for key in ("id", "tags", "license", "editor"):
+        meta.pop(key, None)
+    if based_on:
+        meta["basedOn"] = based_on
+        meta["author"] = ""
+    _write_text(USER_DIR / name / "theme.json", json.dumps(meta, ensure_ascii=False, indent=2))
+    return name
+
+
+def discard_new(name: str) -> bool:
+    """Закрыли редактор, так и не сохранив новую тему, — убираем её папку. Только помеченные editorNew:
+    так нельзя стереть настоящую тему. У обычной — только прибрать лишние файлы (tidy)."""
+    folder = theme_dir("user", name)
+    if _read_meta(folder).get("editorNew") is True:
+        shutil.rmtree(folder)
+        return True
+    tidy(name)
+    return False
+
+
+def tidy(name: str) -> None:
+    """Убрать картинки фона и шрифты редактора, на которые theme.css больше не ссылается."""
+    folder = theme_dir("user", name)
+    try:
+        css = (folder / "theme.css").read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return
+    for path in folder.iterdir():
+        if _EDITOR_FILE.match(path.name) and path.name not in css:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def save_upload(name: str, what: str, raw: bytes) -> str:
+    """Картинка фона (what="image") или свой шрифт ("font") из редактора → файл в папке темы. Вернёт имя файла.
+    Тип узнаём по первым байтам, а не по имени: под видом картинки не положить что попало."""
+    folder = theme_dir("user", name)
+    if what == "image":
+        if len(raw) > MAX_BACKGROUND:
+            raise ValueError("картинка больше 6 МБ")
+        ext = ("jpg" if raw[:3] == b"\xff\xd8\xff" else "png" if raw[:8] == b"\x89PNG\r\n\x1a\n"
+               else "webp" if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP" else "")
+        prefix = "background"
+    elif what == "font":
+        if len(raw) > MAX_FONT:
+            raise ValueError("шрифт больше 3 МБ")
+        ext = ("ttf" if raw[:4] in (b"\x00\x01\x00\x00", b"true") else "otf" if raw[:4] == b"OTTO"
+               else "woff2" if raw[:4] == b"wOF2" else "woff" if raw[:4] == b"wOFF" else "")
+        prefix = "font"
+    else:
+        raise ValueError("такие файлы редактор не принимает")
+    if not ext:
+        raise ValueError("файл не похож на картинку" if what == "image" else "файл не похож на шрифт (ttf, otf, woff, woff2)")
+    file_name = f"{prefix}-{int(time.time() * 1000)}.{ext}"
+    (folder / file_name).write_bytes(raw)
+    return file_name
+
+
+def save_from_editor(name: str, data: dict, current: str) -> dict | None:
+    """«Сохранить» в редакторе: свой кусок theme.css + поля theme.json. Вернёт свежее описание темы."""
+    folder = theme_dir("user", name)
+    css = data.get("css")
+    if not isinstance(css, str) or len(css) > MAX_EDITOR_CSS:
+        raise ValueError("нет CSS темы или он слишком большой")
+    values = data.get("editor")
+    if not isinstance(values, dict) or len(json.dumps(values, ensure_ascii=False)) > MAX_EDITOR_META:
+        raise ValueError("нет настроек редактора")
+    # Метки внутри куска сломали бы его поиск в следующий раз
+    css = css.replace(EDITOR_START, "").replace(EDITOR_END, "").strip()
+    block = (f"{EDITOR_START} Этот кусок пишет редактор тем (Настройки → Оформление) и перезаписывает\n"
+             f"   при каждом сохранении. Свои правила добавляйте ВЫШЕ этой строки — их редактор не тронет. */\n"
+             f"{css}\n/* ==== {EDITOR_END}")
+    css_file = folder / "theme.css"
+    try:
+        old = css_file.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        old = ""
+    text = strip_editor_block(old).rstrip()
+    text = f"{text}\n\n{block}\n" if text else f"{block}\n"
+    if len(text.encode("utf-8")) > MAX_CSS:
+        raise ValueError("тема получилась больше 512 КБ")
+
+    meta = _read_meta(folder)
+    meta.pop("editorNew", None)
+    meta["part"] = "theme"
+    meta["name"] = _text(data.get("name"), 60) or meta.get("name") or name
+    for key, limit in (("author", 60), ("description", 300)):
+        if key in data:
+            meta[key] = _text(data.get(key), limit)
+    cover = data.get("coverColors")
+    if cover in COVER_MODES:
+        meta["coverColors"] = True if cover == "on" else False if cover == "off" else cover
+    raw_preview = data.get("preview")
+    preview = [c for c in map(_color, raw_preview) if c][:4] if isinstance(raw_preview, list) else []
+    if len(preview) == 4:
+        meta["preview"] = preview
+    meta["editor"] = values
+    meta.setdefault("sono", ">=0.9.3")
+
+    # Шрифт из встроенной темы — копия в эту тему (вместе с лицензией): тема должна жить сама по себе
+    for font_id in data.get("fonts") or []:
+        if font_id not in BUNDLED_FONTS:
+            continue
+        src_name, files = BUNDLED_FONTS[font_id]
+        for file_name in files:
+            target = folder / file_name
+            if not target.exists():
+                shutil.copyfile(BUILTIN_DIR / src_name / file_name, target)
+
+    _write_text(css_file, text)
+    _write_text(folder / "theme.json", json.dumps(meta, ensure_ascii=False, indent=2))
+    tidy(name)
+    return read_theme("user", name, current)

@@ -590,6 +590,7 @@ async function showCover(track) {
     lastCoverImg = null;
     resetCoverColors();
     setBackdrop(null);
+    document.documentElement.style.removeProperty("--cover-url");
     return;   // обложки нет — остаётся заглушка с нотой
   }
   if (state.current !== track) return;   // пока грузили, включили другой трек
@@ -597,6 +598,8 @@ async function showCover(track) {
   if (state.current !== track) return;
   coverEl.src = url;
   coverEl.classList.add("shown");
+  // Обложка для тем: background: var(--cover-url) — копии обложки в рамках, наклейках и т.п. (тема «Алукард»)
+  document.documentElement.style.setProperty("--cover-url", `url("${url.replace(/["\\\n]/g, encodeURIComponent)}")`);
   setBackdrop(blurredCover(img));
   applyCoverColors(img);
 }
