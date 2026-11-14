@@ -1,12 +1,15 @@
-// Визуализация на «Сейчас играет»: мягкие закруглённые столбики за плеером.
-// Высота — настоящий спектр звука (Web Audio, AnalyserNode): басы слева, верха справа.
-// Цвета — палитра обложки (несколько её цветов, переливом слева направо), к низу растворяются.
+// Визуализация на «Сейчас играет» — за плеером, снизу экрана. Пять видов на выбор (VIZ_STYLES):
+// «Капсулы» (закруглённые столбики), «Волна» (залитая кривая спектра), «Струна» (сама звуковая волна,
+// как осциллограф), «Рассвет» (лучи полукругом), «Искры» (огоньки летят вверх).
+// Движение — настоящий звук (Web Audio, AnalyserNode). Цвета — палитра обложки или выбранный набор.
 // Те же цвета обложки получает фон «Сейчас играет» (событие sono:cover-colors → nowbg.js).
-// Выключается в настройках (settings.visualizer).
+// Выключается в настройках (settings.visualizer), вид — settings.vizStyle. Тема может задать свой
+// вид строкой «:root { --viz-style: wave; }» — он действует, пока слушатель не выбрал вид сам.
 
 import { animFrame } from "./raf.js";
 import { analyserNode, audioContext, onAudioReady } from "./audio.js";
 import { getSetting, motionOff } from "./library.js";
+import { isMobile } from "./device.js";
 
 const audio = document.getElementById("player");
 const coverEl = document.getElementById("cover");
@@ -22,6 +25,45 @@ let palette = coverColors;   // чем красим сейчас: цвета о�
 let running = false;
 
 export const vizEnabled = () => getSetting("visualizer", true) !== false;
+
+// ---------- Вид визуализации (Настройки → Оформление) ----------
+// icon — маленькая картинка для плитки в настройках (цвет — currentColor)
+const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+export const VIZ_STYLES = [
+  { id: "bars", title: "Капсулы", hint: "Закруглённые столбики: басы слева, верха справа.",
+    icon: svg('<path d="M5 20v-6M9.7 20V8M14.3 20v-9M19 20v-4"/>') },
+  { id: "wave", title: "Волна", hint: "Плавная залитая кривая всех частот.",
+    icon: svg('<path d="M3 19c3 0 3-9 6-9s3 5 6 5 3-8 6-8"/><path d="M3 21h18" opacity=".4"/>') },
+  { id: "line", title: "Струна", hint: "Сама звуковая волна, как на экране осциллографа.",
+    icon: svg('<path d="M2 12c2-6 3-6 4.5 0s2.5 6 4 0 2.5-8 4 0 2.5 5 4 0 2-3 3.5 0"/>') },
+  { id: "sun", title: "Рассвет", hint: "Лучи полукругом снизу: басы в середине, верха по краям.",
+    icon: svg('<path d="M7 20a5 5 0 0 1 10 0M12 11V5M7.5 13.5 4 10M16.5 13.5 20 10M5 17.5H2M19 17.5h3"/>') },
+  { id: "dots", title: "Искры", hint: "Огоньки поднимаются снизу: на басах — быстрее и ярче.",
+    icon: svg('<circle cx="6" cy="17" r="1.6"/><circle cx="12" cy="9" r="2.2"/><circle cx="17.5" cy="15" r="1.3"/><circle cx="16" cy="5" r="1"/><circle cx="8" cy="5.5" r=".9"/>') },
+];
+const STYLE_IDS = VIZ_STYLES.map((s) => s.id);
+
+/** Вид, который задала тема строкой «--viz-style: …» (или null) */
+export function themeVizStyle() {
+  const v = getComputedStyle(canvas).getPropertyValue("--viz-style").trim();
+  return STYLE_IDS.includes(v) ? v : null;
+}
+/** Что выбрано в настройках: "theme" — как в теме (по умолчанию) или id вида */
+export const vizStyleSetting = () => {
+  const v = getSetting("vizStyle", "theme");
+  return STYLE_IDS.includes(v) ? v : "theme";
+};
+let style = "bars";   // чем рисуем сейчас
+function readStyle() {
+  const s = vizStyleSetting();
+  const next = s === "theme" ? themeVizStyle() ?? "bars" : s;
+  if (next !== style) { style = next; resetStyle(); }
+}
+/** Вид или тему поменяли — перечитать и перерисовать */
+export function applyVizStyle() {
+  readStyle();
+  refreshViz();
+}
 
 // ---------- Цвета на выбор (Настройки → Оформление) ----------
 // settings.vizColors: "cover" — по обложке (как было), id набора или { custom: ["#rrggbb", "#rrggbb"] }
@@ -262,7 +304,37 @@ function levels(ts, n = bars.length) {
     // Верха в музыке тише — чуть приподнимаем, чтобы правая часть тоже жила
     out[i] = Math.min(1, (v / 255) * (0.9 + (i / n) * 0.45));
   }
-  return out;
+  return stretch(out, ts);
+}
+
+// ---------- «Коридор» громкости песни ----------
+// Шкала децибел у анализатора одна на все песни. Громко сведённый трек (баг 14 ноября: bleood «peeley»)
+// держал столбики на 60–95 % высоты — они стояли «забором» и еле шевелились. Поэтому, как у маленьких
+// «эквалайзеров», каждая полоса меряется относительно своего коридора в этой песне: нижняя и верхняя
+// границы медленно подстраиваются (~0,1 в секунду). Немного исходного уровня оставляем, чтобы басы
+// всё равно были выше верхов — форма спектра не теряется. Коридор свой для каждого числа полос.
+const corridors = new Map();   // n → { lo, hi, at }
+const CORRIDOR_SPEED = 0.1;    // на сколько за секунду границы ползут навстречу звуку
+const CORRIDOR_MIN = 0.28;     // уже нельзя: в ровной полосе (тянущийся 808) раздувался бы шум
+
+function stretch(raw, ts) {
+  const n = raw.length;
+  let c = corridors.get(n);
+  if (!c) {
+    c = { lo: Float32Array.from(raw), hi: Float32Array.from(raw), at: ts };
+    corridors.set(n, c);
+  }
+  const step = Math.min(0.05, Math.max(0, (ts - c.at) / 1000) * CORRIDOR_SPEED);
+  c.at = ts;
+  for (let i = 0; i < n; i++) {
+    const v = raw[i];
+    c.lo[i] = Math.min(v, c.lo[i] + step);
+    c.hi[i] = Math.max(v, c.hi[i] - step);
+    const width = Math.max(CORRIDOR_MIN, c.hi[i] - c.lo[i]);
+    const norm = Math.min(1, Math.max(0, (v - c.lo[i]) / width));
+    raw[i] = v * 0.3 + norm * 0.7;
+  }
+  return raw;
 }
 
 /** Уровни n полос спектра прямо сейчас (0…1) — для живой полосы перемотки (seekviz.js). Пауза — нули */
@@ -272,6 +344,259 @@ let size = { W: 0, H: 0 };
 
 let needResize = false;
 
+/** Высоты полос с «инерцией»: растут быстро, опадают плавно и с замедлением. true — ещё что-то видно */
+function settle(target, lv) {
+  let alive = false;
+  for (let i = 0; i < target.length; i++) {
+    const v = lv[i] ?? 0, b = target[i];
+    target[i] = v > b ? b + (v - b) * 0.55 : Math.max(v, b - Math.max(0.008, (b - v) * 0.12));
+    if (target[i] > 0.004) alive = true;
+  }
+  return alive;
+}
+
+/** Соседние полосы немного сглаживаем — получается плавная «волна», а не частокол */
+const smooth = (raw) => raw.map((v, i) => (raw[i - 1] ?? v) * 0.22 + v * 0.56 + (raw[i + 1] ?? v) * 0.22);
+
+const hsl = ([h, s, l], dl = 0, a = 1) => `hsl(${h} ${s}% ${l + dl}% / ${a})`;
+
+/** Горизонтальный перелив палитры на всю ширину (для «Волны» и «Струны») */
+function paletteGradient(W, dl = 0, a = 1) {
+  const gr = g.createLinearGradient(0, 0, W, 0);
+  const steps = Math.max(2, palette.length);
+  for (let k = 0; k < steps; k++) gr.addColorStop(k / (steps - 1), hsl(colorAt(k / (steps - 1)), dl, a));
+  return gr;
+}
+
+// ---------- «Капсулы» ----------
+function drawBars(ts, W, H) {
+  const lv = smooth(levels(ts));
+  const n = bars.length;
+  const alive = settle(bars, lv);
+  const colW = W / n, w = Math.max(4, colW * 0.56), r = w / 2;
+  const base = H - 6, maxH = H * 0.9;
+  for (let i = 0; i < n; i++) {
+    const h = bars[i] * maxH;
+    if (h < 1) continue;
+    const c = colorAt(i / Math.max(1, n - 1));
+    const x = i * colW + (colW - w) / 2, top = base - Math.max(h, w);
+    // Капсула: к верху — насыщенный цвет обложки, к низу растворяется
+    const grad = g.createLinearGradient(0, top, 0, base);
+    grad.addColorStop(0, hsl(c, 8));
+    grad.addColorStop(0.55, hsl(c, 0, 0.75));
+    grad.addColorStop(1, hsl(c, -10, 0.08));
+    g.fillStyle = grad;
+    g.beginPath();
+    g.roundRect(x, top, w, base - top, [r, r, r * 0.4, r * 0.4]);
+    g.fill();
+  }
+  return alive;
+}
+
+// ---------- «Волна» ----------
+// Две кривые: спереди — сам спектр, сзади — его «эхо» (опадает медленнее), бледнее.
+let wave = [], waveEcho = [];
+
+/** Плавная кривая через точки (середины отрезков + quadraticCurveTo) */
+function curve(pts, startOnBase, H) {
+  g.beginPath();
+  if (startOnBase) g.moveTo(0, H);
+  pts.forEach(([x, y], i) => {
+    if (!i) { startOnBase ? g.lineTo(x, y) : g.moveTo(x, y); return; }
+    const [px, py] = pts[i - 1];
+    g.quadraticCurveTo(px, py, (px + x) / 2, (py + y) / 2);
+  });
+  const [lx, ly] = pts[pts.length - 1];
+  g.lineTo(lx, ly);
+  if (startOnBase) { g.lineTo(lx, H); g.closePath(); }
+}
+
+function drawWave(ts, W, H) {
+  const n = Math.max(20, Math.min(64, Math.round(W / 26)));
+  if (wave.length !== n) { wave = new Array(n).fill(0); waveEcho = new Array(n).fill(0); }
+  const lv = smooth(smooth(levels(ts, n)));
+  const alive = settle(wave, lv);
+  // Эхо держит вершины и опадает медленно
+  for (let i = 0; i < n; i++) waveEcho[i] = Math.max(wave[i], waveEcho[i] - 0.006);
+  if (!alive && waveEcho.every((v) => v < 0.004)) return false;
+  const base = H - 2, maxH = H * 0.85;
+  const toPts = (arr) => arr.map((v, i) => [(i / (n - 1)) * W, base - v * maxH]);
+  // Вертикальное растворение — маской холста (CSS), здесь только перелив по ширине
+  g.globalAlpha = 0.28;
+  g.fillStyle = paletteGradient(W, 6);
+  curve(toPts(waveEcho), true, H);
+  g.fill();
+  const front = toPts(wave);
+  const fill = g.createLinearGradient(0, base - maxH, 0, base);
+  fill.addColorStop(0, "rgba(0,0,0,0)");
+  fill.addColorStop(1, "rgba(0,0,0,0.55)");
+  g.globalAlpha = 0.7;
+  g.fillStyle = paletteGradient(W);
+  curve(front, true, H);
+  g.fill();
+  g.globalAlpha = 1;
+  g.fillStyle = fill;   // к низу темнее — объём
+  g.fill();
+  g.strokeStyle = paletteGradient(W, 14);
+  g.lineWidth = 2.5;
+  g.lineJoin = "round";
+  curve(front, false, H);
+  g.stroke();
+  return true;
+}
+
+// ---------- «Струна» ----------
+// Сама звуковая волна (не спектр). Чтобы не дрожала: смягчаем верха простым фильтром, начинаем
+// с места, где волна идёт вверх через ноль (как «синхронизация» у осциллографа), и смешиваем с прошлым кадром.
+let tbuf = null, line = null, lineGain = 0.25;
+
+function drawLine(ts, W, H) {
+  const pts = Math.max(90, Math.min(260, Math.round(W / 6)));
+  if (!line || line.length !== pts) line = new Float32Array(pts);
+  let amp = 0;
+  if (analyser && !audio.paused) {
+    if (!tbuf || tbuf.length !== analyser.fftSize) tbuf = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(tbuf);
+    // Громкость ползунка уже в звуке — делим обратно, чтобы струна была одинаковой на любой громкости
+    const vol = Math.max(audio.volume, 0.003);
+    // Оставляем басы и низ середины (фильтр дважды, ~280 Гц): с верхами линия превращалась в «ёжика»
+    const a = 1 - Math.exp((-2 * Math.PI * 280) / actx.sampleRate);
+    const N = tbuf.length;
+    let y = 0, y2 = 0;
+    for (let i = 0; i < N; i++) { y += a * (tbuf[i] / vol - y); y2 += a * (y - y2); tbuf[i] = y2; }
+    const span = Math.round(actx.sampleRate * 0.045);   // на экране — 45 мс звука: несколько волн баса
+    // Синхронизация: первый переход через ноль вверх во второй четверти записи
+    let start = Math.floor(N / 4);
+    for (let i = start; i < N - span - 1; i++) if (tbuf[i] <= 0 && tbuf[i + 1] > 0) { start = i; break; }
+    let peak = 0;
+    for (let k = 0; k < pts; k++) {
+      const v = tbuf[Math.min(N - 1, start + Math.floor((k / (pts - 1)) * span))];
+      peak = Math.max(peak, Math.abs(v));
+      line[k] = line[k] * 0.45 + v * 0.55;
+    }
+    // Своя «громкость» под песню: тихая и громкая одинаково заполняют экран
+    lineGain = peak > lineGain ? lineGain + (peak - lineGain) * 0.3 : Math.max(0.04, lineGain * 0.995);
+    amp = 1;
+  } else {
+    for (let k = 0; k < pts; k++) line[k] *= 0.85;   // пауза — струна успокаивается
+  }
+  const mid = H * 0.62, reach = H * 0.42;
+  let still = true;
+  const xy = [];
+  for (let k = 0; k < pts; k++) {
+    // К краям струна «закреплена» — затухает, как настоящая
+    const edge = Math.sin((k / (pts - 1)) * Math.PI) ** 0.6;
+    const v = Math.max(-1, Math.min(1, line[k] / (lineGain * 1.15))) * edge;
+    if (Math.abs(v) > 0.01) still = false;
+    xy.push([(k / (pts - 1)) * W, mid - v * reach]);
+  }
+  g.lineJoin = g.lineCap = "round";
+  // Мягкое свечение — та же линия толще и прозрачнее (shadowBlur на телефоне дорогой)
+  g.strokeStyle = paletteGradient(W, 6, 0.16);
+  g.lineWidth = 10;
+  curve(xy, false, H);
+  g.stroke();
+  g.strokeStyle = paletteGradient(W, 16);
+  g.lineWidth = 2.5;
+  g.stroke();
+  return amp > 0 || !still;
+}
+
+// ---------- «Рассвет» ----------
+let rays = [];
+
+function drawSun(ts, W, H) {
+  const half = Math.max(12, Math.min(28, Math.round(W / 60)));   // лучей на половину круга
+  if (rays.length !== half) rays = new Array(half).fill(0);
+  const lv = smooth(levels(ts, half));
+  const alive = settle(rays, lv);
+  const cx = W / 2, cy = H + 4;
+  const r0 = Math.min(W * 0.11, H * 0.3);
+  const reach = Math.min(H * 0.92 - r0, W * 0.5 - r0);
+  const n = half * 2;
+  const step = Math.PI / n;
+  const width = Math.max(3, Math.min(14, r0 * step * 1.4));
+  // Солнце: круг дышит басами
+  const bass = (rays[0] + rays[1] + rays[2]) / 3;
+  const sun = g.createRadialGradient(cx, cy, 0, cx, cy, r0 * (0.95 + bass * 0.25));
+  sun.addColorStop(0, hsl(colorAt(0), 12, 0.55));
+  sun.addColorStop(1, hsl(colorAt(0), 0, 0));
+  g.fillStyle = sun;
+  g.beginPath();
+  g.arc(cx, cy, r0 * (0.95 + bass * 0.25), Math.PI, 0);
+  g.fill();
+  g.lineCap = "round";
+  g.lineWidth = width;
+  for (let i = 0; i < n; i++) {
+    // Басы — в середине (наверху), верха — у горизонта, слева и справа одинаково
+    const k = i < half ? half - 1 - i : i - half;
+    const v = rays[k];
+    const ang = Math.PI + (i + 0.5) * step;
+    const cos = Math.cos(ang), sin = Math.sin(ang);
+    const a = r0 + width, b = a + 4 + v * reach;
+    const c = colorAt(k / Math.max(1, half - 1));
+    const gr = g.createLinearGradient(cx + cos * a, cy + sin * a, cx + cos * b, cy + sin * b);
+    gr.addColorStop(0, hsl(c, -6, 0.35));
+    gr.addColorStop(1, hsl(c, 10));
+    g.strokeStyle = gr;
+    g.beginPath();
+    g.moveTo(cx + cos * a, cy + sin * a);
+    g.lineTo(cx + cos * b, cy + sin * b);
+    g.stroke();
+  }
+  return alive;
+}
+
+// ---------- «Искры» ----------
+// Огоньки рождаются снизу, чем громче — тем чаще; басы разгоняют их и делают крупнее.
+// Цвет — по месту на экране (как перелив у столбиков). Цвета считаем раз за кадр — 12 оттенков.
+let sparks = [], sparkBass = 0;
+const SPARK_MAX = isMobile ? 70 : 150;
+
+function drawDots(ts, W, H) {
+  const playing = analyser && !audio.paused;
+  let bass = 0, loud = 0;
+  if (playing) {
+    readSpectrum(ts);
+    bass = Math.min(1, band(40, 160) * 1.05);
+    loud = Math.min(1, band(200, 6000) * 1.4);
+  }
+  // Удар — басы резко выше привычного уровня
+  const kick = Math.max(0, bass - sparkBass) * 3;
+  sparkBass += (bass - sparkBass) * 0.08;
+  const rate = playing ? (0.15 + loud * 1.6 + kick * 6) * (W / 1200) : 0;
+  let born = Math.floor(rate) + (Math.random() < rate % 1 ? 1 : 0);
+  while (born-- > 0 && sparks.length < SPARK_MAX) {
+    sparks.push({ x: Math.random() * W, y: H + 4, v: 0.5 + Math.random() * 0.9, r: 1.6 + Math.random() * 2.6 + kick * 3, ph: Math.random() * 6.3 });
+  }
+  const tones = Array.from({ length: 12 }, (_, k) => hsl(colorAt(k / 11), 12));
+  const boost = 1 + bass * 1.6 + kick * 3;
+  const next = [];
+  for (const p of sparks) {
+    p.y -= p.v * boost * (H / 420);
+    p.x += Math.sin(p.y * 0.03 + p.ph) * 0.35;
+    if (p.y < -8) continue;
+    next.push(p);
+    const life = Math.min(1, p.y / (H * 0.85));   // к верху гаснут
+    g.globalAlpha = Math.max(0, life) * (0.55 + bass * 0.45);
+    g.fillStyle = tones[Math.max(0, Math.min(11, Math.floor((p.x / W) * 12)))];
+    g.beginPath();
+    g.arc(p.x, p.y, p.r * (0.8 + bass * 0.5), 0, 6.2832);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+  sparks = next;
+  return sparks.length > 0;
+}
+
+/** Вид поменяли — забываем состояние прошлого, чтобы новый начинал с нуля */
+function resetStyle() {
+  wave = []; waveEcho = []; rays = []; sparks = []; line = null;
+  if (size.W) g.clearRect(0, 0, size.W, size.H);
+}
+
+const DRAW = { bars: drawBars, wave: drawWave, line: drawLine, sun: drawSun, dots: drawDots };
+
 function draw(ts) {
   // Размер меняем здесь, в начале кадра: изменение размера стирает холст, и если делать это
   // в ResizeObserver (он срабатывает уже после отрисовки), то пока панель анимируется
@@ -279,34 +604,7 @@ function draw(ts) {
   if (needResize) { needResize = false; resize(); }
   const { W, H } = size;
   g.clearRect(0, 0, W, H);
-  const raw = levels(ts);
-  const n = bars.length;
-  // Соседние полосы немного сглаживаем — получается плавная «волна», а не частокол
-  const lv = raw.map((v, i) => (raw[i - 1] ?? v) * 0.22 + v * 0.56 + (raw[i + 1] ?? v) * 0.22);
-  const colW = W / n, w = Math.max(4, colW * 0.56), r = w / 2;
-  const base = H - 6, maxH = H * 0.9;
-  let alive = false;
-
-  for (let i = 0; i < n; i++) {
-    // Растут быстро, опадают плавно и с замедлением
-    bars[i] = lv[i] > bars[i] ? bars[i] + (lv[i] - bars[i]) * 0.55 : Math.max(lv[i], bars[i] - Math.max(0.008, (bars[i] - lv[i]) * 0.12));
-    if (bars[i] > 0.004) alive = true;
-    const h = bars[i] * maxH;
-    if (h < 1) continue;
-
-    const [hue, s, l] = colorAt(i / Math.max(1, n - 1));
-    const x = i * colW + (colW - w) / 2, top = base - Math.max(h, w);
-    // Капсула: к верху — насыщенный цвет обложки, к низу растворяется
-    const grad = g.createLinearGradient(0, top, 0, base);
-    grad.addColorStop(0, `hsl(${hue} ${s}% ${l + 8}%)`);
-    grad.addColorStop(0.55, `hsl(${hue} ${s}% ${l}% / 0.75)`);
-    grad.addColorStop(1, `hsl(${hue} ${s}% ${l - 10}% / 0.08)`);
-    g.fillStyle = grad;
-    g.beginPath();
-    g.roundRect(x, top, w, base - top, [r, r, r * 0.4, r * 0.4]);
-    g.fill();
-  }
-
+  const alive = (DRAW[style] ?? drawBars)(ts, W, H);
   // Ушли с «Сейчас играет» (или выключили визуализацию) — не рисуем скрытый холст; вернутся — refreshViz запустит снова
   if (running && shouldRun() && (alive || !audio.paused)) animFrame(draw);
   else running = false;
@@ -328,6 +626,8 @@ export function initViz() {
   onAudioReady(attachAnalyser);
   audio.addEventListener("play", () => { refreshViz(); startEq(); });
   audio.addEventListener("playing", startEq);
+  // Новый трек — свой коридор громкости (громкий прошлый трек не должен «приплющивать» тихий)
+  audio.addEventListener("loadstart", () => corridors.clear());
   coverEl.addEventListener("load", () => {
     let found = null;
     try { found = coverPalette(coverEl); } catch {}
@@ -338,6 +638,10 @@ export function initViz() {
     document.dispatchEvent(new CustomEvent("sono:cover-colors", { detail: found }));
   });
   applyVizColors();
+  readStyle();
+  // Тема может задать свой вид (--viz-style): перечитываем, когда загрузился её theme.css или её выключили
+  document.head.addEventListener("load", applyVizStyle, true);
+  new MutationObserver(applyVizStyle).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-now-style"] });
   new ResizeObserver(() => { needResize = true; }).observe(canvas);
   // Экран «Сейчас играет» открыли/закрыли
   new MutationObserver(refreshViz).observe(document.body, { attributes: true, attributeFilter: ["class"] });

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import PyInstaller.__main__
 
-VERSION = "0.9.9"
+VERSION = "0.9.9.1"
 ROOT = Path(__file__).parent
 DIST = ROOT / "dist"
 # Файл программы — НЕ Sono.exe: в списке игр Discord есть игра «Sono» с правилом «sono/sono.exe»,
@@ -29,7 +29,8 @@ DIST = ROOT / "dist"
 EXE = "SonoMusic"
 
 # Описание файла: его показывают диспетчер задач и «Свойства» — там будет «Sono», а не имя файла
-nums = tuple(int(x) for x in VERSION.split(".")) + (0,)
+# Windows ждёт ровно 4 числа: 0.9.9 → (0, 9, 9, 0), подверсия 0.9.9.1 → (0, 9, 9, 1)
+nums = (tuple(int(x) for x in VERSION.split(".")) + (0, 0, 0, 0))[:4]
 (ROOT / "build").mkdir(exist_ok=True)
 VERSION_FILE = ROOT / "build" / "version_info.txt"
 VERSION_FILE.write_text(f"""VSVersionInfo(

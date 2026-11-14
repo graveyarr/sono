@@ -2236,6 +2236,15 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
 }
 .viz-swatch-dot svg { width: 18px; height: 18px; color: var(--muted); }
 .viz-swatch.on .viz-swatch-dot { box-shadow: 0 0 0 2px var(--bg, #121212), 0 0 0 4px rgb(var(--fg-rgb)); }
+/* Плеер для стрима (OBS): переключатель, а под ним — адрес и кнопки «скопировать» */
+.set-obs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 0 14px; }
+.set-obs-actions[hidden] { display: none; }
+.set-obs-actions .set-switch-sub { flex-basis: 100%; }
+.set-obs-actions .btn { border: 1px solid var(--line); }
+/* Вид визуализации: те же плитки, но внутри — маленькая картинка вида, а не цвет */
+.viz-style-dot { border-radius: 10px; background: rgb(var(--fg-rgb) / 0.05); }
+.viz-style-dot svg { width: 22px; height: 22px; }
+.viz-swatch.on .viz-style-dot svg, .viz-swatch:hover .viz-style-dot svg { color: var(--text); }
 .viz-pickers { display: flex; align-items: center; gap: 10px; }
 .viz-pickers[hidden] { display: none; }
 .viz-picker { width: 44px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; cursor: pointer; }

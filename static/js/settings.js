@@ -9,9 +9,10 @@ import { LYRICS_STYLES, lyricsStyle, setLyricsStyle } from "./lyrics.js";
 import { icons } from "./icons.js";
 import { getSetting, lib, likeTarget, likeTargetName, motionOff, setSetting } from "./library.js";
 import { setMinibarLarge, syncLikeButtons } from "./player.js";
-import { presenceEnabled, updatePresence } from "./presence.js";
+import { obsEnabled, presenceEnabled, setObsServer, updatePresence } from "./presence.js";
 import { confirmDialog, el, iconButton, openMenu, plural, syncAllRows, toast } from "./ui.js";
-import { VIZ_PRESETS, applyVizColors, paletteFor, refreshViz, vizColorsSetting, vizEnabled } from "./viz.js";
+import { VIZ_PRESETS, VIZ_STYLES, applyVizColors, applyVizStyle, paletteFor, refreshViz, themeVizStyle, vizColorsSetting,
+  vizEnabled, vizStyleSetting } from "./viz.js";
 import { showWelcome, startTour } from "./welcome.js";
 import { BACK_PLACES, backPlace, setBackPlace } from "./backbtn.js";
 import { systemSection } from "./system.js";
@@ -246,6 +247,7 @@ async function runTest() {
 // ---------- Раздел «Оформление»: визуализация и статус в Discord ----------
 
 let presenceInfo = null;   // { available, connected, error } — с сервера
+let obsInfo = null;        // { running, port, error } — плеер для стрима (OBS)
 
 function switchRow(title, text, on, onToggle) {
   const row = el("label", "set-switch");
@@ -292,9 +294,7 @@ function appearanceSection() {
   section.append(switchRow("Папки и фильтры в медиатеке",
     "Папки для плейлистов, подписки на исполнителей, поиск и сортировка над медиатекой. Выключите — будет простой список.",
     getSetting("libTools", true) !== false, (on) => setSetting("libTools", on)));
-  section.append(switchRow("Визуализация под музыку",
-    "Эквалайзер цветов обложки за экраном «Сейчас играет» — двигается по настоящему звуку.",
-    vizEnabled(), (on) => { setSetting("visualizer", on); refreshViz(); }));
+  section.append(vizStyleRow());
   section.append(vizColorsRow());
   section.append(nowBackgroundRow());
   section.append(choiceRow("Текст песни", LYRICS_STYLES, lyricsStyle, setLyricsStyle));
@@ -316,7 +316,51 @@ function appearanceSection() {
   section.append(switchRow("Статус в Discord",
     `Друзья видят, что вы слушаете: название, исполнитель, обложка. ${status}`,
     presenceEnabled(), (on) => { setSetting("discord", on); updatePresence(0); }));
+  section.append(obsRow());
   return section;
+}
+
+/** Плеер для стрима: маленькая карточка «что играет в Sono» для OBS (overlay.py, static/obs.html).
+    Адрес постоянный — его вписывают в OBS один раз. Ничего не играет — карточка показывает рекламу Sono */
+function obsRow() {
+  const box = el("div", "set-obs");
+  const addr = `http://127.0.0.1:${obsInfo?.port ?? 47800}/`;
+  const status = el("span", "set-switch-sub");
+  const drawStatus = (info) => {
+    status.textContent = !obsEnabled() ? ""
+      : info?.error ? `Не запустился: ${info.error}.`
+      : `Работает. В OBS: Источники → «+» → «Браузер», адрес ${addr}, ширина 460, высота 130.`;
+  };
+  box.append(switchRow("Плеер для стрима (OBS)",
+    "Маленькая карточка для угла экрана: обложка, название, исполнитель и «играет в sono.». "
+      + "Когда ничего не играет — реклама Sono.",
+    obsEnabled(), async (on) => {
+      setSetting("obs", on);
+      drawStatus(null);
+      obsInfo = await setObsServer(on);
+      drawStatus(obsInfo);
+      actions.hidden = !on;
+    }));
+  const actions = el("div", "set-obs-actions");
+  const copy = el("button", "btn ghost", "Скопировать адрес");
+  copy.type = "button";
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(addr); toast("Адрес скопирован — вставьте его в OBS"); }
+    catch { toast(`Адрес: ${addr}`); }
+  });
+  const right = el("button", "btn ghost", "Для правого края");
+  right.type = "button";
+  right.title = "Адрес, при котором карточка прижата к правому краю источника";
+  right.addEventListener("click", async () => {
+    const url = `${addr}?side=right`;
+    try { await navigator.clipboard.writeText(url); toast("Адрес для правого края скопирован"); }
+    catch { toast(`Адрес: ${url}`); }
+  });
+  actions.append(status, copy, right);
+  actions.hidden = !obsEnabled();
+  drawStatus(obsInfo);
+  box.append(actions);
+  return box;
 }
 
 // ---------- Темы и виды «Сейчас играет» (themes.js) ----------
@@ -549,12 +593,58 @@ function nowBackgroundRow() {
   return row;
 }
 
+/** Вид визуализации: плитки «Нет», «Как в теме» (если тема задала свой вид) и пять видов (viz.js VIZ_STYLES).
+    «Нет» — прежний выключатель settings.visualizer = false; вид — settings.vizStyle */
+function vizStyleRow() {
+  const row = el("div", "set-viz-colors set-viz-style");
+  const sub = el("span", "set-switch-sub");
+  const textBox = el("span", "set-switch-text");
+  textBox.append(el("span", "set-switch-title", "Визуализация под музыку"), sub);
+  const tiles = el("div", "viz-swatches");
+  const selected = () => (!vizEnabled() ? "off" : vizStyleSetting());
+  const choose = (id) => {
+    if (id === "off") setSetting("visualizer", false);
+    else { setSetting("visualizer", true); setSetting("vizStyle", id); }
+    applyVizStyle();
+    draw();
+  };
+  const draw = () => {
+    const themed = themeVizStyle();
+    let on = selected();
+    if (on === "theme" && !themed) on = "bars";   // тема своего вида не задала — значит «Капсулы»
+    const options = [
+      { id: "off", title: "Нет", hint: "Без визуализации за экраном «Сейчас играет».", icon: icons.close },
+      ...(themed ? [{ id: "theme", title: "Как в теме", hint: `Тема выбрала вид «${VIZ_STYLES.find((v) => v.id === themed).title}».`,
+        icon: icons.palette }] : []),
+      ...VIZ_STYLES,
+    ];
+    const cur = options.find((o) => o.id === on) ?? options[0];
+    sub.textContent = `${cur.hint} Двигается по настоящему звуку.`;
+    if (on === "off") sub.textContent = cur.hint;
+    tiles.replaceChildren(...options.map((o) => {
+      const b = el("button", `viz-swatch${o.id === on ? " on" : ""}`);
+      b.type = "button";
+      b.title = o.hint;
+      b.setAttribute("aria-label", o.title);
+      b.setAttribute("aria-pressed", String(o.id === on));
+      const dot = el("span", "viz-swatch-dot viz-style-dot");
+      dot.innerHTML = o.icon;
+      b.append(dot, el("span", "viz-swatch-name", o.title));
+      b.addEventListener("click", () => choose(o.id));
+      return b;
+    }));
+  };
+  draw();
+  row.append(textBox, tiles);
+  return row;
+}
+
 /** Цвета визуализации: кружки-образцы наборов + «Свои» (два цвета, перелив от первого ко второму) */
 function vizColorsRow() {
   const row = el("div", "set-viz-colors");
   const textBox = el("span", "set-switch-text");
   textBox.append(el("span", "set-switch-title", "Цвета визуализации"),
-    el("span", "set-switch-sub", "По умолчанию столбики берут цвета обложки. Можно выбрать свой набор — он не меняется от трека к треку."));
+    el("span", "set-switch-sub", "По умолчанию визуализация берёт цвета обложки. Можно выбрать свой набор — он не меняется от трека к треку."));
   const swatches = el("div", "viz-swatches");
   const pickers = el("div", "viz-pickers");
   const saved = vizColorsSetting();
@@ -1235,6 +1325,7 @@ export async function renderSettings() {
       netCard = data.card ?? null;
       strategies = Object.fromEntries(data.strategies);   // пары [способ, подпись] — в нужном порядке
       presenceInfo = await (await fetch("/api/presence")).json().catch(() => null);
+      obsInfo = await (await fetch("/api/obs/server")).json().catch(() => null);
     } catch {
       box.replaceChildren(el("p", "import-error", "Не получилось загрузить настройки"));
       return;

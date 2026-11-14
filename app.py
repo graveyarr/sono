@@ -32,6 +32,7 @@ import flow
 import importer
 import localfiles
 import netbypass
+import overlay
 import themes
 import workshop
 import zapret
@@ -2437,6 +2438,52 @@ def api_presence():
 
 
 SOURCES_TITLE = {"youtube": "YouTube", "soundcloud": "SoundCloud"}
+
+
+# ---------- Плеер для стрима, OBS (overlay.py) ----------
+
+@app.get("/api/obs/server")
+def api_obs_status():
+    return jsonify(running=overlay.running(), port=overlay.OBS_PORT, error=overlay.error)
+
+
+@app.post("/api/obs/server")
+def api_obs_server():
+    """{on: true/false} — включить/выключить маленький сервер с плеером для OBS"""
+    if _body().get("on"):
+        overlay.start()
+    else:
+        overlay.stop()
+        overlay.set_state(None)
+    return api_obs_status()
+
+
+@app.post("/api/obs")
+def api_obs():
+    """Что играет — для плеера в OBS: {source, id, title, artist, cover, position, duration, playing} или {clear: true}"""
+    data = _body()
+    if data.get("clear") or not valid(data.get("source"), str(data.get("id", ""))):
+        overlay.set_state(None)
+        return jsonify(ok=True)
+    source, track_id = data["source"], str(data["id"])
+    state = {"title": str(data.get("title") or "")[:200], "artist": str(data.get("artist") or "")[:200],
+             "source": SOURCES_TITLE.get(source, ""), "position": float(data.get("position") or 0),
+             "duration": float(data.get("duration") or 0), "playing": bool(data.get("playing")),
+             "speed": min(4.0, max(0.25, float(data.get("speed") or 1))), "cover": "", "key": f"{source}:{track_id}"}
+    with overlay._lock:   # тот же трек (перемотка, пауза → игра) — обложка уже найдена, не мигаем ею
+        if overlay._state.get("key") == state["key"]:
+            state["cover"] = overlay._state.get("cover", "")
+    overlay.set_state(state)
+    if state["cover"]:
+        return jsonify(ok=True)
+
+    def cover():   # страница OBS открыта с другого адреса — нужна обложка по открытому адресу (как для Discord)
+        url = _public_cover(source, track_id, data.get("cover"), data)
+        with overlay._lock:
+            if overlay._state.get("key") == state["key"]:
+                overlay._state["cover"] = url
+    threading.Thread(target=cover, daemon=True).start()
+    return jsonify(ok=True)
 
 
 # ---------- Flow: бесконечная подборка по вкусу (flow.py) ----------

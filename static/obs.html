@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Sono — плеер для стрима</title>
+<!-- Плеер для OBS (overlay.py, порт 47800): что играет в Sono, а если ничего — реклама Sono.
+     Фон прозрачный. Адрес для OBS: http://127.0.0.1:47800/ (ширина 460, высота 130).
+     ?side=right — прижать карточку к правому краю источника. Ни шрифтов, ни библиотек из интернета. -->
+<style>
+  :root {
+    --card: rgba(14, 14, 18, 0.86);
+    --line: rgba(255, 255, 255, 0.09);
+    --text: #f4f4f6;
+    --muted: rgba(244, 244, 246, 0.62);
+    --accent: #ff5c8a;
+    --accent2: #8b6cff;
+    --font: "Segoe UI", "Segoe UI Variable", Roboto, Arial, sans-serif;
+  }
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  body { font-family: var(--font); color: var(--text); padding: 10px; }
+  body.right { display: flex; justify-content: flex-end; }
+
+  .card {
+    position: relative;
+    display: flex; align-items: center; gap: 14px;
+    width: 420px; height: 104px; box-sizing: border-box;
+    padding: 10px 16px 10px 10px;
+    border-radius: 18px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px var(--line), 0 6px 24px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+  }
+  .mode { position: absolute; inset: 0; display: flex; align-items: center; gap: 14px; padding: inherit;
+          transition: opacity 0.5s ease, transform 0.5s ease; }
+  .mode.off { opacity: 0; transform: translateY(8px); pointer-events: none; }
+
+  /* --- Что играет --- */
+  .cover {
+    flex: none; width: 84px; height: 84px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2)) center / cover;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+    position: relative; overflow: hidden;
+  }
+  .cover img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity 0.4s; }
+  .cover img.none { opacity: 0; }
+  .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .top { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); letter-spacing: 0.02em; }
+  .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; }
+  .eq i { width: 3px; height: 100%; border-radius: 1px; background: var(--accent); transform-origin: bottom;
+          animation: eq 0.9s ease-in-out infinite; }
+  .eq i:nth-child(2) { animation-delay: -0.3s; } .eq i:nth-child(3) { animation-delay: -0.6s; }
+  @keyframes eq { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+  .paused .eq i { animation-play-state: paused; transform: scaleY(0.35); }
+  .logo { font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+  .clip { overflow: hidden; white-space: nowrap; padding-bottom: 0.1em; }
+  .clip span { display: inline-block; }
+  .clip.long span { animation: run var(--run, 10s) ease-in-out infinite alternate; }
+  @keyframes run { 0%, 15% { transform: translateX(0); } 85%, 100% { transform: translateX(var(--shift)); } }
+  .title { font-size: 18px; font-weight: 700; line-height: 1.2; }
+  .artist { font-size: 13.5px; color: var(--muted); line-height: 1.25; }
+  .bar { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11px; color: var(--muted);
+         font-variant-numeric: tabular-nums; }
+  .track { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
+  .fill { height: 100%; width: 0; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+  /* --- Реклама Sono --- */
+  .badge {
+    flex: none; width: 84px; height: 84px; border-radius: 20px; box-sizing: border-box;
+    display: grid; place-items: center;
+    /* В «sono.» только строчные буквы: место над ними пустое, и надпись по центру строки сидела
+       на ~0.16em ниже середины плитки. Отступ снизу поднимает её ровно в центр */
+    padding-bottom: 0.32em;
+    background: #000; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    font-size: 25px; font-weight: 700; letter-spacing: -0.02em; color: #fff;
+  }
+  .ad-title { font-size: 18px; font-weight: 700; line-height: 1.2; }
+  .ad-line { font-size: 13.5px; color: var(--muted); line-height: 1.3; height: 1.3em; position: relative; }
+  .ad-line span { position: absolute; left: 0; top: 0; white-space: nowrap; transition: opacity 0.6s, transform 0.6s; }
+  .ad-line span.off { opacity: 0; transform: translateY(6px); }
+  .ad-link { margin-top: 5px; font-size: 12px; color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="mode off" id="now">
+      <div class="cover"><img id="cover" class="none" alt=""></div>
+      <div class="info">
+        <div class="top"><span class="eq"><i></i><i></i><i></i></span><span id="state">играет в</span><span class="logo">sono.</span></div>
+        <div class="clip title" id="title"><span></span></div>
+        <div class="clip artist" id="artist"><span></span></div>
+        <div class="bar"><span id="pos">0:00</span><div class="track"><div class="fill" id="fill"></div></div><span id="dur">0:00</span></div>
+      </div>
+    </div>
+    <div class="mode" id="ad">
+      <div class="badge">sono.</div>
+      <div class="info">
+        <div class="ad-title">Музыка в Sono</div>
+        <div class="ad-line" id="adLine"></div>
+        <div class="ad-link">github.com/graveyarr/sono</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const params = new URLSearchParams(location.search);
+  if (params.get("side") === "right") document.body.classList.add("right");
+
+  const $ = (id) => document.getElementById(id);
+  const AD_LINES = ["Бесплатный плеер для компьютера", "YouTube и SoundCloud в одном окне", "Без рекламы и без подписки",
+    "Свои плейлисты, Flow и темы"];
+  const PAUSE_TO_AD = 6000;   // на паузе столько ждём, потом — реклама
+
+  // Строки рекламы сменяют друг друга
+  const adLine = $("adLine");
+  const adSpans = AD_LINES.map((t, i) => {
+    const s = document.createElement("span");
+    s.textContent = t;
+    if (i) s.className = "off";
+    adLine.append(s);
+    return s;
+  });
+  let adIndex = 0;
+  setInterval(() => {
+    adSpans[adIndex].className = "off";
+    adIndex = (adIndex + 1) % adSpans.length;
+    adSpans[adIndex].className = "";
+  }, 4000);
+
+  const fmt = (s) => {
+    s = Math.max(0, Math.floor(s || 0));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, "0");
+    return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+  };
+
+  /** Длинная строка ездит туда-обратно, короткая стоит */
+  function setClip(box, text) {
+    const span = box.firstElementChild;
+    if (span.textContent === text) return;
+    span.textContent = text;
+    box.classList.remove("long");
+    requestAnimationFrame(() => {
+      const extra = span.scrollWidth - box.clientWidth;
+      if (extra > 4) {
+        box.style.setProperty("--shift", `${-extra - 6}px`);
+        box.style.setProperty("--run", `${Math.max(6, extra / 18)}s`);
+        box.classList.add("long");
+      }
+    });
+  }
+
+  function show(mode) {
+    $("now").classList.toggle("off", mode !== "now");
+    $("ad").classList.toggle("off", mode !== "ad");
+  }
+
+  let data = null, gotAt = 0, pausedSince = 0, lastCover = "";
+
+  function render() {
+    if (!data || !data.title) { show("ad"); return; }
+    const now = performance.now();
+    if (data.playing) pausedSince = 0;
+    else if (!pausedSince) pausedSince = now;
+    if (pausedSince && now - pausedSince > PAUSE_TO_AD) { show("ad"); return; }
+    show("now");
+    $("now").classList.toggle("paused", !data.playing);
+    $("state").textContent = data.playing ? "играет в" : "на паузе в";
+    setClip($("title"), data.title);
+    setClip($("artist"), data.artist || data.source || "");
+    if (data.cover !== lastCover) {
+      lastCover = data.cover;
+      const img = $("cover");
+      img.className = "none";
+      if (data.cover) { img.onload = () => { img.className = ""; }; img.src = data.cover; }
+      else img.removeAttribute("src");
+    }
+    // Полоска едет плавно между опросами сервера
+    const pos = data.position + (data.playing ? ((now - gotAt) / 1000) * (data.speed || 1) : 0);
+    const dur = data.duration || 0;
+    $("pos").textContent = fmt(dur ? Math.min(pos, dur) : pos);
+    $("dur").textContent = fmt(dur);
+    $("fill").style.width = dur ? `${Math.min(100, (pos / dur) * 100)}%` : "0";
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch("/now", { cache: "no-store" });
+      data = await res.json();
+      gotAt = performance.now();
+    } catch {
+      data = null;   // Sono закрыли — показываем рекламу
+    }
+    setTimeout(poll, 1000);
+  }
+  poll();
+  setInterval(render, 250);
+</script>
+</body>
+</html>
