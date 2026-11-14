@@ -2,6 +2,7 @@
 // и экскурсия по интерфейсу — подсветка частей окна с подсказками.
 // Показывается один раз (settings.onboarded); снова — кнопкой в настройках.
 
+import { isMobile } from "./device.js";
 import { icons } from "./icons.js";
 import { openImportDialog } from "./import.js";
 import { getSetting, lib, setSetting } from "./library.js";
@@ -10,13 +11,16 @@ import { el, openModal, toast } from "./ui.js";
 
 // ---------- Приветствие ----------
 
-const STEPS = ["hello", "features", "network", "import", "tour"];
+// На телефоне шага про обход блокировок нет: там свой обход ломает SoundCloud, музыка идёт напрямую (под VPN)
+const STEPS = isMobile ? ["hello", "features", "import", "tour"] : ["hello", "features", "network", "import", "tour"];
 
 // Главные фишки — то, чего нет в обычных плеерах
 const FEATURES = [
   { icon: "censor", title: "Оригинал без цензуры", text: "Трек запикан или слова заменены? «⋯» → «Трек с цензурой» — Sono найдёт исходную версию." },
   { icon: "flow", title: "Flow под ваш вкус", text: "Бесконечная подборка. Учится на лайках и пропусках." },
-  { icon: "compass", title: "Работает без VPN", text: "Встроенный обход блокировок YouTube и SoundCloud." },
+  isMobile
+    ? { icon: "plus", title: "Перенос с Яндекса и Spotify", text: "Плейлисты и «Мне нравится» — по ссылке, за минуту." }
+    : { icon: "compass", title: "Работает без VPN", text: "Встроенный обход блокировок YouTube и SoundCloud." },
   { icon: "download", title: "Офлайн", text: "Скачивайте треки и плейлисты — играют без интернета." },
   { icon: "fx", title: "Slowed, reverb, басы", text: "Звуковые эффекты и эквалайзер прямо в плеере." },
   { icon: "note", title: "Тексты и клипы", text: "Текст песни строка за строкой и клип вместо обложки." },
@@ -61,7 +65,7 @@ export function showWelcome() {
       el("p", "", "Музыка с YouTube и SoundCloud в одном красивом плеере: без рекламы, без аккаунтов, с плейлистами, "
         + "текстами песен, бесконечным Flow и скачиванием для офлайна."),
       el("p", "welcome-muted", "Пара минут настройки — и всё будет работать как надо."),
-      nav("Начнём", () => go(1), { skip: "Пропустить" })];
+      nav("Начнём", () => go(step + 1), { skip: "Пропустить" })];
   }
 
   function features() {
@@ -75,7 +79,7 @@ export function showWelcome() {
       card.append(icon, body);
       grid.append(card);
     }
-    return [el("h2", "", "Что умеет Sono"), grid, nav("Дальше", () => go(2))];
+    return [el("h2", "", "Что умеет Sono"), grid, nav("Дальше", () => go(step + 1))];
   }
 
   function network() {
@@ -97,7 +101,7 @@ export function showWelcome() {
         + "Проверьте, какой способ быстрее у вашего провайдера, — это займёт до минуты."),
       el("p", "welcome-muted", "Если у вас скачан zapret, Sono может настроить и его — сам подберёт стратегию."),
       actions, result,
-      nav("Дальше", () => go(3))];
+      nav("Дальше", () => go(step + 1))];
   }
 
   function importStep() {
@@ -126,9 +130,10 @@ export function showWelcome() {
       el("p", "", "С Яндекс Музыки можно переехать целиком: «Мне нравится», плейлисты и любимые исполнители — одной ссылкой. "
         + "Отдельные плейлисты и альбомы переносятся по ссылке из Spotify, Яндекс Музыки, Apple Music, Deezer, "
         + "YouTube и SoundCloud — или просто списком «Исполнитель — Название» (например, из VK)."),
-      el("p", "welcome-muted", "Если вы уже пользовались Sono на другом компьютере — восстановите копию медиатеки."),
+      el("p", "welcome-muted", isMobile ? "Если вы уже пользовались Sono на компьютере — восстановите копию медиатеки (её делают в Настройках → «Медиатека»)."
+        : "Если вы уже пользовались Sono на другом компьютере — восстановите копию медиатеки."),
       actions,
-      nav("Дальше", () => go(4))];
+      nav("Дальше", () => go(step + 1))];
   }
 
   function tour() {
@@ -197,9 +202,19 @@ const TOUR = [
   { sel: "#nav-settings", title: "Настройки", text: "Обход блокировок, zapret, оформление, Discord и копия медиатеки. Это знакомство тоже можно повторить там." },
 ];
 
+// Телефон: медиатека, «Сейчас играет» и настройки — во вкладках и в плашке плеера снизу
+const TOUR_MOBILE = [
+  TOUR[0], TOUR[1], TOUR[2],
+  { sel: '.tab[data-tab="library"]', title: "Медиатека", text: "Избранное и ваши плейлисты. Там же «+» — новый плейлист или перенос по ссылке из Spotify, Яндекс Музыки и других сервисов." },
+  { sel: "#minibar-open", title: "Сейчас играет", text: "Нажмите на плашку — большая обложка, очередь, текст песни и звуковые эффекты (slowed + reverb, басы)." },
+  { sel: '.tab[data-tab="library"]', title: "Настройки", text: "В самом низу «Медиатеки»: оформление, кэш и копия медиатеки. Это знакомство тоже можно повторить там." },
+];
+
 export function startTour() {
   openView("home");
-  const steps = TOUR.filter((s) => !(document.body.classList.contains("sidebar-hidden") && s.sel.startsWith("#lib") ));
+  // Шаги, чьей части окна сейчас нет (скрыта медиатека; ничего не играет — нет плашки плеера), пропускаем
+  const steps = (isMobile ? TOUR_MOBILE : TOUR).filter((s) => !(document.body.classList.contains("sidebar-hidden") && s.sel.startsWith("#lib"))
+    && !(s.sel === "#minibar-open" && !document.body.classList.contains("has-track")));
   const layer = el("div", "tour");
   const hole = el("div", "tour-hole");
   const card = el("div", "tour-card");

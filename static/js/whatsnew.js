@@ -4,6 +4,7 @@
 // Новому пользователю не показываем (у него приветствие), из исходников (версии нет) — только по кнопке.
 
 import { CHANGELOG } from "./changelog.js";
+import { openExternal } from "./device.js";
 import { icons } from "./icons.js";
 import { getSetting, setSetting } from "./library.js";
 import { el, openModal } from "./ui.js";
@@ -44,7 +45,7 @@ export function showWhatsNew(entries = CHANGELOG.slice(0, 1)) {
   const buttons = el("div", "dialog-buttons");
   const all = el("button", "btn ghost", "Все выпуски на GitHub");
   all.type = "button";
-  all.addEventListener("click", () => fetch("/api/open-releases", { method: "POST" }).catch(() => {}));
+  all.addEventListener("click", () => openExternal("/api/open-releases").catch(() => {}));
   const ok = el("button", "btn primary", "Понятно");
   ok.type = "submit";
   buttons.append(all, ok);

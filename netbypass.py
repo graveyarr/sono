@@ -209,7 +209,9 @@ else:
         _splice = _libc.splice
         _splice.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint]
         _splice.restype = ctypes.c_ssize_t
-        FAKE_OK = sys.platform.startswith("linux") or hasattr(sys, "getandroidapilevel")
+        # На Android (проверено 10 ноября, Xiaomi, Android 13) подмена не срабатывает: до сервера доходит
+        # подделка вместо настоящих байтов → «SSL: INVALID_SESSION_ID». Пока не починим — там выключена
+        FAKE_OK = sys.platform.startswith("linux") and not hasattr(sys, "getandroidapilevel")
     except (OSError, AttributeError):
         FAKE_OK = False
 

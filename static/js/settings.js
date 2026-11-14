@@ -16,6 +16,7 @@ import { showWelcome, startTour } from "./welcome.js";
 import { BACK_PLACES, backPlace, setBackPlace } from "./backbtn.js";
 import { systemSection } from "./system.js";
 import { CHANGELOG } from "./changelog.js";
+import { isMobile, shareFile } from "./device.js";
 import { showWhatsNew } from "./whatsnew.js";
 import { chooseTheme, createTheme, currentThemeId, deleteTheme, loadThemes, onThemesChange, openThemesFolder, themeList, themesFolder } from "./themes.js";
 
@@ -261,10 +262,13 @@ function appearanceSection() {
   section.append(el("h2", "", "Оформление"));
   section.append(themesRow("theme"));
   section.append(themesRow("now"));
-  section.append(switchRow("Большой нижний плеер",
-    "Крупнее обложка, название и кнопки — удобнее, если плеер внизу нужен под рукой.",
-    !!getSetting("minibarLarge", false), (on) => { setSetting("minibarLarge", on); setMinibarLarge(on); }));
-  section.append(choiceRow("Кнопка «Назад»", BACK_PLACES, backPlace, setBackPlace));
+  // На телефоне нижний плеер — своя плашка над вкладками, а «Назад» — системная кнопка
+  if (!isMobile) {
+    section.append(switchRow("Большой нижний плеер",
+      "Крупнее обложка, название и кнопки — удобнее, если плеер внизу нужен под рукой.",
+      !!getSetting("minibarLarge", false), (on) => { setSetting("minibarLarge", on); setMinibarLarge(on); }));
+    section.append(choiceRow("Кнопка «Назад»", BACK_PLACES, backPlace, setBackPlace));
+  }
   // Медиатека как в Spotify: папки, фильтр «Плейлисты / Исполнители», поиск и сортировка (libtools.js)
   section.append(switchRow("Папки и фильтры в медиатеке",
     "Папки для плейлистов, подписки на исполнителей, поиск и сортировка над медиатекой. Выключите — будет простой список.",
@@ -275,8 +279,10 @@ function appearanceSection() {
   section.append(vizColorsRow());
   section.append(nowBackgroundRow());
   section.append(choiceRow("Текст песни", LYRICS_STYLES, lyricsStyle, setLyricsStyle));
-  section.append(switchRow("Без анимаций",
-    "Для слабых компьютеров: ничего не движется само — без плавных переходов, визуализации и живых фонов. "
+  section.append(switchRow("Без анимаций", isMobile
+    ? "Ничего не движется само — без плавных переходов, визуализации и живых фонов. "
+      + "Sono работает так же, только меньше нагружает телефон и бережёт батарею."
+    : "Для слабых компьютеров: ничего не движется само — без плавных переходов, визуализации и живых фонов. "
       + "Sono работает так же, только меньше нагружает компьютер.",
     motionOff(), (on) => { setSetting("reduceMotion", on); applyMotion(); refreshViz(); }));
   section.append(switchRow("Клипы вместо обложки",
@@ -284,6 +290,7 @@ function appearanceSection() {
       + "Берёт больше интернета (примерно 2–4 МБ в минуту).",
     clipsEnabled(), (on) => setClipsEnabled(on)));
 
+  if (isMobile) return section;   // Discord — программа для компьютера
   const p = presenceInfo;
   const status = !p ? "" : !p.available ? "Пока не подключено: нужен id приложения Discord (см. README)."
     : p.connected ? "Discord подключён." : `Discord не найден${p.error ? ` (${p.error})` : ""} — запустите его, плеер подключится сам.`;
@@ -301,6 +308,7 @@ const THEME_PARTS = {
     title: "Тема",
     sub: "Весь Sono: цвета, размеры, шрифт, вид и место кнопок, даже сами значки. Можно сделать свою — это обычный "
       + "CSS-файл в папке тем; Sono подхватывает изменения сразу, как только вы сохраните файл.",
+    subMobile: "Весь Sono: цвета, размеры, шрифт, вид и место кнопок, даже сами значки.",
     create: "Создать свою тему", newName: "Моя тема",
     created: (f) => `Тема «${f}» создана и включена — откройте theme.css в Блокноте и меняйте цвета`,
     builtin: "Встроенная", own: "Своя",
@@ -310,6 +318,7 @@ const THEME_PARTS = {
   now: {
     title: "Вид «Сейчас играет»",
     sub: "Раскладка и фон экрана «Сейчас играет» — отдельно от темы: любую тему можно сочетать с любым видом.",
+    subMobile: "Фон и украшения экрана «Сейчас играет» — отдельно от темы: любую тему можно сочетать с любым видом.",
     create: "Создать свой вид", newName: "Мой вид",
     created: (f) => `Вид «${f}» создан и включён — откройте theme.css в Блокноте`,
     builtin: "Встроенный", own: "Свой",
@@ -395,8 +404,19 @@ function themesRow(part) {
   const info = THEME_PARTS[part];
   const row = el("div", "set-themes");
   const textBox = el("span", "set-switch-text");
-  textBox.append(el("span", "set-switch-title", info.title), el("span", "set-switch-sub", info.sub));
+  // Свои темы — CSS-файлы в папке на компьютере; на телефоне до этой папки не добраться
+  textBox.append(el("span", "set-switch-title", info.title), el("span", "set-switch-sub", isMobile ? info.subMobile : info.sub));
   themesGrids[part] = el("div", "theme-grid");
+  if (isMobile) {
+    row.append(textBox, themesGrids[part]);
+    drawThemes(part);
+    if (!themesLoaded) {
+      themesLoaded = true;
+      onThemesChange(drawAllThemes);
+    }
+    if (part === "theme") loadThemes().then(drawAllThemes);
+    return row;
+  }
   const tools = el("div", "set-actions theme-tools");
   const create = el("button", "btn ghost", info.create);
   create.type = "button";
@@ -547,7 +567,8 @@ function likeTargetRow() {
   const row = el("div", "set-switch set-choice");
   const textBox = el("span", "set-switch-text");
   textBox.append(el("span", "set-switch-title", "Куда добавляет сердечко ♡"),
-    el("span", "set-switch-sub", "По умолчанию — в «Избранное». Можно выбрать любой свой плейлист: ♡ у трека и клавиша L будут класть туда."));
+    el("span", "set-switch-sub", "По умолчанию — в «Избранное». Можно выбрать любой свой плейлист: ♡ у трека"
+      + (isMobile ? " будет класть туда." : " и клавиша L будут класть туда.")));
   const pick = el("button", "btn ghost set-choice-btn", `${likeTargetName()} ▾`);
   pick.type = "button";
   pick.addEventListener("click", () => {
@@ -594,7 +615,7 @@ function playbackSection() {
   }
   fadeRow.append(text, seg);
   section.append(fadeRow, likeTargetRow());
-  section.append(switchRow("Закрывать в трей",
+  if (!isMobile) section.append(switchRow("Закрывать в трей",
     "Крестик прячет окно, а музыка играет дальше; значок Sono — у часов Windows (правой кнопкой — пауза, следующий, выход).",
     getSetting("closeToTray", true) !== false, (on) => {
       setSetting("closeToTray", on);
@@ -642,6 +663,12 @@ function updateSection() {
   poll();
   section.append(el("div", "set-label", "Программа"), appUpdateLine(), el("div", "set-label", "yt-dlp"));
   // Знакомство с программой — можно пройти ещё раз
+  section.append(line, el("div", "set-label", "Знакомство"), introButtons());
+  return section;
+}
+
+/** Кнопки «Что нового / Приветствие / Экскурсия» — пройти знакомство ещё раз */
+function introButtons() {
   const again = el("div", "set-actions");
   const welcome = el("button", "btn ghost", "Показать приветствие");
   welcome.type = "button";
@@ -653,7 +680,15 @@ function updateSection() {
   news.type = "button";
   news.addEventListener("click", () => showWhatsNew(CHANGELOG.slice(0, 3)));   // последние три версии
   again.append(news, welcome, tour);
-  section.append(line, el("div", "set-label", "Знакомство"), again);
+  return again;
+}
+
+/** Телефон: вместо «Обновлений» (yt-dlp и программа там обновляются только новой сборкой) — версия и знакомство */
+function aboutSection() {
+  const section = el("section", "set-card");
+  section.append(el("h2", "", "О программе"),
+    el("p", "set-text", `Sono ${CHANGELOG[0].version} для Android. Новая версия ставится поверх старой — медиатека остаётся.`),
+    el("div", "set-label", "Знакомство"), introButtons());
   return section;
 }
 
@@ -1022,14 +1057,16 @@ function browserSection() {
 function librarySection() {
   const section = el("section", "set-card");
   section.append(el("h2", "", "Медиатека"),
-    el("p", "set-text", "Резервная копия плейлистов, избранного и истории — одним файлом. С ним можно перенести всё на другой компьютер или восстановить после переустановки."));
+    el("p", "set-text", "Резервная копия плейлистов, избранного и истории — одним файлом. С ним можно перенести всё на другой компьютер или телефон или восстановить после переустановки."));
 
   const row = el("div", "set-actions");
-  const exportBtn = el("button", "btn primary", "Сохранить копию");
+  const exportBtn = el("button", "btn primary", isMobile ? "Отправить копию…" : "Сохранить копию");
   exportBtn.type = "button";
   const result = el("div", "set-result-line");
   exportBtn.addEventListener("click", async () => {
     const data = await (await fetch("/api/library/export", { method: "POST" })).json();
+    // Телефон: копию — в «Поделиться» (Telegram, Диск, «Файлы»), из папки приложения её не достать
+    if (isMobile) return shareFile(data.name, "Отправить копию медиатеки");
     result.replaceChildren(el("span", "", `Сохранено в «Загрузки»: ${data.name}`), revealButton(data.path));
   });
 
@@ -1077,7 +1114,15 @@ function render() {
   title.innerHTML = `<span class="set-title-icon">${icons.settings}</span>`;
   title.append(el("h1", "", "Настройки"));
   // Порядок разделов — от того, что меняют чаще, к тому, что настраивают один раз
-  const sections = [
+  // На телефоне нет папок с компьютера, трея, Windows, закладок браузера и zapret, а свой обход блокировок
+  // ломает SoundCloud (там музыка идёт напрямую, под VPN телефона) — эти разделы не показываем
+  const sections = isMobile ? [
+    ["Воспроизведение", icons.play, playbackSection()],
+    ["Оформление", icons.palette, appearanceSection()],
+    ["Медиатека", icons.album, librarySection()],
+    ["Кэш", icons.monitor, systemSection({ switchRow, choiceRow, mobile: true })],
+    ["О программе", icons.download, aboutSection()],
+  ] : [
     ["Воспроизведение", icons.play, playbackSection()],
     ["Оформление", icons.palette, appearanceSection()],
     ["Медиатека", icons.album, librarySection()],
@@ -1137,7 +1182,7 @@ function render() {
   };
   scroller.addEventListener("scroll", navSpy, { passive: true });
   navSpy();
-  if (zap.found === null && !zap.searching) findZapret();
+  if (!isMobile && zap.found === null && !zap.searching) findZapret();
 }
 
 export async function renderSettings() {

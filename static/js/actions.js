@@ -13,6 +13,7 @@ import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
 import { openAlbumAt, openArtist, splitArtists } from "./nav.js";
 import { playNext, queueLater, queueNext, returnToQueue, state } from "./player.js";
 import { confirmDialog, displayTrack, el, openMenu, plural, promptDialog, toast } from "./ui.js";
+import { openExternal } from "./device.js";
 
 const isCurrent = (track) => !!state.current && keyOf(state.current) === keyOf(track);
 
@@ -274,8 +275,8 @@ function trackMenuItems(track, ctx = {}) {
     const site = real.source === "youtube" ? "YouTube" : "SoundCloud";
     items.push({ label: "Скопировать ссылку", icon: icons.share, action: () => copyTrackLink(real) },
       { label: `Открыть на ${site}`, icon: sourceIcons[real.source],
-        action: () => fetch(`/api/open-link/${real.source}/${encodeURIComponent(real.id)}`, { method: "POST" })
-          .then((r) => { if (!r.ok) toast("Не получилось открыть", { error: true }); }) });
+        action: () => openExternal(`/api/open-link/${real.source}/${encodeURIComponent(real.id)}`)
+          .then((ok) => { if (!ok) toast("Не получилось открыть", { error: true }); }) });
   }
   if (ctx.playlistId) {
     items.push({ sep: true }, {

@@ -53,7 +53,9 @@ NETWORK_FILE = DATA_DIR / "network.json"
 # strategy — для YouTube и всего остального, strategySc — для SoundCloud (его замораживают иначе, см. netbypass.py),
 # fakeTtl — сколько «шагов» по сети проходит подделка (подбирает замер),
 # direct — «Мимо VPN»: соединения плеера идут прямо через сетевую карту, в обход адаптера VPN (netbypass.set_direct)
-NETWORK_DEFAULT = {"mode": "bypass", "strategy": "oob",
+# На телефоне (android/) встроенный обход пока не проверен — по умолчанию «Напрямую» (обычно с VPN)
+ANDROID = hasattr(sys, "getandroidapilevel")   # приложение для Android (папка android/, sono_android.py)
+NETWORK_DEFAULT = {"mode": "off" if ANDROID else "bypass", "strategy": "oob",
                    "strategySc": "fake" if netbypass.FAKE_OK else "oob", "fakeTtl": 4, "proxy": "", "direct": False}
 _network = dict(NETWORK_DEFAULT)
 _desync: netbypass.DesyncProxy | None = None
@@ -1365,6 +1367,11 @@ def api_import_cancel(job_id):
 EXPORT_DIR = Path.home() / "Downloads"
 if not EXPORT_DIR.is_dir():
     EXPORT_DIR = Path.home()
+if ANDROID:
+    # На телефоне «Загрузок» у приложения нет: файл кладём в свою папку, а страница сразу отдаёт его
+    # в системное «Поделиться» (MainActivity.shareFile → ShareProvider читает только из этой папки)
+    EXPORT_DIR = DATA_DIR / "export"
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 LIBRARY_LISTS = ("liked", "disliked", "history", "downloads")
 
 
@@ -1373,6 +1380,9 @@ def _safe_name(name: str) -> str:
 
 
 def _unique_path(name: str) -> Path:
+    if ANDROID:   # отправленное уже ушло через «Поделиться» — старые файлы не копим
+        for old in EXPORT_DIR.glob("*.json"):
+            old.unlink(missing_ok=True)
     path = EXPORT_DIR / name
     n = 2
     while path.exists():
@@ -2105,8 +2115,9 @@ def api_open_link(source, track_id):
         return jsonify(error=friendly_error(e)), 502
     if not re.match(r"^https://(www\.youtube\.com|soundcloud\.com)/", url):
         abort(400)
-    webbrowser.open(url)
-    return jsonify(ok=True)
+    if not ANDROID:   # на телефоне браузер открывает сама страница (SonoAndroid.openUrl) по адресу из ответа
+        webbrowser.open(url)
+    return jsonify(ok=True, url=url)
 
 
 @app.post("/api/instance/show")
@@ -2222,8 +2233,10 @@ def api_open_releases():
     Адрес фиксированный — страница не может попросить открыть что-то другое."""
     if not appupdate.REPO:
         return jsonify(error="Репозиторий не указан"), 400
-    webbrowser.open(f"https://github.com/{appupdate.REPO}/releases")
-    return jsonify(ok=True)
+    url = f"https://github.com/{appupdate.REPO}/releases"
+    if not ANDROID:
+        webbrowser.open(url)
+    return jsonify(ok=True, url=url)
 
 
 @app.post("/api/app-update/install")

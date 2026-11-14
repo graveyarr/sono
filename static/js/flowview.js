@@ -5,6 +5,7 @@
 // Музыка влияет мягко: басы сильнее раскачивают краску, громкие места чуть светлее — фон дышит, а не мигает.
 // Поверх — запуск, режимы, Flow по исполнителю и по плейлисту, что Flow уже выучил.
 
+import { animFrame } from "./raf.js";
 import { analyserNode } from "./audio.js";
 import { FLOW_MODES, FLOW_TUNE, flowTune, setFlowTune, tuneSummary, flowMode, flowPlaying, hasTaste, learnedSummary, resetLearning, seedTaste, setFlowMode, startFlow,
          tasteArtists, warmFlow } from "./flow.js";
@@ -437,8 +438,8 @@ function frame(ts, id) {
   if (gl) drawGL(warp, zoom, light);
   else draw2D(zoom, light);
   // «Без анимаций»: один неподвижный кадр (новый — при смене обложки, см. useCurrentCover)
-  if (motionOff()) { if (mix >= 1) running = false; else requestAnimationFrame((t) => frame(t, id)); return; }
-  requestAnimationFrame((t) => frame(t, id));
+  if (motionOff()) { if (mix >= 1) running = false; else animFrame((t) => frame(t, id)); return; }
+  animFrame((t) => frame(t, id));
 }
 
 function refreshAnim() {
@@ -448,7 +449,7 @@ function refreshAnim() {
     last = 0;
     needResize = true;
     const id = ++loop;
-    requestAnimationFrame((t) => frame(t, id));
+    animFrame((t) => frame(t, id));
   } else if (!want) {
     running = false;
   }

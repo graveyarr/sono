@@ -6,6 +6,7 @@
 // Был ещё вариант «Линии» (горизонтали, как на карте) — автору не понравился, убран; сохранённый выбор → «Свет».
 // Холст («Градиент») рисуется в половину разрешения и не чаще 30 раз в секунду, только пока открыт «Сейчас играет».
 
+import { animFrame } from "./raf.js";
 import { getSetting, motionOff, setSetting } from "./library.js";
 import { musicLevels } from "./viz.js";
 
@@ -177,21 +178,23 @@ function start() {
   const id = ++loop;
   running = true;
   lastFrame = 0;
-  requestAnimationFrame((t) => frame(t, id));
+  animFrame((t) => frame(t, id));
 }
 
 function frame(ts, id) {
   if (!running || id !== loop) return;
   // «Без анимаций»: свет не «дышит» под басы; для «Градиента» ниже рисуется один кадр
   if (motionOff() && nowBackground() !== "mesh") { running = false; glow.style.setProperty("--pulse", "0"); return; }
-  requestAnimationFrame((t) => frame(t, id));
+  animFrame((t) => frame(t, id));
   // Басы — мягко (сильно сглажено), чтобы не мигало
   const { bass = 0 } = musicLevels(ts) || {};
   const playing = !audio.paused;
   pulse += ((playing ? bass : 0) - pulse) * 0.06;
   // Только у свечения и только при заметной разнице: переменная на всём документе заставляла бы
   // браузер пересчитывать стили всей страницы каждый кадр
-  if (Math.abs(pulse - shownPulse) > 0.004) {
+  // На телефоне (body.mobile) свечение не «дышит»: каждый кадр видеокарта заново размывала бы большую
+  // картинку (blur 44px) — замер 10 ноября: 31–47 кадров/с вместо 106–120, рывки визуализатора
+  if (Math.abs(pulse - shownPulse) > 0.004 && !document.body.classList.contains("mobile")) {
     shownPulse = pulse;
     glow.style.setProperty("--pulse", pulse.toFixed(3));
   }

@@ -6,6 +6,7 @@
 import { EQ_BANDS, EQ_PRESETS, FX_PRESETS, fxActive, getFx, onFxChange, setFx } from "./audio.js";
 import { icons } from "./icons.js";
 import { el } from "./ui.js";
+import { isMobile } from "./device.js";
 
 let panel = null;
 let tab = "fx";
@@ -92,7 +93,8 @@ function eqTab(fx) {
   return [
     chips(EQ_PRESETS, (p) => sameEq(fx.eq, p.eq), (p) => setFx({ eq: p.eq })),
     bands,
-    el("p", "fx-hint", "Полосы в децибелах: слева басы, справа верха. Двойной щелчок по ползунку — в ноль."),
+    el("p", "fx-hint", "Полосы в децибелах: слева басы, справа верха. "
+      + (isMobile ? "«Ровно» — все полосы в ноль." : "Двойной щелчок по ползунку — в ноль.")),
   ];
 }
 

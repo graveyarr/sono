@@ -3,6 +3,7 @@
 // Сыгранная часть — цветом акцента, остальное — приглушённым. Сам ползунок остаётся под холстом
 // (прозрачным) — перемотка щелчком и перетаскиванием работает как раньше.
 
+import { animFrame } from "./raf.js";
 import { motionOff } from "./library.js";
 import { spectrumLevels } from "./viz.js";
 
@@ -60,7 +61,7 @@ function draw(ts) {
   if (++frame % 30 === 0) readColors();   // акцент меняется вместе с обложкой/темой
   const { W, H } = size;
   const n = bars.length;
-  if (!n || !W) { requestAnimationFrame(draw); return; }
+  if (!n || !W) { animFrame(draw); return; }
   const raw = spectrumLevels(n, ts);
   const playing = !audio.paused && raw.some((v) => v > 0.01);
   // Соседние полосы сглаживаем (волна, а не частокол); без звука — плавно к спокойной форме
@@ -88,7 +89,7 @@ function draw(ts) {
     g.roundRect(x, H - h, w, h, r);
     g.fill();
   }
-  requestAnimationFrame(draw);
+  animFrame(draw);
 }
 
 function refresh() {
@@ -101,7 +102,7 @@ function refresh() {
     running = true;
     readColors();
     resize();
-    requestAnimationFrame(draw);
+    animFrame(draw);
   } else if (!run) {
     running = false;
     if (on) { resize(); bars = idle.slice(); drawStill(); }

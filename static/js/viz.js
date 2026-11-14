@@ -4,6 +4,7 @@
 // Те же цвета обложки получает фон «Сейчас играет» (событие sono:cover-colors → nowbg.js).
 // Выключается в настройках (settings.visualizer).
 
+import { animFrame } from "./raf.js";
 import { analyserNode, audioContext, onAudioReady } from "./audio.js";
 import { getSetting, motionOff } from "./library.js";
 
@@ -204,13 +205,13 @@ function eqTick(ts) {
     // Не ниже 4 px: прижатые к низу палочки выглядели как сломанные чёрточки
     i.style.height = `${Math.round(4 + 10 * eqLevels[k % 3])}px`;
   });
-  requestAnimationFrame(eqTick);
+  animFrame(eqTick);
 }
 
 function startEq() {
   if (eqRunning || !analyser || audio.paused || motionOff()) return;   // «Без анимаций» — палочки стоят
   eqRunning = true;
-  requestAnimationFrame(eqTick);
+  animFrame(eqTick);
 }
 
 /** Уровни полос: частоты по логарифмической шкале, как слышит ухо */
@@ -274,7 +275,7 @@ function draw(ts) {
   }
 
   // Ушли с «Сейчас играет» (или выключили визуализацию) — не рисуем скрытый холст; вернутся — refreshViz запустит снова
-  if (running && shouldRun() && (alive || !audio.paused)) requestAnimationFrame(draw);
+  if (running && shouldRun() && (alive || !audio.paused)) animFrame(draw);
   else running = false;
 }
 
@@ -287,7 +288,7 @@ export function refreshViz() {
   if (!shouldRun() || running) return;
   running = true;
   resize();
-  requestAnimationFrame(draw);
+  animFrame(draw);
 }
 
 export function initViz() {

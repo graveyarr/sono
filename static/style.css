@@ -2524,10 +2524,15 @@ body.mobile {
   grid-template-rows: minmax(0, 1fr) auto auto;
   padding: 0; column-gap: 0;
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;   /* долгое нажатие — наше меню «⋯», а не «Сохранить картинку» */
 }
 body.mobile .glass { border-radius: 0; border: 0; }
 body.mobile .titlebar, body.mobile .sidebar-toggle { display: none; }
 body.mobile .main { grid-column: 1; background: rgb(var(--shade-rgb) / 0.2); }
+/* Затемнение краёв видно вокруг мини-плеера — в цвет темы (в «Светлой» иначе тёмная полоса) */
+body.mobile .bg-shade {
+  background: linear-gradient(to bottom, rgb(var(--shade-rgb) / 0.2), rgb(var(--shade-rgb) / 0.5));
+}
 /* Свечение за обложкой шире экрана — без этого появлялась прокрутка вбок */
 body.mobile .views { overflow-x: hidden; }
 
@@ -2536,7 +2541,7 @@ body.mobile .tabbar {
   grid-row: 3; grid-column: 1;
   display: grid; grid-template-columns: repeat(4, 1fr);
   padding: 4px 4px 6px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.75));
+  background: linear-gradient(to top, rgb(var(--shade-rgb) / 0.92), rgb(var(--shade-rgb) / 0.75));
   position: relative; z-index: 60;
 }
 .tab {
@@ -2555,7 +2560,7 @@ body.mobile .sidebar {
   grid-row: 1; grid-column: 1; z-index: 50;
   display: none;
   padding: 14px 10px 8px;
-  background: #080808;
+  background: color-mix(in srgb, var(--bg) 60%, rgb(var(--shade-rgb)));   /* в «Светлой» — светлый */
 }
 body.mobile.lib-open .sidebar { display: flex; animation: view-in 0.3s var(--ease); }
 body.mobile .sidebar > * { min-width: 0; }
@@ -2580,7 +2585,7 @@ body.mobile .minibar {
   margin: 0 6px;
   padding: 0 6px 0 2px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--tint) 70%, #000);
+  background: color-mix(in srgb, var(--tint) 70%, rgb(var(--shade-rgb)));
 }
 body.mobile.has-track:not(.on-now) .minibar,
 body.mobile.minibar-large.has-track:not(.on-now) .minibar {
@@ -2607,7 +2612,6 @@ body.mobile .view-now { padding: 18px 24px 20px; }
 body.mobile .np-stage { flex-direction: column; width: 100%; }
 body.mobile .deck { width: 100%; max-width: var(--deck); }
 body.mobile .deck.has-clip { max-width: none; }
-body.mobile .np-row { flex-wrap: nowrap; }
 body.mobile .info h1 { font-size: 22px; }
 body.mobile .controls .volume { display: none; }
 body.mobile .controls { grid-template-columns: auto 1fr auto; margin-top: 4px; }
@@ -2627,6 +2631,20 @@ body.mobile .up-next, body.mobile .lyrics {
   align-self: stretch;   /* иначе слой по высоте содержимого и по центру, а не во весь экран */
   background: rgb(var(--shade-rgb) / 0.97);
 }
+/* Крестик «из очереди» виден всегда (на компьютере — при наведении); снизу — кнопка «Свернуть» (mobile.js) */
+body.mobile .up-next-remove { opacity: 1; }
+body.mobile .up-next-scroll, body.mobile .lyrics-lines { padding-bottom: 72px; }
+.np-sheet-close { display: none; }
+body.mobile.show-queue .np-sheet-close, body.mobile.show-lyrics .np-sheet-close {
+  display: flex; align-items: center; gap: 6px;
+  position: absolute; left: 50%; bottom: 22px; z-index: 72; transform: translateX(-50%);
+  height: 44px; padding: 0 20px 0 14px;
+  border: 1px solid var(--line); border-radius: 22px;
+  background: rgb(var(--fg-rgb) / 0.16); color: var(--text);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  font: inherit; font-size: 14.5px; font-weight: 600;
+}
+.np-sheet-close svg { width: 20px; height: 20px; transform: rotate(90deg); }
 
 /* Строки треков: «⋯» видно всегда, мелкие колонки таблицы прячем */
 body.mobile .track { padding: 6px 4px; gap: 10px; }
@@ -2663,8 +2681,44 @@ body.mobile .view-settings { padding: 18px var(--pad) 32px; }
 body.mobile .set-choice { flex-wrap: wrap; }
 body.mobile .set-choice .set-switch-text { flex-basis: 100%; }
 body.mobile .set-card { padding-left: 16px; padding-right: 16px; }
+/* Оглавление настроек — одной строкой, листается пальцем вбок: в несколько строк оно занимало четверть экрана
+   и, прилипнув к верху, закрывало то, что под ним */
+body.mobile .set-nav {
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+  margin: 0 calc(-1 * var(--pad)); border-width: 0 0 1px; border-radius: 0;
+  padding: 6px var(--pad);
+}
+body.mobile .set-nav::-webkit-scrollbar { display: none; }
+body.mobile .set-nav-btn { height: 36px; }
 body.mobile .flowv-modes { grid-template-columns: 1fr; }
 body.mobile .flowv-title { font-size: 56px; }
+
+/* Под палец: пункты меню «⋯» выше (было 36 px), кнопки сдвига текста песни и шапки медиатеки крупнее */
+body.mobile .menu-item, body.mobile .menu-head { padding: 12px; font-size: 15px; }
+body.mobile .menu { max-width: calc(100vw - 24px); }
+body.mobile .lyrics-offset button { min-height: 36px; padding: 0 10px; }
+body.mobile #new-playlist { width: 40px; height: 40px; }
+body.mobile .lib-sort { height: 36px; }
+body.mobile .lib-tools .icon-btn.small { width: 36px; height: 36px; }
+/* «Сейчас играет»: кнопки (эффекты, таймер, текст…) — своей строкой под названием, а не сбоку:
+   сбоку они сжимали название в узкий столбик */
+body.mobile .np-row { flex-wrap: wrap; }
+body.mobile .np-actions { width: 100%; justify-content: space-between; margin: 8px -6px 0; }
+body.mobile .np-actions .icon-btn { width: 44px; height: 44px; }
+body.mobile .np-actions .icon-btn svg { width: 23px; height: 23px; }
+/* Окно звуковых эффектов — во всю ширину экрана, по центру */
+body.mobile .fx-panel { width: calc(100vw - 24px); }
+/* Плейлист: кнопок в ряд много — плотнее, чтобы «⋯» не уезжала за край */
+body.mobile .pl-actions { gap: 6px; }
+/* Альбом: список исполнителей — обычной строкой текста, а не кнопкой с текстом по центру */
+body.mobile .meta-artist-link { display: contents; }   /* кнопка без своей рамки — текст течёт дальше «· 2026 · …» */
+/* Импорт: окно у верха экрана — не прыгает по высоте при смене вкладок и не уходит под клавиатуру;
+   выбор «Авто / YouTube / SoundCloud» переносится, а не обрезается */
+body.mobile .dialog-backdrop:has(.import-dialog) { place-items: start center; padding-top: 16px; overflow-y: auto; }
+body.mobile .import-dialog .seg { flex-wrap: wrap; }
+
+/* Открыта клавиатура (mobile.js → kb-open): мини-плеер и вкладки прячем, место — результатам поиска */
+body.mobile.kb-open .minibar, body.mobile.kb-open .tabbar { display: none; }
 
 /* Уведомления и плашка обновления — над мини-плеером и вкладками */
 body.mobile .toasts { bottom: 140px; }

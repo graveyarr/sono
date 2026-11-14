@@ -1,6 +1,7 @@
 // «Поделиться плейлистом»: файлом (в «Загрузки») или коротким кодом, который можно отправить в мессенджере.
 // Друг вставляет код (или выбирает файл) в «+» → «Импорт…» → «Файл или код».
 
+import { isMobile, shareFile } from "./device.js";
 import { el, openModal, plural, toast } from "./ui.js";
 
 const PREFIX = "SONO1:";
@@ -62,7 +63,8 @@ export async function sharePlaylist(playlist) {
 
   const fileLine = el("div", "set-result-line");
   const row = el("div", "dialog-buttons");
-  const fileBtn = el("button", "btn ghost", "Сохранить файлом");
+  // На телефоне файл сразу уходит в системное «Поделиться»: в «Загрузки» приложение класть не может
+  const fileBtn = el("button", "btn ghost", isMobile ? "Отправить файлом…" : "Сохранить файлом");
   fileBtn.type = "button";
   fileBtn.addEventListener("click", async () => {
     const res = await fetch("/api/share/playlist", {
@@ -70,6 +72,10 @@ export async function sharePlaylist(playlist) {
       body: JSON.stringify({ name: playlist.name, tracks: playlist.tracks }),
     });
     const data = await res.json();
+    if (isMobile) {   // окно больше не нужно — дальше системное «Поделиться»
+      close();
+      return shareFile(data.name, "Отправить плейлист");
+    }
     const reveal = el("button", "btn ghost", "Показать в папке");
     reveal.type = "button";
     reveal.addEventListener("click", () => fetch("/api/reveal", {

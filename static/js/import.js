@@ -11,6 +11,7 @@ import { seedTaste } from "./flow.js";
 import { addLikedMany, createPlaylist, followMany, getSetting, setSetting } from "./library.js";
 import { decodeShared } from "./share.js";
 import { SOURCE_NAMES, el, imgUrl, openModal, plural, toast } from "./ui.js";
+import { isMobile } from "./device.js";
 
 // needsMatch — сервис отдаёт только названия, пары ищем на YouTube или SoundCloud
 const KINDS = [
@@ -225,7 +226,7 @@ function renderForm(box, close) {
   };
   // Enter в списке — новая строка, а Ctrl+Enter — запуск
   field.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.ctrlKey) box.requestSubmit(); });
-  field.focus();
+  if (!isMobile) field.focus();   // на телефоне клавиатура сразу закрыла бы пол-окна
 }
 
 // ---------- Плейлист, которым поделился друг (код или файл) ----------
@@ -271,7 +272,7 @@ function renderShareForm(box, close) {
   row.append(fileBtn, ok, picker);
   box.onsubmit = (e) => { e.preventDefault(); if (field.value.trim()) create(field.value); };
   box.append(field, errorText, row);
-  field.focus();
+  if (!isMobile) field.focus();   // на телефоне клавиатура сразу закрыла бы пол-окна
 }
 
 // ---------- Прогресс ----------
@@ -543,7 +544,7 @@ function renderYandexForm(box, close) {
       ok.textContent = "Найти мою музыку";
     }
   };
-  field.focus();
+  if (!isMobile) field.focus();   // на телефоне клавиатура сразу закрыла бы пол-окна
 }
 
 /** Что нашлось — человек снимает галочки с лишнего и запускает перенос */

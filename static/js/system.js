@@ -62,10 +62,10 @@ function usageLine(box, usage) {
   box.replaceChildren(el("div", "cache-total", `Всего: ${bytes(usage.total)}`), list);
 }
 
-function cacheBlock(choiceRow) {
+function cacheBlock(choiceRow, mobile = false) {
   const wrap = el("div", "set-cache");
-  wrap.append(el("p", "set-text", "Sono оставляет прослушанные треки на диске — второй раз они включаются мгновенно и без интернета. "
-    + "Чтобы папка не росла без конца, самые давние удаляются сами."));
+  wrap.append(el("p", "set-text", `Sono оставляет прослушанные треки ${mobile ? "в памяти телефона" : "на диске"} — `
+    + "второй раз они включаются мгновенно и без интернета. Чтобы папка не росла без конца, самые давние удаляются сами."));
   const usage = el("div", "cache-box", "Считаю, сколько занято…");
   const current = () => String(getSetting("cacheLimitGb", 5));
   const choose = async (id) => {
@@ -112,9 +112,14 @@ function cacheBlock(choiceRow) {
 
 // ---------- Сам раздел ----------
 
-/** helpers — switchRow/choiceRow из settings.js (передаём, чтобы не было круговых импортов) */
-export function systemSection({ switchRow, choiceRow }) {
+/** helpers — switchRow/choiceRow из settings.js (передаём, чтобы не было круговых импортов).
+    mobile — телефон: автозапуска с Windows и глобальных клавиш там нет, остаётся только кэш */
+export function systemSection({ switchRow, choiceRow, mobile = false }) {
   const section = el("section", "set-card");
+  if (mobile) {
+    section.append(el("h2", "", "Кэш"), cacheBlock(choiceRow, true));
+    return section;
+  }
   section.append(el("h2", "", "Система"));
 
   // Запуск вместе с Windows — сразу в трей
