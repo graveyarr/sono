@@ -562,6 +562,7 @@ body.back-in-panel:not(.mobile) .panel-back {
   background: rgb(var(--fg-rgb) / 0.1);
 }
 .panel-artist-photo img { width: 100%; height: 100%; object-fit: cover; }
+.panel-artist-photo.square { border-radius: 8px; }   /* альбом или плейлист по ссылке */
 .panel-artist-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .panel-artist-name { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .panel-artist-kind { font-size: 13px; color: var(--muted); }
@@ -683,6 +684,9 @@ body.playing .track.current:hover .t-eq { display: none; }
   min-height: 100%;
   display: flex; align-items: center; justify-content: center;
   padding: 8px var(--pad) 32px;
+  /* Подсветка из-за обложки (.np-glow, на 22% шире) в узком окне вылезала за край — появлялась прокрутка вбок.
+     clip, а не hidden: не делает свою прокрутку, вертикаль не трогает */
+  overflow-x: clip;
 }
 /* Плеер и «Далее» стоят рядом, вместе — по центру */
 /* min-width: 0 — иначе сцена не сжимается уже своего содержимого (широкий клип уезжал под медиатеку) */
@@ -1159,6 +1163,14 @@ body.on-flow .top { border-bottom-color: transparent; }
   transition: opacity 0.2s, transform 0.25s var(--ease), background-color 0.4s;
 }
 .tile-play svg { width: 20px; height: 20px; }
+/* Значок SoundCloud на обложке релиза, которого нет в Яндексе (artist.js releaseCard) */
+.release-src {
+  position: absolute; left: 8px; top: 8px;
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 50%; background: rgb(var(--shade-rgb) / 0.65);
+  pointer-events: none;
+}
+.release-src svg { width: 17px; height: 17px; }
 .home-tile:hover .tile-play { opacity: 1; transform: translateY(50%); }
 .tile-play:hover { transform: translateY(50%) scale(1.08) !important; }
 
@@ -3295,3 +3307,21 @@ body.theme-editing .theme-grid { pointer-events: none; opacity: 0.5; }
 body.mobile .view-workshop { padding: 18px var(--pad) 32px; }
 body.mobile .ws-cats { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 body.mobile .ws-cat, body.mobile .ws-act.small { height: 36px; }
+
+/* «Рекомендуемые» под своим плейлистом (recs.js) */
+.pl-recs { margin-top: 34px; }
+.pl-recs-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.pl-recs-head .meta-h { margin: 0; }
+.pl-recs-sub { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); }
+.pl-recs-again { margin: 0; white-space: nowrap; }
+.pl-recs-again:disabled { opacity: 0.5; cursor: default; }
+.pl-recs-list { margin: 0; padding: 0; list-style: none; }
+.pl-recs-note { margin: 6px 2px 0; font-size: 13.5px; color: var(--faint); }
+.pl-recs.loading .pl-recs-note::before {
+  content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 8px; vertical-align: -1px;
+  border: 2px solid rgb(var(--fg-rgb) / 0.25); border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.track .pl-recs-add { opacity: 1; border: 1px solid var(--line); }
+.track .pl-recs-add:hover { border-color: rgb(var(--fg-rgb) / 0.6); }
+body.mobile .track .pl-recs-add { opacity: 1; }   /* на телефоне кнопки строк спрятаны — «+» нужен всегда */

@@ -66,9 +66,13 @@ const MOVES = {
 };
 let moveSvc = "yandex";
 
-/** onOpen(playlistId) — что делать по кнопке «Открыть плейлист»; yandex — сразу открыть «Переезд из Яндекс Музыки» */
-export function openImportDialog({ onOpen, yandex = false } = {}) {
+let prefillUrl = "";   // ссылка из строки поиска — окно откроется с ней
+
+/** onOpen(playlistId) — что делать по кнопке «Открыть плейлист»; yandex — сразу открыть «Переезд из Яндекс Музыки»;
+    url — ссылка на плейлист (вставили в поиск): окно сразу с ней, остаётся нажать «Импортировать» */
+export function openImportDialog({ onOpen, yandex = false, url = "" } = {}) {
   onOpenPlaylist = onOpen;
+  if (url && !(job && job.status === "running")) { mode = "link"; prefillUrl = url; result = null; }
   if (yandex) { mode = "yandex"; moveSvc = "yandex"; yandexProfile = null; }
   else if (mode === "yandex" || mode === "files") mode = "link";   // в прошлый раз закрыли окно на переезде — обычный импорт с начала
   match = getSetting("importMatch", "auto");
@@ -142,6 +146,7 @@ function renderForm(box, close) {
     box.append(move, fromSc, fromFiles);
     field = el("input", "dialog-input");
     field.placeholder = "https://music.yandex.ru/users/…/playlists/…";
+    field.value = prefillUrl;
   } else {
     box.append(el("p", "", "По строке на трек: «Исполнитель — Название». Или вставьте целиком страницу с музыкой — "
       + "Sono сам найдёт в ней названия, исполнителей и длительность."));
@@ -226,7 +231,8 @@ function renderForm(box, close) {
   };
   // Enter в списке — новая строка, а Ctrl+Enter — запуск
   field.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.ctrlKey) box.requestSubmit(); });
-  if (!isMobile) field.focus();   // на телефоне клавиатура сразу закрыла бы пол-окна
+  if (prefillUrl && mode === "link") { prefillUrl = ""; ok.focus(); }   // ссылка уже вписана — фокус на «Импортировать»
+  else if (!isMobile) field.focus();   // на телефоне клавиатура сразу закрыла бы пол-окна
 }
 
 // ---------- Плейлист, которым поделился друг (код или файл) ----------

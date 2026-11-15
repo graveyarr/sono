@@ -30,6 +30,7 @@ import artists
 import discord_rpc
 import flow
 import importer
+import linkinfo
 import localfiles
 import netbypass
 import overlay
@@ -37,7 +38,15 @@ import themes
 import workshop
 import zapret
 
-from paths import BASE_DIR, DATA_DIR   # где данные: %LOCALAPPDATA%\Sono у .exe, рядом с кодом — из исходников
+# Консоль Windows (cp1251) не умеет печатать «→», «ó» и т. п. — print падал и ронял весь запрос
+# (имя исполнителя «Sigur Rós» в журнале). Такие знаки печатаются как «?»
+for _out in (sys.stdout, sys.stderr):
+    try:
+        _out.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+from paths import BASE_DIR, DATA_DIR  # где данные: %LOCALAPPDATA%\Sono у .exe, рядом с кодом — из исходников
 CACHE_DIR = DATA_DIR / "cache"          # сюда сохраняется скачанное аудио
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 COVER_DIR = CACHE_DIR / "covers"        # сюда сохраняются обложки
@@ -1737,6 +1746,21 @@ def api_track_by_url():
         return jsonify(error=friendly_error(e)), 502
 
 
+@app.get("/api/link")
+def api_any_link():
+    """Ссылка из любого сервиса (Spotify, Яндекс, Apple, Deezer, YouTube, SoundCloud) → что это (linkinfo.py)."""
+    url = request.args.get("url", "")[:2000]
+    if not linkinfo.is_link(url):
+        return jsonify(error="Это не ссылка на музыку"), 400
+    try:
+        return jsonify(linkinfo.describe(url, search, track_by_url, lambda u: sc_api("/resolve", url=u)))
+    except ValueError as e:
+        return jsonify(error=str(e)), 404
+    except Exception as e:
+        print(f"[link] {url}: {e}")
+        return jsonify(error=friendly_error(e)), 502
+
+
 # Ссылки, пришедшие из браузера (sono://add?url=…): desktop.py кладёт их сюда, страница забирает
 _incoming: list[str] = []
 
@@ -2645,7 +2669,8 @@ def _meta_call(fn, *args):
     try:
         return jsonify(fn(*args))
     except LookupError:
-        abort(404)
+        # Текстом, а не страницей Flask: страница читает ответ как JSON и показывает error
+        return jsonify(error="В базе такого нет — возможно, его удалили"), 404
     except Exception as e:
         print(f"[meta] {fn.__name__}{args}: {e}")
         # Называем тот сайт, что не ответил (раньше всегда писали «Deezer», даже если упал Яндекс)
@@ -2756,6 +2781,7 @@ def sc_artist(uid: int) -> dict:
     jobs = {name: _SC_POOL.submit(sc_api, path, **params) for name, path, params in [
         ("user", f"/users/{uid}", {}), ("top", f"/users/{uid}/toptracks", {"limit": 30}),
         ("latest", f"/users/{uid}/tracks", {"limit": 20}), ("related", f"/users/{uid}/relatedartists", {"limit": 12})]}
+    releases_job = _SC_POOL.submit(sc_releases, uid)
     user = jobs["user"].result()
     part = lambda name: (lambda d: d.get("collection") or [])(_safe_result(jobs[name]))
     since = time.strftime("%Y-%m-%d", time.localtime(time.time() - 90 * 86400))
@@ -2766,7 +2792,7 @@ def sc_artist(uid: int) -> dict:
             # в популярных бывают репосты чужих треков — оставляем только свои
             "top": _sc_tracks([t for t in part("top") if (t.get("user") or {}).get("id") == uid]),
             "latest": _sc_tracks(latest),
-            "releases": [], "related": [_sc_card(u) for u in part("related") if u.get("id")],
+            "releases": _safe_result(releases_job, []), "related": [_sc_card(u) for u in part("related") if u.get("id")],
             "bio": (user.get("description") or "").strip()[:3000], "bioSource": "SoundCloud" if user.get("description") else "",
             "link": user.get("permalink_url")}
 
@@ -2797,13 +2823,197 @@ def sc_new_releases(ids: list[int], days: int = 90) -> list[dict]:
     return out
 
 
+# ---------- Альбомы SoundCloud ----------
+# В Яндексе есть не все альбомы (особенно у андеграунда). Альбомы и EP с SoundCloud показываем на странице
+# артиста SoundCloud, а на странице исполнителя из Яндекса — только те, которых в Яндексе нет, и только если
+# на SoundCloud точно нашёлся тот же артист (у многих есть тёзки, архивы и перезаливщики с тем же именем).
+# id альбома — «scp<номер>», трек, который на SoundCloud не играет (DRM, отрывок), — «scm<номер>»: его,
+# как трек Deezer, Sono ищет на YouTube.
+
+SC_RELEASE_TYPES = {"album", "ep", "single", "compilation"}
+_sc_memo: dict[str, tuple[float, object]] = {}   # недолгая память ответов: страница → альбом → назад
+
+
+def _sc_cached(path: str, ttl: int = 3600, **params):
+    key = path + json.dumps(params, sort_keys=True)
+    hit = _sc_memo.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    data = sc_api(path, **params)
+    _sc_memo[key] = (time.time(), data)
+    while len(_sc_memo) > 300:
+        try:
+            _sc_memo.pop(next(iter(_sc_memo)))
+        except (StopIteration, KeyError, RuntimeError):
+            break
+    return data
+
+
+def _sc_date(p: dict) -> str:
+    return (p.get("release_date") or p.get("display_date") or p.get("published_at") or p.get("created_at") or "")[:10]
+
+
+def sc_releases(uid: int) -> list[dict]:
+    """Альбомы, EP и синглы артиста SoundCloud (новые сверху, без повторов)."""
+    seen, out = set(), []
+    for p in _sc_cached(f"/users/{uid}/albums", limit=50).get("collection") or []:
+        kind = p.get("set_type") or "album"
+        if kind not in SC_RELEASE_TYPES or not p.get("id") or not p.get("track_count"):
+            continue
+        key = (artists._norm(p.get("title")), kind)
+        if key in seen:   # бывает, что один и тот же релиз выложен дважды
+            continue
+        seen.add(key)
+        date, art = _sc_date(p), p.get("artwork_url")
+        out.append({"id": f"scp{p['id']}", "title": p.get("title"), "year": date[:4], "date": date, "type": kind,
+                    "cover": _sc_picture(art, "t300x300"), "coverLarge": _sc_picture(art, "t500x500"),
+                    "tracks": p.get("track_count"), "artist": (p.get("user") or {}).get("username"),
+                    "source": "soundcloud"})
+    out.sort(key=lambda r: r["date"], reverse=True)
+    return out
+
+
+def sc_album(pid: int) -> dict:
+    """Альбом SoundCloud: настоящие треки SoundCloud; те, что там не играют, — треками «из базы»."""
+    p = _sc_cached(f"/playlists/{pid}")
+    raw = [t for t in p.get("tracks") or [] if t.get("id")]
+    # В ответе полностью описаны только первые треки, у остальных — один номер: дочитываем по 50
+    stubs = [t["id"] for t in raw if not t.get("title")]
+    full = {}
+    for i in range(0, len(stubs), 50):
+        got = sc_api("/tracks", ids=",".join(map(str, stubs[i:i + 50])))
+        for t in got if isinstance(got, list) else got.get("collection") or []:
+            full[t.get("id")] = t
+    user = p.get("user") or {}
+    title, album_id = p.get("title") or "", f"scp{pid}"
+    tracks = []
+    for t in raw:
+        t = full.get(t["id"], t)
+        if not t.get("title"):
+            continue
+        track, why = importer._sc_track(t, MAX_DURATION)
+        owner = t.get("user") or user
+        if track:
+            tracks.append({**track, "album": title, "albumId": album_id,
+                           "artistRefs": [{"id": f"sc:{owner.get('id')}", "name": owner.get("username")}]})
+        elif "длиннее" not in why:   # DRM, отрывок, закрыт в стране — найдём на YouTube
+            name = importer.sc_pub_artist(t) or owner.get("username") or ""
+            art = t.get("artwork_url") or p.get("artwork_url")
+            tracks.append({"source": "meta", "id": f"scm{t['id']}", "title": t.get("title"), "origTitle": t.get("title"),
+                           "artists": name, "channel": name, "artistId": None, "duration": (t.get("duration") or 0) / 1000,
+                           "cover": _sc_picture(art, "t300x300"), "coverLarge": _sc_picture(art, "t500x500"),
+                           "album": title, "albumId": album_id, "available": True})
+    date, art = _sc_date(p), p.get("artwork_url")
+    return {"id": album_id, "title": title, "year": date[:4], "date": date, "type": p.get("set_type") or "album",
+            "cover": _sc_picture(art, "t300x300"), "coverLarge": _sc_picture(art, "t500x500"),
+            "tracks": tracks, "likes": p.get("likes_count"), "source": "soundcloud",
+            "artist": {"id": f"sc:{user['id']}" if user.get("id") else None, "name": user.get("username")},
+            "label": p.get("label_name") or ""}
+
+
+def _title_keys(title: str) -> set[str]:
+    """Название для сравнения: без «(prod. …)», «[Deluxe]», «feat.»; у SoundCloud часто «артист - песня» —
+    берём и целиком, и часть после « - ». Совсем короткие («intro», «1») не годятся: совпадут у кого угодно."""
+    t = re.sub(r"[(\[{].*?[)\]}]", " ", str(title or "").lower())
+    t = re.sub(r"\s(feat|ft|prod)\.?\s.*$", " ", t)
+    keys = {artists._norm(t)}
+    if " - " in t:
+        keys.add(artists._norm(t.split(" - ", 1)[1]))
+    return {k for k in keys if len(k.replace(" ", "")) >= 4 and k not in ("intro", "outro", "interlude", "skit")}
+
+
+# Латинские буквы, похожие на русские: настоящий Скриптонит на SoundCloud подписан «Cкриптoнит» (C и o — латинские)
+_LOOKALIKE = str.maketrans("aceopxykmthb", "асеорхукмтнв")
+
+
+def _same_look(a: str | None, b: str | None) -> bool:
+    """Одно и то же имя, даже если часть букв — похожие латинские."""
+    return artists._same_name(a, b) or artists._same_name(str(a or "").lower().translate(_LOOKALIKE),
+                                                          str(b or "").lower().translate(_LOOKALIKE))
+
+
+_sc_twin: dict[int, tuple[float, int | None]] = {}   # исполнитель Яндекса → артист SoundCloud (или None)
+
+
+def sc_twin(a: dict) -> int | None:
+    """Тот же артист на SoundCloud для исполнителя из Яндекса. Берём только того из тёзок, у кого совпадает
+    хотя бы одно название песни или альбома (подписчики не важны — подходит и совсем маленький артист);
+    ни у кого не совпало — галочка «подтверждён» у единственного тёзки. Сомневаемся — ничего (None)."""
+    hit = _sc_twin.get(a["id"])
+    if hit and time.time() - hit[0] < 24 * 3600:
+        return hit[1]
+    name = a.get("name") or ""
+    found = _sc_cached("/search/users", q=name, limit=20).get("collection") or []
+    twins = [u for u in found if u.get("id") and any(_same_look(n, name) for n in (u.get("username"), u.get("permalink")) if n)]
+    # Сначала подтверждённые и большие: дальше смотрим только пятерых
+    twins = sorted(twins, key=lambda u: (bool(u.get("verified")), u.get("followers_count") or 0), reverse=True)[:5]
+    ours = set()
+    for x in (a.get("top") or []) + (a.get("releases") or []):
+        ours |= _title_keys(x.get("title"))
+    jobs = {u["id"]: (_SC_POOL.submit(_sc_cached, f"/users/{u['id']}/albums", limit=50),
+                      _SC_POOL.submit(_sc_cached, f"/users/{u['id']}/tracks", limit=50)) for u in twins}
+    scored = []
+    for u in twins:
+        theirs = set()
+        for job in jobs[u["id"]]:
+            for x in _safe_result(job).get("collection") or []:
+                theirs |= _title_keys(x.get("title"))
+        scored.append((len(ours & theirs), u.get("followers_count") or 0, u))
+    scored.sort(key=lambda s: (s[0], s[1]), reverse=True)
+    uid = None
+    verified = [s for s in scored if s[2].get("verified") and s[0] >= 1]
+    if verified:   # подтверждённый аккаунт, у которого есть наши песни, — точно он
+        uid = verified[0][2]["id"]
+    elif scored and scored[0][0] >= 1:
+        # Перезаливщики тоже выкладывают те же песни: если у второго совпадений почти столько же,
+        # берём первого, только когда подписчиков у него намного больше. Иначе не угадываем
+        best, second = scored[0], scored[1] if len(scored) > 1 else None
+        close = second and second[0] >= best[0] * 0.6
+        # Фанатский аккаунт «Drake» на 81 подписчика при миллионах слушателей в Яндексе — не он. Порог
+        # относительный: маленькому артисту (56 слушателей) подходит аккаунт с любым числом подписчиков
+        tiny = best[1] * 200 < (a.get("listeners") or 0)
+        if (not close or best[1] >= 3 * max(second[1], 1)) and not tiny:
+            uid = best[2]["id"]
+    elif len(ours) < 3:
+        # Сравнивать почти нечего (в Яндексе у исполнителя 1–2 песни) — тогда единственный тёзка с галочкой.
+        # Если песен много и ни одна не совпала — это другой артист с тем же именем, не берём
+        verified = [u for u in twins if u.get("verified")]
+        if len(verified) == 1:
+            uid = verified[0]["id"]
+    print(f"[soundcloud] {name}: тёзок {len(twins)}, совпадений {[(s[2].get('permalink'), s[0]) for s in scored]} -> {uid}")
+    _sc_twin[a["id"]] = (time.time(), uid)
+    return uid
+
+
+@app.get("/api/artist/<int:artist_id>/soundcloud")
+def api_artist_sc_extra(artist_id):
+    """Альбомы SoundCloud, которых нет в Яндексе, для страницы исполнителя (страница спрашивает отдельно,
+    после того как показалась, — чтобы из-за SoundCloud она не открывалась дольше)."""
+    try:
+        a = artists.artist(artist_id)
+        uid = sc_twin(a)
+        if not uid:
+            return jsonify(releases=[], artist=None)
+        have = set()
+        for r in a.get("releases") or []:
+            have |= _title_keys(r.get("title")) | {artists._norm(r.get("title"))}
+        extra = [r for r in sc_releases(uid)
+                 if artists._norm(r["title"]) not in have and not (_title_keys(r["title"]) & have)]
+        return jsonify(releases=extra, artist=f"sc:{uid}")
+    except LookupError:
+        return jsonify(releases=[], artist=None)
+    except Exception as e:
+        print(f"[soundcloud] альбомы для {artist_id}: {e}")
+        return jsonify(error="SoundCloud не ответил", releases=[]), 502
+
+
 @app.get("/api/artist/sc:<int:uid>")
 def api_sc_artist(uid):
     try:
         return jsonify(sc_artist(uid))
     except requests.HTTPError as e:
         if e.response is not None and e.response.status_code == 404:
-            abort(404)
+            return jsonify(error="На SoundCloud такого артиста нет — возможно, страницу удалили"), 404
         return jsonify(error=friendly_error(e)), 502
     except Exception as e:
         print(f"[soundcloud] артист {uid}: {e}")
@@ -2826,8 +3036,18 @@ def api_new_releases():
 
 @app.get("/api/album/<album_id>")
 def api_album(album_id):
+    if album_id.startswith("scp") and album_id[3:].isdigit():   # альбом SoundCloud
+        try:
+            return jsonify(sc_album(int(album_id[3:])))
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                return jsonify(error="На SoundCloud такого альбома нет — возможно, его удалили"), 404
+            return jsonify(error=friendly_error(e)), 502
+        except Exception as e:
+            print(f"[soundcloud] альбом {album_id}: {e}")
+            return jsonify(error="SoundCloud не ответил — попробуйте ещё раз"), 502
     if not re.match(r"^(dz)?\d+$", album_id):
-        abort(400)
+        return jsonify(error="Неправильный адрес альбома"), 400
     return _meta_call(artists.album, album_id)
 
 
@@ -2871,7 +3091,8 @@ def api_versions():
 # Трек из базы → пара на YouTube/SoundCloud. Найденное запоминаем навсегда, «не нашлось» — на сутки
 # (вдруг загрузят). v2: старый запасной поиск в YouTube Music мог взять одноимённый трек другого
 # исполнителя — поэтому прежний кэш (resolved.json) не используем, пары находятся заново.
-RESOLVED_FILE = CACHE_DIR / "resolved-v2.json"
+# v3 (15 ноября): на SoundCloud больше не берутся ремиксы, «type beat» и мэшапы — старые пары найдутся заново
+RESOLVED_FILE = CACHE_DIR / "resolved-v3.json"
 try:
     _resolved: dict = json.loads(RESOLVED_FILE.read_text(encoding="utf-8"))
 except (OSError, ValueError):
@@ -2884,7 +3105,7 @@ def api_resolve():
     """{id, artists, title, duration, prefetch} → настоящий трек (YouTube или SoundCloud) или 404."""
     data = _body()
     meta_id = str(data.get("id", ""))
-    if not re.match(r"^(ya|dz)\d+$", meta_id):
+    if not re.match(r"^(ya|dz|scm)\d+$", meta_id):
         abort(400)
     with lock_for("resolve:" + meta_id):
         saved = _resolved.get(meta_id)
@@ -2943,7 +3164,7 @@ def api_replacement():
         return jsonify(error="Другой загрузки этого трека не нашлось"), 404
     print(f"[replacement] {artist} — {title}: {source}:{track_id} -> {found['source']}:{found['id']}")
     meta_id = str(data.get("metaId") or "")
-    if re.match(r"^(ya|dz)\d+$", meta_id):
+    if re.match(r"^(ya|dz|scm)\d+$", meta_id):
         with _resolved_lock:
             if meta_id in _resolved:
                 _resolved[meta_id] = {**found, "artists": artist, "origTitle": title}

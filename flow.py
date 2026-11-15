@@ -69,7 +69,9 @@ def track_key(artist: str, title: str) -> str:
 # Переделки, которые в подборке не нужны: «Fitness Version 128 Bpm», караоке, ускоренные, каверы…
 JUNK = re.compile(r"fitness|\bbpm\b|karaoke|караоке|instrumental|инструментал|минус|sped ?up|speed ?up|slowed|"
                   r"nightcore|8d audio|mashup|ringtone|рингтон|\bacapella\b|bass ?boost|\bcover\b|кавер|tribute|"
-                  r"reverb|\bextended\b", re.I)
+                  r"reverb|\bextended\b|"
+                  # загрузки-«файлы» и переделки со SoundCloud: «…_bpm_129.mp3», «432hz», «Fan Made», «PREMIERE:»
+                  r"bpm_|\.(?:mp3|wav|m4a|flac)\b|\b\d{3} ?hz\b|fan ?made|^premiere ?:|\bre-?record", re.I)
 
 
 # ---------- Настройки: занятие, настроение, язык ----------
@@ -483,7 +485,8 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
         if not track or score <= 0 or track["id"] in seen:
             return
         key = track_key(track["artists"], track.get("keyTitle") or track["title"])
-        if key in seen or JUNK.search(track["title"] or ""):
+        # Канал тоже: «JOE'S MASHUPS», «… nightcore» выкладывают переделки с обычными названиями
+        if key in seen or JUNK.search(track["title"] or "") or JUNK.search(track.get("channel") or ""):
             return
         duration = track.get("duration") or 0
         if duration and not 60 <= duration <= 600:
@@ -618,7 +621,7 @@ def batch(seeds: list[dict], mode: str = "mix", exclude: list[str] | None = None
             t = {k: v for k, v in t.items() if k not in ("artists", "keyTitle", "year")}
         result.append({**t, "because": c["because"], "flow": "known" if c["artist"] in known_set else "new"})
     # Первым — трек, для которого звук уже есть (SoundCloud или пара найдена раньше): старт без ожидания поиска
-    if ready:
+    if ready and result:   # пусто (исполнителей нет в базе) — не падать на pop из пустого списка
         hit = next((i for i, t in enumerate(result[:5]) if t.get("source") == "soundcloud" or ready(t["id"])), 0)
         result.insert(0, result.pop(hit))
     print(f"[flow] {mode}: {len(result)} из {len(cands)} кандидатов, {len(aff)} похожих исполнителей, "

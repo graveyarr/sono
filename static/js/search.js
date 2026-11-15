@@ -4,11 +4,12 @@ import { openTrackMenu, toggleLike } from "./actions.js";
 import { sourceIcons } from "./icons.js";
 import { tasteOf } from "./flow.js";
 import { clearHistory, getSetting, isDisliked, keyOf, lib, removeFromHistory, setSetting } from "./library.js";
-import { looksLikeLink, trackByUrl } from "./links.js";
+import { describeLink, looksLikeLink } from "./links.js";
+import { openImportDialog } from "./import.js";
 import { artistByName } from "./meta.js";
 import { openView } from "./nav.js";
 import { play, prefetch, state } from "./player.js";
-import { SOURCE_NAMES, displayTrack, el, imgUrl, isOverlay, markCurrentRows, trackRow } from "./ui.js";
+import { SOURCE_NAMES, displayTrack, el, imgUrl, isOverlay, markCurrentRows, plural, trackRow } from "./ui.js";
 
 const searchBox = document.getElementById("search");
 const searchBar = document.getElementById("search-form");
@@ -77,29 +78,58 @@ function renderRows() {
   setActiveRow(-1);
 }
 
-function showArtist(artist) {
-  artistEl.hidden = !artist;
-  if (!artist) return artistEl.replaceChildren();
+/** Карточка над результатами: картинка, название, подпись; square — квадратная картинка (альбом, плейлист) */
+function panelCard({ picture, name, kind, square = false, onClick }) {
   const card = el("button", "panel-artist-card");
   card.type = "button";
-  const photo = el("span", "panel-artist-photo");
-  if (artist.picture) {
+  const photo = el("span", `panel-artist-photo${square ? " square" : ""}`);
+  if (picture) {
     const img = el("img");
     img.alt = "";
-    img.src = imgUrl(artist.picture);
+    img.src = imgUrl(picture);
     img.onerror = () => img.remove();
     photo.append(img);
   }
   const text = el("span", "panel-artist-text");
-  text.append(el("span", "panel-artist-name", artist.name), el("span", "panel-artist-kind", "Исполнитель · открыть страницу"));
+  text.append(el("span", "panel-artist-name", name), el("span", "panel-artist-kind", kind));
   card.append(photo, text);
-  card.dataset.warm = `artist:${artist.id}`;
   card.addEventListener("click", () => {
     closePanel();
     queryInput.blur();
-    openView(`artist:${artist.id}`);
+    onClick();
   });
+  return card;
+}
+
+function showArtist(artist) {
+  artistEl.hidden = !artist;
+  if (!artist) return artistEl.replaceChildren();
+  const card = panelCard({ picture: artist.picture, name: artist.name, kind: "Исполнитель · открыть страницу",
+                           onClick: () => openView(`artist:${artist.id}`) });
+  card.dataset.warm = `artist:${artist.id}`;
   artistEl.replaceChildren(card);
+}
+
+/** Ссылка вела не на трек: альбом и исполнитель — открыть в Sono, плейлист — перенести в медиатеку */
+function showLinkCard(info) {
+  const from = info.service ? ` · ${info.service}` : "";
+  if (info.kind === "artist") return showArtist(info);
+  artistEl.hidden = false;
+  if (info.kind === "album") {
+    artistEl.replaceChildren(panelCard({
+      picture: info.cover, square: true, name: info.name || "Альбом",
+      kind: `Альбом${info.artist ? ` · ${info.artist}` : ""} · открыть`,
+      onClick: () => openView(`album:${info.albumId}`),
+    }));
+  } else {   // list
+    const what = info.what === "альбом" ? "Альбом" : "Плейлист";
+    const count = info.count ? ` · ${plural(info.count, "трек", "трека", "треков")}` : "";
+    artistEl.replaceChildren(panelCard({
+      square: true, name: info.name || `${what}${from}`,
+      kind: `${what}${info.name ? from : ""}${count} · перенести в медиатеку`,
+      onClick: () => openImportDialog({ url: info.url }),
+    }));
+  }
 }
 
 function showLyricMatches(tracks) {
@@ -233,9 +263,15 @@ async function runSearch(q) {
     }
   }
   try {
-    let found;
-    if (link) {
-      found = [await trackByUrl(q, searchAbort.signal)];
+    let found, info = null;
+    if (link) {   // ссылка из любого сервиса: трек — строкой, альбом/исполнитель/плейлист — карточкой
+      info = await describeLink(q, searchAbort.signal);
+      if (token !== searchToken) return;
+      if (info.kind === "search") {   // исполнитель есть, но в базе не уверены, что это он, — ищем по имени
+        queryInput.value = info.query;
+        return runSearch(info.query);
+      }
+      found = info.kind === "track" ? [info.track] : [];
     } else {
       const res = await fetch(`/api/search?source=${src}&q=${encodeURIComponent(q)}`, { signal: searchAbort.signal });
       const data = await res.json();
@@ -245,8 +281,14 @@ async function runSearch(q) {
     if (token !== searchToken) return;
     results = byTaste(found);
     panel.classList.remove("busy");
-    showResults(link ? found[0].source : src);
-    if (link) panelTitle.textContent = "По ссылке";
+    showResults(found[0]?.source ?? src);
+    if (link) {
+      panelTitle.textContent = info.service ? `По ссылке · ${info.service}` : "По ссылке";
+      if (info.kind !== "track") {
+        showLinkCard(info);
+        panelMessage.textContent = "";
+      }
+    }
     // Готовим первые треки, только если человек перестал печатать (иначе это лишняя работа на каждую букву)
     setTimeout(() => {
       if (token === searchToken) (async () => { for (const t of results.slice(0, 3)) await prefetch(t); })();
@@ -255,7 +297,9 @@ async function runSearch(q) {
     if (token !== searchToken) return;
     panel.classList.remove("busy");
     lastSearch = "";
-    showSearchError("Не получилось найти: " + err.message);
+    // У ссылок сервер объясняет сам («VK не отдаёт музыку без входа…»), без приставки
+    showSearchError(looksLikeLink(q) ? err.message.replace(/^./, (c) => c.toUpperCase()) : "Не получилось найти: " + err.message);
+    if (looksLikeLink(q)) panelTitle.textContent = "По ссылке";
   }
 }
 

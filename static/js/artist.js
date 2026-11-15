@@ -5,7 +5,7 @@
 
 import { openTrackMenu, toggleLike } from "./actions.js";
 import { startFlow } from "./flow.js";
-import { icons } from "./icons.js";
+import { icons, sourceIcons } from "./icons.js";
 import { openView, takeHighlight } from "./nav.js";
 import { isPlaying, play, prefetch, state, togglePlay } from "./player.js";
 import { compactNumber, countText, el, formatTotal, iconButton, imageHsl, imgUrl, markCurrentRows, nameHue, plural, toast, trackRow } from "./ui.js";
@@ -294,27 +294,45 @@ export async function renderArtist(box, id, stillHere) {
     body.append(sec);
   }
 
-  // Дискография: вкладки «Альбомы» / «Синглы и EP»
-  a.releases ||= [];
-  const albums = a.releases.filter((r) => r.type === "album" || r.type === "compilation");
-  const singles = a.releases.filter((r) => r.type === "single" || r.type === "ep");
-  if (a.releases?.length) {
+  // Дискография: вкладки «Альбомы» / «Синглы и EP». Альбомы с SoundCloud, которых нет в Яндексе,
+  // приходят отдельно и чуть позже — тогда раздел перерисовывается (открытая вкладка остаётся)
+  const disco = el("div");
+  body.append(disco);
+  const drawDiscography = (releases) => {
+    const albums = releases.filter((r) => r.type === "album" || r.type === "compilation");
+    const singles = releases.filter((r) => r.type === "single" || r.type === "ep");
+    if (!releases.length) return disco.replaceChildren();
+    const wasSingles = disco.querySelector(".meta-tabs .seg-btn.on")?.dataset.tab === "singles";
     const grid = el("div", "release-grid");
     const tabs = el("div", "seg meta-tabs");
-    const showTab = (list) => grid.replaceChildren(...list.map(releaseCard));
-    for (const [label, list] of [[`Альбомы · ${albums.length}`, albums], [`Синглы и EP · ${singles.length}`, singles]]) {
+    // На странице артиста SoundCloud оттуда всё — значок «с SoundCloud» не нужен
+    const showTab = (list) => grid.replaceChildren(...list.map((r) => releaseCard(r, !fromSc)));
+    for (const [label, list, name] of [[`Альбомы · ${albums.length}`, albums, "albums"], [`Синглы и EP · ${singles.length}`, singles, "singles"]]) {
       if (!list.length) continue;
       const tab = el("button", "seg-btn", label);
       tab.type = "button";
+      tab.dataset.tab = name;
       tab.addEventListener("click", () => {
         tabs.querySelectorAll(".seg-btn").forEach((b) => b.classList.toggle("on", b === tab));
         showTab(list);
       });
       tabs.append(tab);
     }
-    tabs.firstElementChild?.classList.add("on");
-    showTab(albums.length ? albums : singles);
-    body.append(section("Дискография", tabs, grid));
+    const first = (wasSingles && singles.length) || !albums.length ? singles : albums;
+    tabs.querySelector(`[data-tab="${first === singles ? "singles" : "albums"}"]`)?.classList.add("on");
+    showTab(first);
+    disco.replaceChildren(section("Дискография", tabs, grid));
+  };
+  a.releases ||= [];
+  drawDiscography(a.releases);
+  if (!fromSc) {
+    load(`/api/artist/${a.id}/soundcloud`).then((sc) => {
+      if (!stillHere() || !disco.isConnected || !sc.releases?.length) return;
+      // Как у Яндекса: новые сверху (год, потом дата)
+      const all = [...a.releases, ...sc.releases].sort((x, y) =>
+        `${y.year || "0"}${y.date || ""}`.localeCompare(`${x.year || "0"}${x.date || ""}`));
+      drawDiscography(all);
+    }).catch(() => {});   // SoundCloud не ответил — остаётся дискография из Яндекса
   }
 
   // Похожие исполнители
@@ -382,7 +400,7 @@ function newReleaseCard(r) {
   return card;
 }
 
-function releaseCard(r) {
+function releaseCard(r, markSource = true) {
   const card = el("button", "home-card release-card");
   card.type = "button";
   const art = picture(r.cover, "home-card-art", r.title);
@@ -397,9 +415,15 @@ function releaseCard(r) {
     } catch {}
   });
   art.append(playBtn);
+  // Релиз с SoundCloud (в Яндексе его нет) — значок в углу обложки: словом в подписи не помещалось
+  if (markSource && r.source === "soundcloud") {
+    const badge = el("span", "release-src");
+    badge.innerHTML = sourceIcons.soundcloud;
+    art.append(badge);
+  }
   card.append(art, el("span", "home-card-title", r.title),
     el("span", "home-card-artist", [r.year, TYPE_NAMES[r.type] ?? "Альбом"].filter(Boolean).join(" · ")));
-  card.title = r.title;
+  card.title = markSource && r.source === "soundcloud" ? `${r.title} — с SoundCloud` : r.title;
   card.dataset.warm = `album:${r.id}`;
   card.addEventListener("click", () => openView(`album:${r.id}`));
   return card;
@@ -431,7 +455,7 @@ export async function renderAlbum(box, id, stillHere) {
   const facts = el("div", "pl-meta");
   facts.append(artistLink, document.createTextNode(
     [" ", al.year, al.tracks.length ? plural(al.tracks.length, "трек", "трека", "треков") : "", al.tracks.length ? formatTotal(al.tracks) : "",
-      al.likes ? `${countText(al.likes, "лайк", "лайка", "лайков")} в Яндекс Музыке` : ""]
+      al.likes ? `${countText(al.likes, "лайк", "лайка", "лайков")} ${al.source === "soundcloud" ? "на SoundCloud" : "в Яндекс Музыке"}` : ""]
       .filter((x) => x && x.trim()).map((x, i) => (i ? " · " : " · ") + x).join("")));
   info.append(el("div", "pl-kind", TYPE_NAMES[al.type] ?? "Альбом"), el("h1", "pl-name", al.title), facts);
   if (al.label) info.append(el("div", "meta-label", `© ${al.label}`));

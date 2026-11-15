@@ -90,7 +90,8 @@ function taste() {
 }
 
 /** Любимые треки — от них сервер берёт «похожие треки». Немного случайно: каждая порция чуть другая */
-function trackSeeds(source = null) {
+// live: false — без дослушанного в текущем Flow (для «Рекомендуемых» под плейлистом важен только сам список)
+function trackSeeds(source = null, { live = true } = {}) {
   const items = new Map();   // ключ → { key, id, artist, title, duration, weight }
   const add = (t, w) => {
     if (!t || w <= 0) return;
@@ -111,7 +112,7 @@ function trackSeeds(source = null) {
       if (w > 0) add({ ...item.track, duration: item.track.duration }, w);
     }
   }
-  session?.liked.forEach((t) => add(t, 6));   // дослушанное в этом сеансе — сильнее всего
+  if (live) session?.liked.forEach((t) => add(t, 6));   // дослушанное в этом сеансе — сильнее всего
   const cached = getSetting("flowYaIds", {});
   const list = [...items.values()].map((t) => ({ ...t, id: t.id || cached[t.key] || null }));
   // 6 штук: вероятность — по весу
@@ -261,14 +262,16 @@ async function steer() {
 function listSeeds(tracks) {
   const weights = new Map();
   for (const t of tracks) {
-    for (const { name, id } of splitArtists(t, displayTrack(t).artist)) {
+    // Главный исполнитель трека — 1, гости (feat, «A, B») — 0.4: иначе одна песня с The Weeknd в гостях
+    // тянет в подборку его хиты наравне с исполнителями самого списка
+    splitArtists(t, displayTrack(t).artist).forEach(({ name, id }, i) => {
       const key = norm(name);
-      if (!key || key === "неизвестный автор") continue;
+      if (!key || key === "неизвестный автор") return;
       const item = weights.get(key) ?? { name, id: null, weight: 0 };
-      item.weight += 1;
+      item.weight += i ? 0.4 : 1;
       item.id ??= id;
       weights.set(key, item);
-    }
+    });
   }
   return [...weights.values()].sort((a, b) => b.weight - a.weight).slice(0, 30);
 }
@@ -412,6 +415,33 @@ export async function smartShuffle({ name, tracks, context }) {
   } catch {
     if (state.context === ctx) toast("Не получилось подобрать похожие треки — играет просто вперемешку");
   }
+}
+
+/** «Рекомендуемые» под плейлистом (recs.js): треки в духе списка — его исполнители и похожие на них,
+    как Flow по плейлисту. exclude — ключи и id, которые не предлагать (сам список, уже показанное).
+    Треки — «из базы», пары ищет recs.js */
+export async function listRecs(tracks, { size = 30, exclude = [] } = {}) {
+  const own = tracks.filter((t) => !isDisliked(t));
+  const seeds = listSeeds(own);
+  // Не за что зацепиться (у треков нет исполнителей) — ничего: иначе сервер отдал бы чарт, а он не «в духе списка»
+  if (!seeds.length) return [];
+  const skip = new Set(exclude);
+  for (const t of [...own, ...lib.disliked]) {
+    skip.add(songKey(t));
+    if (t.metaId) skip.add(t.metaId);
+  }
+  const res = await fetch("/api/flow", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      seeds, tracks: trackSeeds(own, { live: false }), mode: "mix", exclude: [...skip].slice(-3000),
+      banned: taste().banned, size, known: [], recent: [], tune: {},
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Flow не ответил");
+  rememberIds(data.seedIds, data.artistIds);
+  return data.tracks.filter((t) => t.because !== "Популярное сейчас").map((t) => ({ ...t, because: t.because?.replace(/^Вы слушаете /, "Ещё ") }));
 }
 
 /** Ключ «исполнитель|название» — для подборок (не повторять одну песню с разных загрузок) */
@@ -616,13 +646,19 @@ export function initFlow() {
   audio.addEventListener("timeupdate", () => {
     if (current && audio.currentTime > current.maxPos) current.maxPos = audio.currentTime;
   });
+  // Заиграл ли трек на самом деле и не стоит ли он сейчас на загрузке. Не открылся, завис, заменён другой
+  // загрузкой — это не «не понравилось»: раньше такой пропуск учил Flow, и два подряд меняли подборку
+  audio.addEventListener("playing", () => { if (current) { current.played = true; current.stuck = false; } });
+  audio.addEventListener("waiting", () => { if (current) current.stuck = true; });
+  audio.addEventListener("error", () => { if (current) current.stuck = true; });
   onTrackChange(() => {
     const now = state.current;
     if (now && current && keyOf(current.track) !== keyOf(now)) {
       // Трек из базы сменился найденной парой — это тот же трек, а не пропуск.
       // Учимся только на реально игравших (у ненайденного трека «прослушано 0 с» — не его вина)
       const samePiece = isMeta(current.track) && now.metaId === current.track.id;
-      if (!samePiece && current.flow && !isMeta(current.track)) learn(current.track, current.maxPos);
+      const heard = current.played && !current.stuck;
+      if (!samePiece && heard && current.flow && !isMeta(current.track)) learn(current.track, current.maxPos);
       current = null;
     }
     if (now && !current) current = { track: now, maxPos: 0, flow: isFlow() };

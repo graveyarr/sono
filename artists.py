@@ -90,7 +90,8 @@ def _fetch(url: str, params: dict | None, path: Path) -> dict:
             if attempt == 2:
                 raise
             time.sleep(0.3 * (attempt + 1))
-    if resp.status_code == 404:
+    # Яндекс на исполнителя, которого нет (удалили), отвечает 400, а не 404 — было «Яндекс не отвечает»
+    if resp.status_code == 404 or (resp.status_code == 400 and "yandex" in url):
         # «Нет такой страницы» тоже запоминаем: иначе, например, у исполнителя без статьи в Википедии
         # каждое открытие страницы заново ждало три ответа «не найдено» (2–4 с)
         path.write_text(json.dumps({"_notFound": True}), encoding="utf-8")

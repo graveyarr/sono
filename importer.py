@@ -384,13 +384,42 @@ def _looks_original(track: dict, duration: float | None, artist: str, title: str
     name, original = (track.get("title") or "").lower(), title.lower()
     if any(word in name and word not in original for word in OTHER_VERSIONS):
         return False
+    # Дата в названии видео («…Мэдисон-сквер-гарден, 12.04.2024») — почти всегда запись концерта
+    # (если ищем сам концерт — «Bohemian Rhapsody (Live Aid)» — дата не мешает)
+    if (re.search(r"\d{1,2}[./]\d{1,2}[./](19|20)\d\d", name) and not re.search(r"\d{4}", original)
+            and not re.search(r"live|концерт|concert", original)):
+        return False
     if _norm(title.split("(")[0]) not in _norm(name):   # в названии видео должно быть название трека
         return False
     if duration and track.get("duration") and abs(track["duration"] - duration) > 15:
         return False
     first_artist = artist.split(",")[0].strip().lower()
     where = f"{track.get('channel') or ''} {name}".lower()
-    return not first_artist or first_artist in where or first_artist.replace(" ", "") in where.replace(" ", "")
+    return not first_artist or _artist_in(first_artist, where)
+
+
+TRANSLIT = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+                    ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s", "t",
+                     "u", "f", "kh", "ts", "ch", "sh", "shch", "", "y", "", "e", "yu", "ya"]))
+
+
+def latin(name: str) -> set[str]:
+    """Как русское имя пишут латиницей («Монеточка» → «monetochka», «Земфира» → «zemfira»). Несколько вариантов:
+    х — kh/h, ц — ts/c, й — y/i, ё — e/yo, ю/я — yu/iu, ya/ia. Латинское имя остаётся как есть (без пробелов и знаков)."""
+    base = re.sub(r"[^a-zа-яё0-9]", "", (name or "").lower())
+    out = {"".join(TRANSLIT.get(c, c) for c in base)}
+    for ru, alt in (("х", "h"), ("ц", "c"), ("й", "i"), ("ё", "yo"), ("ю", "iu"), ("я", "ia")):
+        out.add("".join(alt if c == ru else TRANSLIT.get(c, c) for c in base))
+    return out
+
+
+def _artist_in(artist: str, where: str) -> bool:
+    """Исполнитель упомянут в канале/названии: как есть, слитно или латиницей (канал «Zemfira» = «Земфира»)."""
+    artist, where = artist.lower(), where.lower()
+    if artist in where or artist.replace(" ", "") in where.replace(" ", ""):
+        return True
+    flat = re.sub(r"[^a-z0-9]", "", where)
+    return re.search(r"[а-яё]", artist) is not None and any(len(v) >= 3 and v in flat for v in latin(artist))
 
 
 def _norm(text: str) -> str:
@@ -449,15 +478,30 @@ def _words(text: str) -> set[str]:
     return set(re.findall(r"\w+", text.lower()))
 
 
+# Для SoundCloud — без «prod.» и т.п.: у оригиналов там продюсер часто прямо в названии
+SC_OTHER_VERSIONS = ("remix", "ремикс", "type beat", "live", "cover", "кавер", "slowed", "sped up", "speed up",
+                     "nightcore", "karaoke", "караоке", "instrumental", "инструментал", "минус", "8d", "reverb",
+                     "mashup", "мэшап", "bootleg", "flip)", "remake", "ремейк", "phonk",
+                     "og version", "leak", "snippet", "слив")   # ранние и слитые версии — не то, что вышло
+
+
 def _close_enough(track: dict, duration: float | None, artist: str, title: str) -> bool:
     """Для «Авто»: на SoundCloud много перезаливов, ремиксов и 30-секундных отрывков —
     берём только явно тот же трек."""
     text = f"{track.get('channel') or ''} {track.get('title') or ''}".lower()
     first_artist = artist.split(",")[0].strip().lower()
     # Имя исполнителя может быть и слитно: канал «lucybedroque» = «Lucy Bedroque»
-    if first_artist and first_artist not in text and first_artist.replace(" ", "") not in text.replace(" ", ""):
+    if first_artist and not _artist_in(first_artist, text):
         return False
     if title and title.split("(")[0].strip().lower() not in text:
+        return False
+    # Ремикс, «type beat», лайв, мэшап («delta lobby x … - cult») — другая запись, даже если длина похожа
+    name, original = (track.get("title") or "").lower(), (title or "").lower()
+    has = lambda w, text: re.search(rf"(?<!\w){re.escape(w)}", text)   # «live», но не «alive»
+    if any(has(w, name) and not has(w, original) for w in SC_OTHER_VERSIONS):
+        return False
+    # Мэшап — две песни через «x»: «A - песня x B - другая». «(recyclebin x curtains)» — это продюсеры, не мэшап
+    if re.search(r" - .+\s(x|vs\.?)\s.+ - ", name) and not re.search(r"\s(x|vs\.?)\s", original):
         return False
     got = track.get("duration") or 0
     if duration:
@@ -858,7 +902,7 @@ OTHER_VERSIONS = ("live", "cover", "remix", "slowed", "sped up", "speed up", "ni
                   "hz)", "hz]", "lesson", "tutorial", "reaction", "reacts", "1 hour", "loop", "teaser", "snippet",
                   "later... with", "урок", "разбор", "реакция",
                   # биты и ремейки, которыми забит поиск по малоизвестным артистам
-                  "type beat", "remake", "flp", "fl studio", "how to make", "was made", "how ''", "prod.",
+                  "type beat", "phonk", "remake", "flp", "fl studio", "how to make", "was made", "how ''", "prod.",
                   "free for profit", "[free]", "(free)", "remaster", "live audio", "sample found",
                   "unreleased", "trailer", "review", "but with", "snippet", "leak",
                   # версии с цензурой (запиканные или с вырезанными словами)

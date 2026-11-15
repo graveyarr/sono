@@ -17,6 +17,7 @@ import { isLyricsVisible, setLyricsVisible } from "./lyrics.js";
 import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueLater, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
 import { newReleases } from "./releases.js";
+import { recsSection } from "./recs.js";
 import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, recentOf, renameFolder, sidebarSignature, sortMenuItems, toggleFolder, toolsRow } from "./libtools.js";
 import { localTracks } from "./local.js";
 import { countDownloaded, download, removeDownload } from "./downloads.js";
@@ -914,6 +915,8 @@ function renderList(fresh) {
     const card = el("div", "tracklist-card");
     card.append(listHead(info), list, empty);
     body.append(tools, card);
+    // Свой плейлист — под ним «Рекомендуемые» в его духе (recs.js)
+    if (info.playlist) body.append(recsSection(info.playlist));
   } else {
     body.append(el("p", "pl-empty", info.empty));
   }
