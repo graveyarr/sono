@@ -14,6 +14,7 @@ import { initFxButton } from "./fx.js";
 import { initSleepButton } from "./sleep.js";
 import { initFlowView } from "./flowview.js";
 import { initStats } from "./stats.js";
+import { initLibCheck } from "./libcheck.js";
 import { maybeWelcome } from "./welcome.js";
 import { applyMotion, watchAppUpdate } from "./settings.js";
 import { initTitlebar } from "./titlebar.js";
@@ -60,6 +61,7 @@ initFxButton();
 initSleepButton();
 initFlowView();
 initStats();
+initLibCheck();
 initTitlebar();   // своя полоска заголовка окна (в программе; в браузере её нет)
 initCompact();    // мини-плеер поверх окон (тоже только в программе)
 restoreSession();   // что играло в прошлый раз — на паузе и уже подгружается (после всех init: они слушают смену трека)

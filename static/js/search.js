@@ -3,7 +3,8 @@
 import { openTrackMenu, toggleLike } from "./actions.js";
 import { sourceIcons } from "./icons.js";
 import { tasteOf } from "./flow.js";
-import { clearHistory, getSetting, isDisliked, keyOf, lib, removeFromHistory, setSetting } from "./library.js";
+import { clearHistory, getSetting, isDisliked, keyOf, lib, removeSongFromHistory, setSetting } from "./library.js";
+import { uniqueSongs } from "./samesong.js";
 import { describeLink, looksLikeLink } from "./links.js";
 import { openImportDialog } from "./import.js";
 import { artistByName } from "./meta.js";
@@ -49,7 +50,8 @@ function renderSource(animate = false) {
 export function openPanel() { panel.classList.add("open"); }
 export function closePanel() { panel.classList.remove("open"); setActiveRow(-1); }
 
-const rowsList = () => (panelMode === "history" ? lib.history : results);
+// История — каждая песня один раз (слушали с YouTube и с SoundCloud — одна строка, последняя загрузка)
+const rowsList = () => (panelMode === "history" ? uniqueSongs(lib.history) : results);
 
 function makeRow(track, i) {
   const fromHistory = panelMode === "history";
@@ -59,7 +61,7 @@ function makeRow(track, i) {
     onPlay: () => pick(i),
     onLike: toggleLike,
     onMenu: (anchor) => openTrackMenu(anchor, track, { history: fromHistory }),
-    onRemove: fromHistory ? removeFromHistory : null,
+    onRemove: fromHistory ? removeSongFromHistory : null,
   });
   row.setAttribute("role", "option");
   if (track.taste && !fromHistory) {
@@ -165,7 +167,7 @@ export function showHistory() {
   panelTitle.textContent = "История поиска";
   panelAction.hidden = lib.history.length === 0;
   panelMessage.classList.remove("error");
-  panelMessage.textContent = lib.history.length ? "" : "Здесь появятся треки, которые ты включал";
+  panelMessage.textContent = lib.history.length ? "" : "Здесь появятся треки, которые вы включали";
   renderRows();
 }
 

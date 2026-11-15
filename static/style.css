@@ -600,6 +600,12 @@ body.back-in-panel:not(.mobile) .panel-back {
 .t-title { font-size: 15px; transition: color 0.3s; }
 .t-sub { margin-top: 2px; font-size: 13px; color: var(--muted); }
 .track.current .t-title { color: var(--accent); }
+/* «2 загрузки» — одна песня с YouTube и SoundCloud в одной строке (samesong.js); щелчок — выбрать, какая играет */
+.t-uploads {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0;
+  cursor: pointer; text-decoration: underline dotted rgb(var(--fg-rgb) / 0.35); text-underline-offset: 3px;
+}
+.t-uploads:hover, .t-uploads:focus-visible { color: var(--text); text-decoration-color: currentColor; }
 
 /* Кнопки в строке появляются при наведении; сердечко у лайкнутых видно всегда */
 .track .icon-btn { width: 32px; height: 32px; opacity: 0; }
@@ -1588,6 +1594,7 @@ body.playing [data-np="play"] .i-pause, .big-play.is-playing .i-pause { opacity:
 /* Трек из базы, которого нет ни на YouTube, ни на SoundCloud */
 .track.unavailable { opacity: 0.4; }
 .track.unavailable .t-sub::after { content: " · нет на YouTube и SoundCloud"; }
+.track.gone .t-sub::after { content: " · " attr(data-gone); }   /* проверка медиатеки: удалён, замены нет */
 
 .meta-loading { padding: 48px var(--pad); color: var(--muted); font-size: 15px; animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
@@ -2050,7 +2057,7 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
 
 .set-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 /* Во всех карточках настроек «прозрачные» кнопки с рамкой — иначе «Проверить сейчас» выглядела простым текстом */
-.set-card .btn.ghost { border: 1px solid var(--line); }
+.set-card .btn.ghost, .libcheck-item .btn.ghost { border: 1px solid var(--line); }
 .set-result-line { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; font-size: 13.5px; color: var(--muted); }
 .set-result-line:empty { display: none; }
 
@@ -3325,3 +3332,18 @@ body.mobile .ws-cat, body.mobile .ws-act.small { height: 36px; }
 .track .pl-recs-add { opacity: 1; border: 1px solid var(--line); }
 .track .pl-recs-add:hover { border-color: rgb(var(--fg-rgb) / 0.6); }
 body.mobile .track .pl-recs-add { opacity: 1; }   /* на телефоне кнопки строк спрятаны — «+» нужен всегда */
+
+/* Окно «Проверка медиатеки» (libcheck.js) */
+.libcheck-dialog { width: min(560px, calc(100vw - 32px)); }
+.libcheck-list { margin: 4px 0 14px; padding: 0; list-style: none; max-height: min(52vh, 420px); overflow-y: auto; }
+.libcheck-item { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.libcheck-item:last-child { border-bottom: 0; }
+.libcheck-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.libcheck-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.libcheck-why { font-size: 13px; color: var(--muted); }
+.libcheck-alt { font-size: 13px; color: var(--accent); }
+.libcheck-item .btn { flex: none; }
+/* Блок внутри карточки настроек (например, «Проверка медиатеки» в «Медиатеке») */
+.set-subblock { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.set-subtitle { margin: 0 0 6px; font-size: 16px; }
+.set-subblock .set-result-line { margin: 0 0 12px; }

@@ -20,6 +20,7 @@ import { CHANGELOG } from "./changelog.js";
 import { isMobile, shareFile } from "./device.js";
 import { openView } from "./nav.js";
 import { showWhatsNew } from "./whatsnew.js";
+import { checkLibrary, libCheckProblems, libCheckRunning, libCheckSummary, onLibCheck, showLibCheckReport } from "./libcheck.js";
 import { chooseTheme, createTheme, currentThemeId, deleteTheme, loadThemes, onThemesChange, openThemesFolder, themeList, themesFolder } from "./themes.js";
 import { openThemeEditor } from "./editor.js";
 
@@ -1226,6 +1227,31 @@ function librarySection() {
   row.append(exportBtn, importBtn, picker);
   section.append(row, result,
     el("p", "set-hint", "Восстановление ничего не удаляет: новое добавляется к тому, что уже есть. Поделиться отдельным плейлистом — «⋯» у плейлиста → «Поделиться»."));
+
+  // Проверка медиатеки (libcheck.js): не удалили ли треки с YouTube и SoundCloud, замены — заранее
+  const check = el("div", "set-subblock");
+  const line = el("div", "set-result-line");
+  const checkRow = el("div", "set-actions");
+  const checkBtn = el("button", "btn ghost", "Проверить сейчас");
+  checkBtn.type = "button";
+  checkBtn.addEventListener("click", () => checkLibrary({ force: true }));
+  const moreBtn = el("button", "btn ghost", "Подробнее");
+  moreBtn.type = "button";
+  moreBtn.addEventListener("click", showLibCheckReport);
+  checkRow.append(checkBtn, moreBtn);
+  const sync = () => {
+    if (!check.isConnected && check.dataset.drawn) return off();
+    check.dataset.drawn = "1";
+    line.textContent = libCheckSummary();
+    checkBtn.disabled = libCheckRunning();
+    moreBtn.hidden = !libCheckProblems();
+  };
+  const off = onLibCheck(sync);
+  check.append(el("h3", "set-subtitle", "Проверка медиатеки"),
+    el("p", "set-text", "Раз в несколько дней Sono сам проверяет, не удалили ли треки из избранного и плейлистов с YouTube и SoundCloud, и заранее находит им другую загрузку — название и обложка остаются прежними."),
+    line, checkRow);
+  sync();
+  section.append(check);
   return section;
 }
 

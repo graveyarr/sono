@@ -16,6 +16,31 @@ document.addEventListener("load", (e) => {
 }, true);
 
 export const SOURCE_NAMES = { youtube: "YouTube", soundcloud: "SoundCloud" };
+
+/** Треки, которые не открываются и замены им нет: { ключ: причина } — заполняет libcheck.js */
+let brokenTracks = {};
+const brokenListeners = new Set();
+/** Список сломанных обновился — экраны с несколькими загрузками одной песни выбирают рабочую заново (views.js) */
+export const onBrokenTracks = (fn) => brokenListeners.add(fn);
+export const isBroken = (track) => !!brokenTracks[keyOf(track)];
+/** Строка одной песни с несколькими загрузками серая, только если не открывается ни одна */
+const rowBroken = (li) => {
+  const keys = li.dataset.keys ? li.dataset.keys.split("\n") : [li.dataset.key];
+  return keys.every((k) => brokenTracks[k]) ? brokenTracks[li.dataset.key] || brokenTracks[keys[0]] : "";
+};
+export function setBrokenTracks(map) {
+  brokenTracks = map || {};
+  brokenListeners.forEach((fn) => fn());
+  document.querySelectorAll(".track[data-key]").forEach((li) => {   // уже нарисованные строки — сразу
+    const why = rowBroken(li);
+    if (!why && !li.classList.contains("gone")) return;
+    li.classList.toggle("unavailable", !!why);
+    li.classList.toggle("gone", !!why);
+    const sub = li.querySelector(".t-sub");
+    if (sub) sub.dataset.gone = why || "";
+    li.title = why ? `Не открывается: ${why}` : "";
+  });
+}
 /** Где лежит трек — для колонки «Сайт»; свои файлы — не сайт, поэтому не в SOURCE_NAMES (там выбор, где искать) */
 export const sourceLabel = (source) => SOURCE_NAMES[source] ?? (source === "local" ? "С компьютера" : "");
 
@@ -49,50 +74,9 @@ export const coverUrl = (t, size = "small") => {
 export const imgUrl = (url) => `/api/img?u=${encodeURIComponent(url)}`;
 
 // ---------- Красивое название и исполнитель ----------
-// На YouTube в названиях много мусора: «【Official Video】», «(Lyrics)», «| канал», а исполнитель
-// часто записан в самом названии через тире. Для показа чистим; сохранённые данные не трогаем.
-
-const NOISE_WORDS = "official|video|audio|lyrics?|lyric video|visuali[sz]er|m/?v|hd|hq|4k|clip|клип|премьера|текст|music video|full album";
-// Скобки любого вида, внутри которых есть одно из «мусорных» слов: (Official Video), 【MV】, [HD]…
-const NOISE_BRACKETS = new RegExp(`\\s*[\\[(【「（][^\\])】」）]*?(?:${NOISE_WORDS})[^\\])】」）]*[\\])】」）]\\s*`, "gi");
-const VERSION_MARK = /instrumental|remix|live|cover|acoustic|slowed|sped|nightcore|karaoke|кавер|ремикс|минус/i;
-// «Money - 2011 Remaster», «Song - Live at …» — это не «исполнитель - название», не разбиваем
-const VERSION_TAIL = /^(\d{4}\s+)?(remaster|live|version|edit|mix|acoustic|demo|bonus)/i;
-
-function cleanChannel(channel) {
-  return (channel || "")
-    .replace(/\s*-\s*topic$/i, "")
-    .replace(/vevo$/i, "")
-    .replace(/\s+official(\s+(artist\s+)?(youtube\s+)?channel)?$/i, "")
-    .trim();
-}
-
-/** { title, artist } для показа: без мусора, исполнитель отдельно от названия */
-export function displayTrack(track) {
-  // Трек из импорта знает настоящих исполнителей и название — они точнее всего
-  if (track.artists && track.origTitle) return { title: track.origTitle, artist: track.artists };
-  const isTopic = /-\s*topic$/i.test(track.channel || "");   // автоканалы YouTube: название уже чистое
-  // У SoundCloud исполнитель бывает указан отдельно от аккаунта (общий аккаунт дуэта, лейбл) — он точнее
-  let artist = track.pubArtist || cleanChannel(track.channel);
-  let title = (track.title || "")
-    // скобки с «мусором» убираем, но не если там пометка версии: «(HQ Instrumental)», «[Live]» важно видеть
-    .replace(NOISE_BRACKETS, (m) => (VERSION_MARK.test(m) ? m : " "))
-    .replace(/\s*\|.*$/, "")                   // «Название | Канал»
-    .replace(/\s+(lyrics?|hq|hd)$/i, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  const parts = !isTopic && title.match(/^(.+?)\s+[-–—]\s+(.+)$/);
-  if (parts && !VERSION_TAIL.test(parts[2])) {
-    // «Исполнитель - Название»
-    const left = parts[1].trim(), l = left.toLowerCase(), a = artist.toLowerCase();
-    const sameAsChannel = !!a && (a.includes(l) || l.includes(a));
-    if (sameAsChannel || left.length <= 40) {   // длинная левая часть — скорее всего не имя исполнителя
-      if (!sameAsChannel) artist = left;        // канал чужой (перезалив) — исполнитель записан слева
-      title = parts[2].trim();
-    }
-  }
-  return { title: title || track.title || "Без названия", artist: artist || "Неизвестный автор" };
-}
+// Сама чистка названий — в trackname.js (без зависимостей: ей пользуется и samesong.js)
+export { displayTrack } from "./trackname.js";
+import { displayTrack } from "./trackname.js";
 
 export function formatTime(sec) {
   if (!Number.isFinite(sec) || sec < 0) return "0:00";
@@ -183,10 +167,14 @@ export function replay(node, cls) {
 // Одна и та же строка — в поиске, истории и плейлистах.
 // numbered: вид таблицы (номер, длительность в отдельной колонке) — для экрана плейлиста.
 
+// uploads: все загрузки этой песни (samesong.js), если их несколько — строка одна, с пометкой «2 загрузки»;
+// onUploads(кнопка) — по щелчку на пометку (выбор, какая играет)
 export function trackRow(track, { index = 0, numbered = false, showSource = false,
-  onPlay, onMenu, onLike, onRemove, draggable = false } = {}) {
+  onPlay, onMenu, onLike, onRemove, draggable = false, uploads = null, onUploads = null } = {}) {
   const li = el("li", `track ${numbered ? "numbered" : "compact"}`);
   li.dataset.key = keyOf(track);
+  const many = uploads?.length > 1;
+  if (many) li.dataset.keys = uploads.map(keyOf).join("\n");
   li.style.setProperty("--i", Math.min(index, 20));
 
   if (numbered) {
@@ -214,9 +202,24 @@ export function trackRow(track, { index = 0, numbered = false, showSource = fals
   const dl = el("span", "t-dl");   // значок «скачано» (виден, когда трек скачан или качается)
   dl.innerHTML = icons.downloaded;
   sub.append(dl, artistLinks(track, shown.artist), document.createTextNode(parts.length ? " · " + parts.join(" · ") : ""));
+  if (many) {   // одна песня с нескольких сайтов — видно, что загрузок несколько, и можно выбрать, какая играет
+    const chip = el("button", "t-uploads", plural(uploads.length, "загрузка", "загрузки", "загрузок"));
+    chip.type = "button";
+    const sites = [...new Set(uploads.map((t) => sourceLabel(t.source)).filter(Boolean))];
+    chip.title = `Одна песня — ${sites.join(" и ")}. Щёлкните, чтобы выбрать, какая загрузка играет`;
+    chip.addEventListener("click", (e) => { e.stopPropagation(); onUploads?.(chip); });
+    sub.append(document.createTextNode(" · "), chip);
+  }
   meta.append(el("div", "t-title", shown.title), sub);
   meta.title = track.title;   // полное исходное название — во всплывающей подсказке
   li.append(img, meta);
+  // Проверка медиатеки (libcheck.js) нашла, что трек удалили, а другой загрузки нет — серым, с причиной
+  const gone = rowBroken(li);
+  if (gone) {
+    li.classList.add("unavailable", "gone");
+    sub.dataset.gone = gone;
+    li.title = `Не открывается: ${gone}`;
+  }
 
   // Прослушивания на YouTube/SoundCloud — заполняет plays.js, когда узнает
   if (numbered) li.append(el("span", "t-plays"), el("span", "t-source", sourceLabel(track.source)));
@@ -287,7 +290,8 @@ export function syncAllRows() {
 /** Подсвечивает строки текущего трека */
 export function markCurrentRows(key) {
   document.querySelectorAll(".track[data-key], .home-card[data-key]").forEach((li) =>
-    li.classList.toggle("current", li.dataset.key === key || li.dataset.realKey === key));   // realKey — пара трека из базы
+    li.classList.toggle("current", li.dataset.key === key || li.dataset.realKey === key   // realKey — пара трека из базы
+      || (!!key && !!li.dataset.keys && li.dataset.keys.split("\n").includes(key))));     // keys — все загрузки песни
 }
 
 // ---------- Обложка коллекции (плейлист, избранное, дизлайки) ----------

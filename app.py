@@ -30,6 +30,7 @@ import artists
 import discord_rpc
 import flow
 import importer
+import libcheck
 import linkinfo
 import localfiles
 import netbypass
@@ -3150,26 +3151,123 @@ def api_replacement():
     artist, title = str(data.get("artist") or "")[:200], str(data.get("title") or "")[:200]
     if not title:
         abort(400)
+    try:
+        found = find_replacement(source, track_id, artist, title, data.get("duration"), str(data.get("metaId") or ""))
+    except Exception as e:
+        print(f"[replacement] {artist} — {title}: {e}")
+        return jsonify(error=friendly_error(e)), 502
+    if not found:
+        return jsonify(error="Другой загрузки этого трека не нашлось"), 404
+    return jsonify(found)
+
+
+def find_replacement(source: str, track_id: str, artist: str, title: str, duration, meta_id: str = "") -> dict | None:
+    """Другая загрузка того же трека — мимо сломанной (source:track_id). Нашлась и трек был из базы (meta_id) —
+    запоминаем новую пару, чтобы /api/resolve больше не отдавал сломанную."""
     bad = cache_key(source, track_id)
 
     def search_without_bad(src, query, limit=8):
         return [t for t in search(src, query, limit=limit) if cache_key(t["source"], str(t["id"])) != bad]
 
-    try:
-        found = importer._find_pair("auto", search_without_bad, artist, title, data.get("duration"))
-    except Exception as e:
-        print(f"[replacement] {artist} — {title}: {e}")
-        return jsonify(error=friendly_error(e)), 502
+    found = importer._find_pair("auto", search_without_bad, artist, title, duration)
     if not found or cache_key(found["source"], str(found["id"])) == bad:   # YouTube Music мог вернуть ту же
-        return jsonify(error="Другой загрузки этого трека не нашлось"), 404
+        return None
     print(f"[replacement] {artist} — {title}: {source}:{track_id} -> {found['source']}:{found['id']}")
-    meta_id = str(data.get("metaId") or "")
     if re.match(r"^(ya|dz|scm)\d+$", meta_id):
         with _resolved_lock:
             if meta_id in _resolved:
                 _resolved[meta_id] = {**found, "artists": artist, "origTitle": title}
                 RESOLVED_FILE.write_text(json.dumps(_resolved, ensure_ascii=False), encoding="utf-8")
-    return jsonify(found)
+    return found
+
+
+# ---------- Проверка медиатеки (libcheck.py) ----------
+
+# Ответ yt-dlp → можно ли считать видео пропавшим. «Проверка на робота», обрыв сети — нет: это не про видео
+_YT_GONE = [
+    (re.compile(r"private video|is private", re.I), "видео закрыто автором"),
+    (re.compile(r"removed|terminated|deleted|no longer available|copyright", re.I), "видео удалено с YouTube"),
+    (re.compile(r"confirm your age|age-restricted|inappropriate", re.I), "YouTube требует войти: видео 18+"),
+    (re.compile(r"not available in your country|blocked it in your country", re.I), "видео недоступно в вашей стране"),
+    (re.compile(r"video unavailable|is unavailable|not available", re.I), "видео недоступно на YouTube"),
+]
+
+
+def yt_check(video_id: str) -> tuple:
+    """(True — открывается | False — нет | None — непонятно, причина)."""
+    try:
+        resp = _http.get("https://www.youtube.com/oembed", timeout=10, headers=SC_HEADERS,
+                         params={"url": f"https://www.youtube.com/watch?v={video_id}", "format": "json"})
+    except requests.RequestException:
+        return None, ""
+    if resp.status_code == 200:
+        return True, ""
+    if resp.status_code not in (400, 401, 403, 404):
+        return None, ""
+    # oEmbed не знает видео — оно удалено, закрыто… или просто запрещено встраивать на сайты (такие играют).
+    # Проверяем по-настоящему: получится ли ссылка на звук
+    try:
+        resolve_stream(video_id)
+        return True, ""
+    except Exception as e:
+        text = str(e)
+        if re.search(r"not a bot|sign in to confirm you|timed out|connection|ssl|resolve|temporar|http error 5", text, re.I):
+            return None, ""
+        for pattern, why in _YT_GONE:
+            if pattern.search(text):
+                return False, why
+        return None, ""
+
+
+def sc_check(ids: list[str]) -> dict:
+    """{id: (True|False|None, причина)} для пачки треков SoundCloud (до 50)."""
+    raw = sc_api("/tracks", ids=",".join(ids))
+    got = {str(t.get("id")): t for t in (raw if isinstance(raw, list) else raw.get("collection") or [])
+           if isinstance(t, dict)}
+    out = {}
+    for tid in ids:
+        t = got.get(tid)
+        if t is None:   # в пачке нет — удалён или закрыт; спрашиваем отдельно, чтобы не ошибиться
+            try:
+                t = sc_api(f"/tracks/{int(tid)}")
+            except requests.HTTPError as e:
+                code = e.response.status_code if e.response is not None else 0
+                out[tid] = (False, "трек удалён с SoundCloud или закрыт") if code in (403, 404, 410) else (None, "")
+                continue
+            except Exception:
+                out[tid] = (None, "")
+                continue
+        track, why = importer._sc_track(t, MAX_DURATION)
+        out[tid] = (True, "") if track or why.startswith("длиннее") else (False, why)
+    return out
+
+
+libchecker = libcheck.Checker(
+    DATA_DIR / "libcheck.json", yt_check, sc_check,
+    lambda t: find_replacement(t["source"], str(t["id"]), str(t.get("artist") or "")[:200],
+                               str(t.get("title") or "")[:200], t.get("duration"), str(t.get("metaId") or "")))
+
+
+@app.get("/api/libcheck")
+def api_libcheck_status():
+    return jsonify(libchecker.status())
+
+
+@app.post("/api/libcheck")
+def api_libcheck_start():
+    """{tracks: [{source, id, artist, title, duration, metaId?}], force?} — проверить в фоне; ответ — как GET."""
+    data = _body()
+    tracks = []
+    for t in _list(data.get("tracks"))[:5000]:
+        if not isinstance(t, dict):
+            continue
+        source, track_id = str(t.get("source", "")), str(t.get("id", ""))
+        if source in ("youtube", "soundcloud") and valid(source, track_id) and t.get("title"):
+            tracks.append({"source": source, "id": track_id, "artist": str(t.get("artist") or "")[:200],
+                           "title": str(t["title"])[:200], "duration": t.get("duration"),
+                           "metaId": str(t.get("metaId") or "")[:40]})
+    libchecker.start(tracks, force=data.get("force") is True)
+    return jsonify(libchecker.status({f"{t['source']}:{t['id']}" for t in tracks}))
 
 
 @app.get("/api/lyrics/<source>/<track_id>")

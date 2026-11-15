@@ -6,7 +6,8 @@ import { icons } from "./icons.js";
 import { setCrossfadeHandler } from "./audio.js";
 import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, lib, removeFromHistory, sessionChanged, setAltVersion, setSetting, slim } from "./library.js";
 import { isMeta, missingReason, resolveMeta, toReal } from "./meta.js";
-import { SOURCE_NAMES, artistLinks, compactNumber, coverUrl, displayTrack, formatTime, imageHsl, playsText, replay, toast, trackPath } from "./ui.js";
+import { twinsIn } from "./samesong.js";
+import { SOURCE_NAMES, artistLinks, compactNumber, coverUrl, displayTrack, formatTime, imageHsl, isBroken, playsText, replay, toast, trackPath } from "./ui.js";
 
 const audio = document.getElementById("player");
 const coverEl = document.getElementById("cover");
@@ -271,6 +272,16 @@ function warnIfSlow(track) {
 // вставал с ошибкой). Нашлась — играет она и запоминается вместо сломанной (как версия без цензуры)
 const REPLACEABLE = /войти в аккаунт|недоступен|защищён от копирования/;
 const replaceTried = new Set();   // ключи, которым уже искали замену в этот запуск — не ищем по кругу
+
+/** Другая загрузка той же песни, сохранённая в избранном или плейлистах (не та, что уже не открылась) */
+function savedTwinOf(track) {
+  const saved = [lib.liked, ...lib.playlists.map((p) => p.tracks)];
+  for (const list of saved) {
+    const twin = twinsIn(list, track).find((t) => keyOf(t) !== keyOf(track) && !replaceTried.has(keyOf(t)) && !isBroken(t));
+    if (twin) return twin;
+  }
+  return null;
+}
 
 async function findReplacement(track) {
   const shown = displayTrack(track);
@@ -803,6 +814,14 @@ export function initPlayer() {
     const broken = REPLACEABLE.test(msg) && track.source !== "local";
     if (broken && !replaceTried.has(keyOf(track))) {
       replaceTried.add(keyOf(track));
+      // Та же песня есть в медиатеке другой загрузкой (YouTube ↔ SoundCloud, samesong.js) — сразу она, без поиска
+      const twin = savedTwinOf(track);
+      if (twin) {
+        removeFromHistory(track);
+        swapCurrent(twin);
+        toast("Эта загрузка не открывалась — включил другую загрузку этой песни из медиатеки");
+        return;
+      }
       setStatus("Этот вариант трека не открывается — ищу другую загрузку…");
       all("play").forEach((b) => b.classList.add("loading"));
       const alt = await findReplacement(track);

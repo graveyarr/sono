@@ -1,7 +1,7 @@
 // Экраны: «Главная», «Сейчас играет» и экран плейлиста (свой плейлист, «Избранное», «Не нравится»),
 // боковая панель «Медиатека» и мини-плеер, который виден везде, кроме «Сейчас играет».
 
-import { addToPlaylistItems, createPlaylist, openPlaylistMenu, openTrackMenu, pickPlaylistCover, removeTracksWithUndo, renamePlaylist, toggleDislike, toggleLike } from "./actions.js";
+import { addManyToPlaylist, addToPlaylistItems, createPlaylist, openPlaylistMenu, openTrackMenu, openUploadsMenu, pickPlaylistCover, removeTracksWithUndo, renamePlaylist, toggleDislike, toggleLike } from "./actions.js";
 import { renderAlbum, renderArtist } from "./artist.js";
 import { FLOW_MODES, cachedMixes, flowMode, hasTaste, setFlowMode, smartShuffle, startFlow, tasteMixes, warmFlow } from "./flow.js";
 import { renderFlowView } from "./flowview.js";
@@ -12,7 +12,8 @@ import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
 import { setNavigator } from "./nav.js";
 import { openImportDialog } from "./import.js";
-import { addToPlaylist, createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isDisliked, keyOf, lib, moveInPlaylist, setSetting } from "./library.js";
+import { createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isDisliked, keyOf, lib, moveSongInPlaylist, pickedUpload, setSetting } from "./library.js";
+import { groupSongs, songCount, uniqueSongs } from "./samesong.js";
 import { isLyricsVisible, setLyricsVisible } from "./lyrics.js";
 import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueLater, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
@@ -22,7 +23,7 @@ import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, re
 import { localTracks } from "./local.js";
 import { countDownloaded, download, removeDownload } from "./downloads.js";
 import { renderSettings } from "./settings.js";
-import { collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, markCurrentRows, nameHue, openMenu, plural, toast, trackRow } from "./ui.js";
+import { collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
 
 const viewHome = document.getElementById("view-home");
 const viewNow = document.getElementById("view-now");
@@ -83,9 +84,23 @@ function describe(key) {
 const contextKey = (ctx) => (!ctx ? "" : ctx.id ? `${ctx.type}:${ctx.id}` : ctx.type);
 const playingFrom = (key) => !!state.current && contextKey(state.context) === key;
 
+// ---------- Одна песня — одна строка ----------
+// В своих плейлистах и «Избранном» загрузки одной песни (YouTube + SoundCloud, samesong.js) показываются
+// одной строкой. Данные не меняются — склеивается только показ. Играет выбранная в «Загрузки трека»,
+// иначе первая, которая открывается (проверка медиатеки), иначе первая по списку
+const MERGED_KINDS = new Set(["liked", "playlist"]);
+const pickUpload = (members) => pickedUpload(members) ?? members.find((t) => !isBroken(t)) ?? members[0];
+/** Песни коллекции: [{ track (какая играет), members (все загрузки), indices (места в списке) }] */
+function songsOf(info) {
+  if (!MERGED_KINDS.has(info.kind)) return info.tracks.map((track, i) => ({ track, members: [track], indices: [i] }));
+  return groupSongs(info.tracks, pickUpload);
+}
+const songTracks = (info) => songsOf(info).map((g) => g.track);
+
 /** Включить коллекцию: с первого трека без дизлайка или в случайном порядке */
 function playCollection(info, shuffle = false) {
-  let tracks = info.kind === "disliked" ? info.tracks.slice() : info.tracks.filter((t) => !lib.disliked.some((d) => keyOf(d) === keyOf(t)));
+  const all = songTracks(info);   // каждая песня один раз, даже если у неё две загрузки
+  let tracks = info.kind === "disliked" ? all : all.filter((t) => !lib.disliked.some((d) => keyOf(d) === keyOf(t)));
   if (!tracks.length) return;
   if (shuffle) {
     for (let i = tracks.length - 1; i > 0; i--) {
@@ -98,7 +113,7 @@ function playCollection(info, shuffle = false) {
 
 // Наведение на большую кнопку ▶ или плитку — готовим первый трек коллекции
 function prefetchCollection(info) {
-  prefetch(info.tracks.find((t) => !lib.disliked.some((d) => keyOf(d) === keyOf(t))));
+  prefetch(songTracks(info).find((t) => !lib.disliked.some((d) => keyOf(d) === keyOf(t))));
 }
 
 /** Открыли список — через полсекунды (если ещё на нём) готовим два первых трека: ▶ и щелчок по верху списка —
@@ -290,7 +305,8 @@ function renderHome() {
   if (made) children.push(...made);
   const stats = statsCard();   // «Ваша статистика» — есть, когда уже что-то послушали
   if (stats) children.push(stats);
-  const recent = lib.history.filter((t) => !isDisliked(t)).slice(0, 10);
+  // Одна песня — одна карточка: слушали с YouTube, потом с SoundCloud — показываем последнюю (samesong.js)
+  const recent = uniqueSongs(lib.history.filter((t) => !isDisliked(t))).slice(0, 10);
   if (recent.length) {
     const cards = el("div", "home-cards");
     recent.forEach((t, i) => cards.append(trackCard(t, recent, i, { type: "history" })));
@@ -664,8 +680,9 @@ export function renderSidebar({ keepFocus = false } = {}) {
   navSettings.classList.toggle("active", view === "settings" || view === "workshop");   // мастерская открывается из настроек
   lastSidebarSig = sidebarSignature();
   const tools = libToolsOn();
-  const playlistItem = (p) => libItem(`playlist:${p.id}`, describe(`playlist:${p.id}`), `Плейлист · ${plural(p.tracks.length, "трек", "трека", "треков")}`);
-  const pinned = [libItem("liked", describe("liked"), `Плейлист · ${plural(lib.liked.length, "трек", "трека", "треков")}`)];
+  // Счётчик — песни, как и строки в списке (две загрузки одной песни — один трек)
+  const playlistItem = (p) => libItem(`playlist:${p.id}`, describe(`playlist:${p.id}`), `Плейлист · ${plural(songCount(p.tracks), "трек", "трека", "треков")}`);
+  const pinned = [libItem("liked", describe("liked"), `Плейлист · ${plural(songCount(lib.liked), "трек", "трека", "треков")}`)];
   if (localTracks().length) {
     pinned.push(libItem("local", describe("local"), `С компьютера · ${plural(localTracks().length, "трек", "трека", "треков")}`));
   }
@@ -800,7 +817,10 @@ function renderList(fresh) {
     name.title = "Переименовать";
     name.addEventListener("click", () => renamePlaylist(info.playlist));
   }
-  const meta = info.tracks.length ? `${plural(info.tracks.length, "трек", "трека", "треков")} · ${formatTotal(info.tracks)}` : "Пусто";
+  // Песни (две загрузки одной песни — одна строка и один трек в счёте)
+  const songs = songsOf(info);
+  const songList = songs.map((g) => g.track);
+  const meta = songs.length ? `${plural(songs.length, "трек", "трека", "треков")} · ${formatTotal(songList)}` : "Пусто";
   text.append(el("div", "pl-kind", info.label), name);
   if (info.desc) text.append(el("div", "pl-desc", info.desc));
   text.append(el("div", "pl-meta", meta));
@@ -826,14 +846,14 @@ function renderList(fresh) {
     playBtn.addEventListener("click", () => (playingFrom(view) ? togglePlay() : playCollection(info)));
     playBtn.addEventListener("mouseenter", () => prefetchCollection(info));
     const shuffle = iconButton(icons.shuffle, "Перемешать и слушать");
-    shuffle.disabled = info.tracks.length < 2;
+    shuffle.disabled = songs.length < 2;
     shuffle.addEventListener("click", () => playCollection(info, true));
     actions.append(playBtn, shuffle);
     // Умное перемешивание: вперемешку + после каждых двух треков — похожий из рекомендаций
     if (info.kind !== "pick") {
       const smart = iconButton(icons.smartShuffle, "Умное перемешивание: список вперемешку и похожие треки между ними");
       smart.disabled = !info.tracks.length;
-      smart.addEventListener("click", () => smartShuffle({ name: info.name, tracks: info.tracks, context: info.context }));
+      smart.addEventListener("click", () => smartShuffle({ name: info.name, tracks: songList, context: info.context }));
       actions.append(smart);
     }
     if (info.tracks.length) actions.append(downloadControl(info));
@@ -874,18 +894,22 @@ function renderList(fresh) {
   const empty = el("p", "pl-empty", "Ничего не нашлось");
   empty.hidden = true;
   let tools, drawSelectBar, clearSelection;
+  let shownSongs = [];   // песни в том порядке, в каком стоят строки (для перетаскивания)
   const drawList = () => {
-    const shown = orderedTracks(info.tracks, st);
+    const shown = orderedTracks(songs, st);
+    shownSongs = shown.map((x) => x.group);
     const queue = shown.map((x) => x.track);
-    list.replaceChildren(...shown.map(({ track }, n) => {
+    list.replaceChildren(...shown.map(({ track, group }, n) => {
       const row = trackRow(track, {
         index: n,
         numbered: true,
         draggable: true,   // перетаскивание — в другой плейлист в медиатеке (а в своём плейлисте ещё и порядок)
         onPlay: () => { clearSelection(); play(track, queue.slice(), n, info.context); },
         onLike: toggleLike,
-        onMenu: (anchor) => openTrackMenu(anchor, track, info.playlist ? { playlistId: info.playlist.id } : {}),
+        onMenu: (anchor) => openTrackMenu(anchor, track, { ...(info.playlist ? { playlistId: info.playlist.id } : {}), members: group.members }),
         onRemove: info.kind === "disliked" ? toggleDislike : null,
+        uploads: group.members,
+        onUploads: (chip) => openUploadsMenu(chip, group.members, track),
       });
       row.classList.toggle("selected", st.selected.has(keyOf(track)));
       row.addEventListener("mouseenter", () => prefetch(track));   // пока ведут курсор — готовим трек
@@ -898,8 +922,8 @@ function renderList(fresh) {
     markCurrentRows(state.current ? keyOf(state.current) : null);
     drawSelectBar();
   };
-  ({ tools, drawSelectBar, clearSelection } = listTools(info, st, list, drawList));
-  if (info.playlist) enableDragSort(list, info.playlist.id);
+  ({ tools, drawSelectBar, clearSelection } = listTools(info, st, list, drawList, songs));
+  if (info.playlist) enableDragSort(list, info.playlist.id, () => shownSongs);
   enableDragOut(list, info, st);
   drawList();
   // Прослушивания на YouTube/SoundCloud — подгружаем в фоне и вписываем в колонку
@@ -945,9 +969,9 @@ function listState(key) {
 
 const fold = (s) => (s || "").toLowerCase().replace(/ё/g, "е");
 
-/** Треки в нужном порядке и с поиском: [{ track, i }], i — место в самом списке */
-function orderedTracks(tracks, st) {
-  let items = tracks.map((track, i) => ({ track, i, shown: displayTrack(track) }));
+/** Песни в нужном порядке и с поиском: [{ track, group, i }], i — место (первой загрузки) в самом списке */
+function orderedTracks(songs, st) {
+  let items = songs.map((group) => ({ track: group.track, group, i: group.indices[0], shown: displayTrack(group.track) }));
   if (st.query) {
     const q = fold(st.query);
     items = items.filter(({ shown }) => fold(`${shown.title} ${shown.artist}`).includes(q));
@@ -965,7 +989,7 @@ function orderedTracks(tracks, st) {
 }
 
 /** Строка над списком: поиск, сортировка; когда выбраны треки — что с ними сделать */
-function listTools(info, st, list, drawList) {
+function listTools(info, st, list, drawList, songs) {
   const tools = el("div", "list-tools");
   const search = el("label", "list-search");
   search.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>`;
@@ -1001,7 +1025,10 @@ function listTools(info, st, list, drawList) {
   const bar = el("div", "select-bar");
   tools.append(search, sortBtn, bar);
 
-  const selectedTracks = () => info.tracks.filter((t) => st.selected.has(keyOf(t)));
+  // Выбор хранит ключ строки — той загрузки, что показана; для очереди и «В плейлист» берём её,
+  // а удаление убирает все загрузки песни
+  const selectedSongs = () => songs.filter((g) => st.selected.has(keyOf(g.track)));
+  const selectedTracks = () => selectedSongs().map((g) => g.track);
   const clearSelection = () => {
     if (!st.selected.size) return;
     st.selected.clear();
@@ -1036,9 +1063,9 @@ function listTools(info, st, list, drawList) {
       }),
       btn("В плейлист", icons.plus, (e) => openMenu(e.currentTarget, addToPlaylistItems(selectedTracks()))),
       ...(info.playlist ? [btn("Удалить", icons.trash, () => {
-        const picked = selectedTracks();
+        const picked = selectedSongs();
         st.selected.clear();
-        removeTracksWithUndo(info.playlist.id, picked);
+        removeTracksWithUndo(info.playlist.id, picked.flatMap((g) => g.members), picked.length);
       }, "danger-text")] : []),
       unselect);
   };
@@ -1110,8 +1137,7 @@ function acceptTrackDrop(li, playlist) {
     try { tracks = JSON.parse(e.dataTransfer.getData(DRAG_TYPE) || "[]"); } catch {}
     if (!tracks.length) return;
     e.preventDefault();
-    const added = tracks.filter((t) => addToPlaylist(playlist.id, t)).length;
-    toast(added ? `Добавлено в «${playlist.name}»: ${plural(added, "трек", "трека", "треков")}` : `Уже есть в «${playlist.name}»`);
+    addManyToPlaylist(playlist, tracks);   // та же песня другой загрузкой — только по «Всё равно добавить»
   });
 }
 
@@ -1153,8 +1179,9 @@ function setHeroColor(hero, info) {
   }).catch(() => {});
 }
 
-// Перетаскивание треков внутри плейлиста
-function enableDragSort(list, playlistId) {
+// Перетаскивание треков внутри плейлиста. Строка — песня (у неё может быть несколько загрузок): двигается
+// целиком, все её загрузки встают подряд на новое место. songsNow() — песни в порядке строк
+function enableDragSort(list, playlistId, songsNow) {
   let from = -1;
   const rows = () => [...list.children];
   const clearMarks = () => rows().forEach((r) => r.classList.remove("drop-before", "drop-after", "dragging"));
@@ -1180,12 +1207,12 @@ function enableDragSort(list, playlistId) {
     e.preventDefault();
     const row = e.target.closest(".track");
     if (from < 0 || !row) return;
-    let to = rows().indexOf(row) + (row.classList.contains("drop-after") ? 1 : 0);
-    if (to > from) to -= 1;   // трек сначала вынимают из списка, позиции ниже сдвигаются
+    const target = rows().indexOf(row), after = row.classList.contains("drop-after");
     clearMarks();
-    const moved = from;
+    const songs = songsNow(), moved = songs[from], onto = songs[target];
     from = -1;
-    moveInPlaylist(playlistId, moved, to);
+    if (!moved || !onto || moved === onto) return;
+    moveSongInPlaylist(playlistId, moved.members.map(keyOf), onto.members.map(keyOf), after);
   });
   list.addEventListener("dragend", () => { from = -1; clearMarks(); });
 }
@@ -1204,6 +1231,12 @@ export function refreshViews(section) {
   if (section === "settings") {
     // Папки, сортировка, подписки и выключатель лежат в настройках — перерисовать медиатеку, только если они менялись
     if (sidebarSignature() !== lastSidebarSig) renderSidebar();
+    // Выбрали другую загрузку песни («Загрузки трека») — строка показывает и включает её
+    const picks = getSetting("uploadPick", null);
+    if (picks !== lastUploadPick) {
+      lastUploadPick = picks;
+      if (isListView()) renderList(false);
+    }
     return;
   }
   if (view === "home") renderHome();   // главная показывает и историю, и плейлисты
@@ -1214,6 +1247,9 @@ export function refreshViews(section) {
   else if (FIXED_VIEWS.includes(view) || isMetaView(view)) return;
   else renderList(false);
 }
+
+let lastUploadPick = null;
+const isListView = () => !!view && !FIXED_VIEWS.includes(view) && !isMetaView(view);
 
 /** Сменился трек (или очередь) — подсветить его в списках и в медиатеке, обновить «Далее» */
 export function refreshPlaying() {
@@ -1233,6 +1269,9 @@ function setSidebarHidden(hidden) {
 
 export function initViews() {
   setSidebarHidden(!!getSetting("sidebarHidden", false));
+  lastUploadPick = getSetting("uploadPick", null);
+  // Проверка медиатеки нашла неоткрывающиеся загрузки — у песни с двумя загрузками строка выберет рабочую
+  onBrokenTracks(() => { if (isListView()) renderList(false); });
   document.getElementById("sidebar-toggle").addEventListener("click", () => {
     const hidden = !document.body.classList.contains("sidebar-hidden");
     setSidebarHidden(hidden);

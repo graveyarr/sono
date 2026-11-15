@@ -2,6 +2,8 @@
 // Данные лежат на сервере (library.json). Здесь — копия в памяти и все операции над ней;
 // после каждого изменения раздел отправляется на сервер, а интерфейс получает событие.
 
+import { twinsIn } from "./samesong.js";
+
 export const lib = { liked: [], disliked: [], playlists: [], history: [], settings: {}, downloads: [], stats: {}, picks: {}, session: {} };
 
 const HISTORY_LIMIT = 12;
@@ -124,16 +126,21 @@ export function likeTarget() {
 }
 export const likeTargetName = () => likeTarget()?.name ?? "Избранное";
 
-export const isLiked = (track) => has(likeTarget()?.tracks ?? lib.liked, track);
+// Сердечко общее для всех загрузок одной песни (samesong.js): лайкнули запись с YouTube — у той же песни
+// с SoundCloud сердечко тоже горит, а «убрать» убирает обе
+export const isLiked = (track) => twinsIn(likeTarget()?.tracks ?? lib.liked, track).length > 0;
 export const isDisliked = (track) => has(lib.disliked, track);
 
 function unlike(track) {
   const target = likeTarget();
+  const list = target?.tracks ?? lib.liked;
+  const keys = new Set([keyOf(track), ...twinsIn(list, track).map(keyOf)]);
+  const rest = list.filter((t) => !keys.has(keyOf(t)));
   if (target) {
-    target.tracks = without(target.tracks, track);
+    target.tracks = rest;
     changed("playlists");
   } else {
-    lib.liked = without(lib.liked, track);
+    lib.liked = rest;
     changed("liked");
   }
 }
@@ -162,17 +169,26 @@ export function toggleLike(track) {
 /** Где лежит лайк трека (для «Отменить» после дизлайка): {playlist, index} или null — лайка нет */
 export function likePlace(track) {
   const target = likeTarget();
-  const index = (target?.tracks ?? lib.liked).findIndex((t) => keyOf(t) === keyOf(track));
-  return index < 0 ? null : { playlist: target?.id ?? null, index };
+  const list = target?.tracks ?? lib.liked;
+  // Лайк мог стоять у другой загрузки той же песни — запоминаем их все (сердечко общее)
+  const twins = new Set(twinsIn(list, track).map(keyOf));
+  const items = list.map((t, index) => ({ track: t, index })).filter(({ track: t }) => twins.has(keyOf(t)));
+  return items.length ? { playlist: target?.id ?? null, index: items[0].index, items } : null;
 }
 
 /** Вернуть лайк на прежнее место (то, что запомнил likePlace) */
 export function restoreLike(track, place) {
   if (!place) return;
   const list = place.playlist ? getPlaylist(place.playlist)?.tracks : lib.liked;
-  if (!list || has(list, track)) return;
-  list.splice(Math.min(place.index, list.length), 0, slim(track));
-  changed(place.playlist ? "playlists" : "liked");
+  if (!list) return;
+  const items = place.items ?? [{ track, index: place.index }];
+  let put = false;
+  for (const { track: t, index } of items) {   // по порядку — тогда места не сдвигаются
+    if (has(list, t)) continue;
+    list.splice(Math.min(index, list.length), 0, slim(t));
+    put = true;
+  }
+  if (put) changed(place.playlist ? "playlists" : "liked");
 }
 
 /** Возвращает новое состояние: true — теперь с дизлайком */
@@ -286,6 +302,24 @@ export function moveInPlaylist(id, from, to) {
   changed("playlists");
 }
 
+/** Перетаскивание песни, у которой несколько загрузок (одна строка): все её загрузки встают подряд
+ *  перед загрузкой target (или после последней из targetKeys, если after) */
+export function moveSongInPlaylist(id, keys, targetKeys, after) {
+  const p = getPlaylist(id);
+  if (!p) return;
+  const moving = new Set(keys);
+  if (targetKeys.some((k) => moving.has(k))) return;   // на себя же
+  const moved = p.tracks.filter((t) => moving.has(keyOf(t)));
+  const rest = p.tracks.filter((t) => !moving.has(keyOf(t)));
+  const targets = new Set(targetKeys);
+  const spots = rest.map((t, i) => (targets.has(keyOf(t)) ? i : -1)).filter((i) => i >= 0);
+  if (!moved.length || !spots.length) return;
+  const at = after ? spots[spots.length - 1] + 1 : spots[0];
+  rest.splice(at, 0, ...moved);
+  p.tracks = rest;
+  changed("playlists");
+}
+
 // ---------- Скачанное ----------
 
 /** Запомнить, что человек скачал эти треки (новые — сверху) */
@@ -311,6 +345,13 @@ export function addToHistory(track) {
 
 export function removeFromHistory(track) {
   lib.history = without(lib.history, track);
+  changed("history");
+}
+
+/** «Убрать из истории» у строки: история показывает песню один раз — убираем все её загрузки */
+export function removeSongFromHistory(track) {
+  const keys = new Set([keyOf(track), ...twinsIn(lib.history, track).map(keyOf)]);
+  lib.history = lib.history.filter((t) => !keys.has(keyOf(t)));
   changed("history");
 }
 
@@ -371,6 +412,21 @@ export function setAltVersion(track, alt) {
   if (alt) map[keyOf(track)] = slim(alt);
   else delete map[keyOf(track)];
   setSetting("altVersions", map);
+}
+
+// ---------- Какая загрузка песни играет ----------
+// Одна песня с YouTube и SoundCloud показывается одной строкой (samesong.js). Какую загрузку включать —
+// человек выбирает в «⋯» → «Загрузки трека»: settings.uploadPick = [ключи выбранных загрузок] (последние 500)
+
+export const uploadPicks = () => getSetting("uploadPick", []);
+/** Выбранная загрузка из нескольких (или null — не выбирали) */
+export const pickedUpload = (members) => {
+  const picks = uploadPicks();
+  return picks.length ? members.find((t) => picks.includes(keyOf(t))) ?? null : null;
+};
+export function setUploadPick(members, chosen) {
+  const others = new Set(members.map(keyOf));
+  setSetting("uploadPick", [...uploadPicks().filter((k) => !others.has(k)), keyOf(chosen)].slice(-500));
 }
 
 export const censoredKeys = () => getSetting("censored", []);

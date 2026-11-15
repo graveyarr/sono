@@ -12,7 +12,8 @@ import { folderMenuItem } from "./libtools.js";
 import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
 import { openAlbumAt, openArtist, splitArtists } from "./nav.js";
 import { playNext, queueLater, queueNext, returnToQueue, state } from "./player.js";
-import { confirmDialog, displayTrack, el, openMenu, plural, promptDialog, toast } from "./ui.js";
+import { twinsIn } from "./samesong.js";
+import { confirmDialog, displayTrack, el, formatTime, openMenu, plural, promptDialog, sourceLabel, toast } from "./ui.js";
 import { openExternal } from "./device.js";
 
 const isCurrent = (track) => !!state.current && keyOf(state.current) === keyOf(track);
@@ -126,11 +127,12 @@ async function squareJpeg(file) {
 }
 
 /** Удалить треки из плейлиста с кнопкой «Отменить» в уведомлении (вернёт их на прежние места) */
-export function removeTracksWithUndo(playlistId, tracks) {
+// songs — сколько строк убрали (у песни с двумя загрузками строка одна, а треков в плейлисте два)
+export function removeTracksWithUndo(playlistId, tracks, songs = tracks.length) {
   const p = library.getPlaylist(playlistId);
   const before = library.removeManyFromPlaylist(playlistId, tracks);
   if (!before) return;
-  const what = tracks.length === 1 ? "Удалено" : `Удалено ${plural(tracks.length, "трек", "трека", "треков")}`;
+  const what = songs === 1 ? "Удалено" : `Удалено ${plural(songs, "трек", "трека", "треков")}`;
   toast(`${what} из «${p?.name ?? "плейлиста"}»`, { action: { label: "Отменить", run: () => library.setPlaylistTracks(playlistId, before) } });
 }
 
@@ -180,7 +182,23 @@ export async function deletePlaylist(playlist) {
   return ok;
 }
 
+/** Другие загрузки той же песни в списке (samesong.js) — без самой этой загрузки */
+const otherUploads = (list, track) => twinsIn(list, track).filter((t) => keyOf(t) !== keyOf(track));
+/** «(с YouTube)» — откуда уже лежащая там загрузка */
+const fromWhere = (twins) => {
+  const site = sourceLabel(twins[0]?.source);
+  return site ? ` (с ${site})` : "";
+};
+
 const addTo = withReal((track, p) => {
+  if (library.getPlaylist(p.id)?.tracks.some((t) => keyOf(t) === keyOf(track))) return toast(`Уже есть в «${p.name}»`);
+  // Та же песня, но другая загрузка (например, с SoundCloud, а добавляют с YouTube) — спрашиваем, нужен ли повтор
+  const twins = otherUploads(p.tracks, track);
+  if (twins.length) {
+    return toast(`Уже есть в «${p.name}»${fromWhere(twins)}`, { action: { label: "Всё равно добавить", run: () => {
+      if (library.addToPlaylist(p.id, track)) toast(`Добавлено в «${p.name}»`);
+    } } });
+  }
   toast(library.addToPlaylist(p.id, track) ? `Добавлено в «${p.name}»` : `Уже есть в «${p.name}»`);
 });
 
@@ -196,18 +214,34 @@ export function addToPlaylistItems(track) {
   if (lib.playlists.length) items.push({ sep: true });
   const real = resolvedOf(track);   // у трека из базы «уже есть» проверяем по найденной паре
   for (const p of lib.playlists) {
-    const already = !!real && p.tracks.some((t) => keyOf(t) === keyOf(real));
+    const already = !!real && twinsIn(p.tracks, real).length > 0;   // в том числе другая загрузка этой песни
     items.push({ label: p.name, icon: already ? icons.check : "", action: () => addTo(track, p) });
   }
   return items;
 }
 
+/** Добавить много треков; те, чья песня там уже есть другой загрузкой, — только по «Всё равно добавить».
+ *  Общее для «В плейлист» у выбранных и перетаскивания на плейлист (views.js) */
+export function addManyToPlaylist(p, tracks) {
+  const twins = [];
+  let added = 0;
+  for (const t of tracks) {
+    if (p.tracks.some((x) => keyOf(x) === keyOf(t))) continue;
+    if (otherUploads(p.tracks, t).length) { twins.push(t); continue; }
+    if (library.addToPlaylist(p.id, t)) added++;
+  }
+  const done = added ? `Добавлено в «${p.name}»: ${plural(added, "трек", "трека", "треков")}` : `Уже есть в «${p.name}»`;
+  if (!twins.length) return toast(done);
+  const more = twins.length === 1 ? "песня уже была другой загрузкой" : `${plural(twins.length, "песня", "песни", "песен")} уже были другими загрузками`;
+  toast(`${done} · ${more}`, { action: { label: "Всё равно добавить", run: () => {
+    const n = twins.filter((t) => library.addToPlaylist(p.id, t)).length;
+    if (n) toast(`Добавлено в «${p.name}»: ${plural(n, "трек", "трека", "треков")}`);
+  } } });
+}
+
 // Несколько треков сразу (выбраны Ctrl/Shift). Треки «из базы» в списках не бывают выбраны — там уже пары
 function addManyItems(tracks) {
-  const addAll = (p) => {
-    const added = tracks.filter((t) => library.addToPlaylist(p.id, t)).length;
-    toast(added ? `Добавлено в «${p.name}»: ${plural(added, "трек", "трека", "треков")}` : `Уже есть в «${p.name}»`);
-  };
+  const addAll = (p) => addManyToPlaylist(p, tracks);
   const items = [{ label: "Новый плейлист…", icon: icons.plus, action: async () => {
     const name = await promptDialog({ title: "Новый плейлист", value: `Мой плейлист №${lib.playlists.length + 1}`,
       placeholder: "Название", okLabel: "Создать" });
@@ -220,8 +254,33 @@ function addManyItems(tracks) {
   return items;
 }
 
+// ---------- Загрузки одной песни ----------
+// Песня с YouTube и SoundCloud — одна строка (samesong.js). Здесь выбирают, какая загрузка играет
+
+/** Пункты «Загрузки трека»: каждая загрузка с сайтом, длиной и каналом; галочка — та, что сейчас показана */
+export function uploadItems(members, current) {
+  return [
+    { note: "Это одна песня — выберите, какая загрузка будет играть" },
+    ...members.map((t) => ({
+      label: [sourceLabel(t.source), formatTime(t.duration), t.channel].filter(Boolean).join(" · "),
+      icon: keyOf(t) === keyOf(current) ? icons.check : "",
+      action: () => {
+        if (keyOf(t) === keyOf(current)) return;
+        library.setUploadPick(members, t);
+        toast(`Будет играть загрузка с ${sourceLabel(t.source) || "диска"}`);
+      },
+    })),
+  ];
+}
+
+/** Меню у пометки «2 загрузки» */
+export function openUploadsMenu(anchor, members, current) {
+  openMenu(anchor, uploadItems(members, current));
+}
+
 // ---------- Меню трека ----------
-// ctx: { playlistId } — открыто из плейлиста (можно удалить оттуда); { history: true } — из истории
+// ctx: { playlistId } — открыто из плейлиста (можно удалить оттуда); { history: true } — из истории;
+// { members } — у песни несколько загрузок (одна строка): «Загрузки трека», удаление — всех сразу
 
 function trackMenuItems(track, ctx = {}) {
   const real = resolvedOf(track) ?? track;
@@ -278,14 +337,17 @@ function trackMenuItems(track, ctx = {}) {
         action: () => openExternal(`/api/open-link/${real.source}/${encodeURIComponent(real.id)}`)
           .then((ok) => { if (!ok) toast("Не получилось открыть", { error: true }); }) });
   }
+  if (ctx.members?.length > 1) {
+    items.push({ sep: true }, { label: "Загрузки трека", icon: icons.queue, submenu: () => uploadItems(ctx.members, track) });
+  }
   if (ctx.playlistId) {
     items.push({ sep: true }, {
       label: "Удалить из этого плейлиста", icon: icons.trash, danger: true,
-      action: () => removeTracksWithUndo(ctx.playlistId, [track]),
+      action: () => removeTracksWithUndo(ctx.playlistId, ctx.members?.length ? ctx.members : [track], 1),
     });
   }
   if (ctx.history) {
-    items.push({ sep: true }, { label: "Убрать из истории", icon: icons.close, action: () => library.removeFromHistory(track) });
+    items.push({ sep: true }, { label: "Убрать из истории", icon: icons.close, action: () => library.removeSongFromHistory(track) });
   }
   return items;
 }
