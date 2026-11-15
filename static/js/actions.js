@@ -6,11 +6,12 @@ import { download, isDownloaded, isDownloading, removeDownload } from "./downloa
 import { startFlow } from "./flow.js";
 import { icons, sourceIcons } from "./icons.js";
 import { sharePlaylist } from "./share.js";
+import { openShareCard } from "./sharecard.js";
 import * as library from "./library.js";
 import { keyOf, lib } from "./library.js";
 import { folderMenuItem } from "./libtools.js";
 import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
-import { openAlbumAt, openArtist, splitArtists } from "./nav.js";
+import { openAlbumAt, openArtist, openTrack, splitArtists } from "./nav.js";
 import { playNext, queueLater, queueNext, returnToQueue, state } from "./player.js";
 import { twinsIn } from "./samesong.js";
 import { confirmDialog, displayTrack, el, formatTime, openMenu, plural, promptDialog, sourceLabel, toast } from "./ui.js";
@@ -324,12 +325,14 @@ function trackMenuItems(track, ctx = {}) {
   const goTo = ({ id, name }) => async () => {
     if (!await openArtist({ id, name, track, title: displayTrack(track).title })) toast(`Не нашёл страницу «${name}»`);
   };
-  items.push({ sep: true }, people.length > 1
+  items.push({ sep: true }, { label: "О треке", icon: icons.note, action: () => openTrack(track) });
+  items.push(people.length > 1
     ? { label: "Перейти к исполнителю", icon: icons.artist, submenu: () => people.map((p) => ({ label: p.name, icon: icons.artist, action: goTo(p) })) }
     : { label: "Перейти к исполнителю", icon: icons.artist, action: goTo(people[0] ?? { name: "" }) });
   // Альбом есть у любого трека: у треков из базы он известен, остальным Sono найдёт его в базе Яндекса
   if (real.source !== "local") items.push({ label: "Перейти к альбому", icon: icons.album, action: () => openTrackAlbum(track) });
   // Ссылка на сам трек — на YouTube или SoundCloud
+  items.push({ label: "Поделиться картинкой", icon: icons.image, action: () => openShareCard(track, real) });
   if (real.source === "youtube" || real.source === "soundcloud") {
     const site = real.source === "youtube" ? "YouTube" : "SoundCloud";
     items.push({ label: "Скопировать ссылку", icon: icons.share, action: () => copyTrackLink(real) },

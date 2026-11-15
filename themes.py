@@ -71,14 +71,14 @@ def theme_dir(kind: str, name: str) -> Path:
 
 def _vtuple(v) -> tuple:
     nums = re.findall(r"\d+", str(v))
-    return tuple(int(x) for x in nums[:3]) or (0,)
+    return tuple(int(x) for x in nums[:4]) or (0,)
 
 
 def needs_newer(requirement, current: str) -> str | None:
     """«sono»: ">=0.10" в theme.json. Вернёт нужную версию, если наша старее; из исходников ("0") — всё можно."""
     if not isinstance(requirement, str) or current in ("", "0"):
         return None
-    m = re.match(r"\s*>=?\s*(\d+(?:\.\d+){0,2})\s*$", requirement)
+    m = re.match(r"\s*>=?\s*(\d+(?:\.\d+){0,3})\s*$", requirement)
     if not m:
         return None
     return m.group(1) if _vtuple(current) < _vtuple(m.group(1)) else None

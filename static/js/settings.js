@@ -14,6 +14,7 @@ import { confirmDialog, el, iconButton, openMenu, plural, syncAllRows, toast } f
 import { VIZ_PRESETS, VIZ_STYLES, applyVizColors, applyVizStyle, paletteFor, refreshViz, themeVizStyle, vizColorsSetting,
   vizEnabled, vizStyleSetting } from "./viz.js";
 import { showWelcome, startTour } from "./welcome.js";
+import { resetTips, setTipsOn, tipsOn } from "./tips.js";
 import { BACK_PLACES, backPlace, setBackPlace } from "./backbtn.js";
 import { systemSection } from "./system.js";
 import { CHANGELOG } from "./changelog.js";
@@ -811,8 +812,16 @@ function introButtons() {
   const news = el("button", "btn ghost", "Что нового");
   news.type = "button";
   news.addEventListener("click", () => showWhatsNew(CHANGELOG.slice(0, 3)));   // последние три версии
-  again.append(news, welcome, tour);
-  return again;
+  // Подсказки к функциям (tips.js): включить/выключить и показать все заново
+  const tips = el("button", "btn ghost", "Подсказки заново");
+  tips.type = "button";
+  tips.title = "Пояснения к функциям снова появятся, когда вы их встретите";
+  tips.addEventListener("click", () => { resetTips(); toast("Подсказки появятся снова, когда вы встретите функции"); });
+  again.append(news, welcome, tour, tips);
+  const box = el("div");
+  box.append(switchRow("Подсказки", "Короткие пояснения к функциям, когда встречаете их впервые",
+    tipsOn(), (on) => setTipsOn(on)), again);
+  return box;
 }
 
 /** Телефон: вместо «Обновлений» (yt-dlp и программа там обновляются только новой сборкой) — версия и знакомство */

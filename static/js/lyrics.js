@@ -114,7 +114,7 @@ function showLoading() {
 // Тексты, которые уже спрашивали (обещания): следующий трек очереди спрашиваем заранее, пока открыт текст, —
 // при переключении он появляется сразу, а не через 0,5–1 с «скелета»
 const fetched = new Map();
-function fetchLyrics(track) {
+export function fetchLyrics(track) {
   const key = keyOf(track);
   if (!fetched.has(key)) {
     const shown = displayTrack(track);

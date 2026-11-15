@@ -240,14 +240,17 @@ def _in_artist_lists(name: str, title: str) -> tuple[dict, dict] | None:
 
 def find_track(artist: str, title: str, duration: float | None) -> dict | None:
     """Трек в базе Яндекса по исполнителю и названию (щелчок по названию → его альбом или сингл).
-    Ответ: {"albumId", "trackId": "ya…"} или None."""
+    Ответ: {"albumId", "trackId": "ya…", "albumTitle", "year"} или None."""
     found = match_track(artist, title, duration)
     if not found:   # поиск по фразе не нашёл — смотрим песни одноимённых исполнителей
         hit = _in_artist_lists(re.split(r",| feat\.? | ft\.? ", artist or "", flags=re.I)[0].strip(), title)
         if hit:
             albums = hit[1]["albums"]
             found = (hit[1], next((al for al in albums if al.get("type") != "compilation"), albums[0]))
-    return {"albumId": found[1].get("id"), "trackId": f"ya{found[0]['id']}"} if found else None
+    if not found:
+        return None
+    return {"albumId": found[1].get("id"), "trackId": f"ya{found[0]['id']}",
+            "albumTitle": found[1].get("title"), "year": found[1].get("year")}
 
 
 def match_track(artist: str, title: str, duration: float | None) -> tuple[dict, dict] | None:
@@ -283,7 +286,9 @@ def match_track(artist: str, title: str, duration: float | None) -> tuple[dict, 
     return best
 
 
-def artist(artist_id: int) -> dict:
+def artist(artist_id: int, bio: bool = True) -> dict:
+    """Страница исполнителя. bio=False — без биографии (для «Новинок»: там нужны только песни и релизы,
+    а Википедия из России отвечает не всегда и долго)."""
     # Три запроса к Яндексу — одновременно; как только известно имя — сразу Deezer и биография
     # (раньше всё шло по очереди: 3–9 с на незнакомого исполнителя, теперь ~1 с)
     tracks_job = _pool.submit(_get, f"{YANDEX}/artists/{artist_id}/tracks", {"page": 0, "page-size": 50})
@@ -292,7 +297,7 @@ def artist(artist_id: int) -> dict:
     info = _get(f"{YANDEX}/artists/{artist_id}/brief-info").get("result") or {}
     a = info.get("artist") or {}
     deezer_job = _pool.submit(_deezer_releases, a.get("name") or "")
-    bio_job = _pool.submit(_bio, a)
+    bio_job = _pool.submit(_bio, a) if bio else None
     tracks = tracks_job.result().get("result") or {}
     albums = albums_job.result().get("result") or {}
     releases = [_release(r) for r in albums.get("albums") or []]
@@ -311,7 +316,7 @@ def artist(artist_id: int) -> dict:
             # Новый релиз за последние 3 месяца — карточкой наверху страницы
             "newRelease": next((r for r in releases if r.get("date") and r["date"] >= time.strftime(
                 "%Y-%m-%d", time.localtime(time.time() - 90 * 86400))), None),
-            **bio_job.result()}
+            **(bio_job.result() if bio_job else {})}
 
 
 # ---------- Биография ----------

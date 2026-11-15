@@ -10,14 +10,16 @@ import { renderWorkshop } from "./workshop.js";
 import { wrappedButton, wrappedCard } from "./wrapped.js";
 import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
-import { setNavigator } from "./nav.js";
+import { setNavigator, trackForPage } from "./nav.js";
+import { renderTrack } from "./trackpage.js";
 import { openImportDialog } from "./import.js";
 import { createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isDisliked, keyOf, lib, moveSongInPlaylist, pickedUpload, setSetting } from "./library.js";
 import { groupSongs, songCount, uniqueSongs } from "./samesong.js";
 import { isLyricsVisible, setLyricsVisible } from "./lyrics.js";
 import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueLater, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
-import { newReleases } from "./releases.js";
+import { watchReleases } from "./releases.js";
+import { releaseCard, renderReleases } from "./releaseview.js";
 import { recsSection } from "./recs.js";
 import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, recentOf, renameFolder, sidebarSignature, sortMenuItems, toggleFolder, toolsRow } from "./libtools.js";
 import { localTracks } from "./local.js";
@@ -45,7 +47,7 @@ let view = "";
 const backStack = [];   // откуда пришли — для кнопки «Назад»
 
 // Страницы исполнителя и альбома: данные приходят с сервера, медиатека их не меняет
-const isMetaView = (key) => /^(artist|album):./.test(key);
+const isMetaView = (key) => key === "releases" || /^(artist|album):./.test(key) || (/^track:./.test(key) && !!trackForPage(key.slice(6)));
 let metaToken = 0;   // чтобы медленный ответ не нарисовал страницу, с которой уже ушли
 
 // ---------- Что показывать для каждого экрана ----------
@@ -184,8 +186,11 @@ function renderMeta() {
   const token = ++metaToken;
   const key = view;
   const stillHere = () => token === metaToken && view === key;
+  if (key === "releases") return renderReleases(viewList, stillHere);   // экран «Новинки» (releaseview.js)
   const [kind, id] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
-  (kind === "artist" ? renderArtist : renderAlbum)(viewList, id, stillHere).then(() => {
+  const render = kind === "track" ? (box, key, alive) => renderTrack(box, trackForPage(key), alive)
+    : kind === "artist" ? renderArtist : renderAlbum;
+  render(viewList, id, stillHere).then(() => {
     if (stillHere()) syncPlayButtons();
   });
 }
@@ -417,33 +422,24 @@ function mixesRow(box) {
   else tasteMixes().then((list) => { if (box.isConnected) fill(list); });
 }
 
-/** «Новинки ваших исполнителей» на «Главной» (подписки — кнопка «Подписаться» на странице исполнителя) */
-async function newReleasesRow(box) {
-  const list = await newReleases();
-  if (!list.length || !box.isConnected) return;
-  const cards = el("div", "home-cards");
-  for (const r of list.slice(0, 10)) {
-    const card = el("button", "home-card release-card");
-    card.type = "button";
-    const art = el("div", "home-card-art");
-    if (r.cover) {
-      const img = el("img");
-      img.alt = "";
-      img.loading = "lazy";
-      img.src = imgUrl(r.cover);
-      art.append(img);
-    } else {
-      art.innerHTML = icons.note;
-    }
-    const when = r.date ? new Date(r.date).toLocaleDateString("ru", { day: "numeric", month: "long" }) : "";
-    card.append(art, el("span", "home-card-title", r.title), el("span", "home-card-artist", `${r.artist} · ${when}`));
-    card.title = `${r.artist} — ${r.title}`;
-    if (!r.track) card.dataset.warm = `album:${r.id}`;
-    // Новинка SoundCloud — это один трек: сразу играет; релиз Яндекса — страница альбома
-    card.addEventListener("click", () => (r.track ? play(r.track, list.filter((x) => x.track).map((x) => x.track), list.filter((x) => x.track).indexOf(r), { type: "releases", id: "sc", name: "Новинки ваших исполнителей" }) : showView(`album:${r.id}`)));
-    cards.append(card);
-  }
-  box.replaceChildren(el("h2", "home-h", "Новинки ваших исполнителей"), cards);
+/** «Новинки ваших исполнителей» на «Главной» (подписки — кнопка «Подписаться» на странице исполнителя;
+    подписок мало — и самые слушаемые, с пометкой «Из ваших любимых»). Сначала — Яндекс, потом — с SoundCloud */
+function newReleasesRow(box) {
+  watchReleases((list) => {
+    if (!box.isConnected) return;
+    if (!list.length) return box.replaceChildren();
+    const onlyFav = list.every((r) => r.fav);
+    const cards = el("div", "home-cards");
+    const shown = list.slice(0, 10);
+    for (const r of shown) cards.append(releaseCard(r, shown, { markFav: !onlyFav }));
+    const head = el("div", "home-h-row");
+    const all = el("button", "home-h-all", "Все");
+    all.type = "button";
+    all.title = "Все новинки";
+    all.addEventListener("click", () => showView("releases"));
+    head.append(el("h2", "home-h", onlyFav ? "Новинки ваших любимых исполнителей" : "Новинки ваших исполнителей"), all);
+    box.replaceChildren(head, cards);
+  });
 }
 
 // ---------- «Далее» на экране «Сейчас играет» ----------
@@ -851,7 +847,7 @@ function renderList(fresh) {
     actions.append(playBtn, shuffle);
     // Умное перемешивание: вперемешку + после каждых двух треков — похожий из рекомендаций
     if (info.kind !== "pick") {
-      const smart = iconButton(icons.smartShuffle, "Умное перемешивание: список вперемешку и похожие треки между ними");
+      const smart = iconButton(icons.smartShuffle, "Умное перемешивание: список вперемешку и похожие треки между ними", "pl-smart");
       smart.disabled = !info.tracks.length;
       smart.addEventListener("click", () => smartShuffle({ name: info.name, tracks: songList, context: info.context }));
       actions.append(smart);

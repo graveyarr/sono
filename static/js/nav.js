@@ -8,7 +8,7 @@ let navigator = null;
 
 export function setNavigator(fn) { navigator = fn; }
 
-/** Открыть экран: "home", "now", "playlist:<id>", "artist:<id>", "album:<id>"… */
+/** Открыть экран: "home", "now", "playlist:<id>", "artist:<id>", "album:<id>", "track:<источник:id>"… */
 export function openView(key) { navigator?.(key); }
 
 // Открыть альбом и подсветить в нём трек (щелчок по названию трека). Страница альбома забирает
@@ -18,6 +18,18 @@ export function openAlbumAt(albumId, trackKey = null) {
   pendingHighlight = trackKey;
   openView(`album:${albumId}`);
 }
+// Страница трека: ключ экрана — «track:<источник:id>», сам трек (со всеми полями) помним здесь
+const pageTracks = new Map();
+export function openTrack(track) {
+  if (!track) return;
+  const key = `${track.source}:${track.id}`;
+  pageTracks.delete(key);
+  pageTracks.set(key, track);
+  if (pageTracks.size > 60) pageTracks.delete(pageTracks.keys().next().value);
+  openView(`track:${key}`);
+}
+export const trackForPage = (key) => pageTracks.get(key) ?? null;
+
 export function takeHighlight() {
   const key = pendingHighlight;
   pendingHighlight = null;

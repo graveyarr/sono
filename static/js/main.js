@@ -1,6 +1,7 @@
 // Точка входа: загружаем медиатеку, подключаем все части и горячие клавиши.
 
-import { openAddToPlaylist, openTrackAlbum, toggleDislike, toggleLike } from "./actions.js";
+import { openAddToPlaylist, toggleDislike, toggleLike } from "./actions.js";
+import { openTrack } from "./nav.js";
 import { initDownloads, onDownloadsChange } from "./downloads.js";
 import { initFlow } from "./flow.js";
 import { initPresence } from "./presence.js";
@@ -24,7 +25,8 @@ import { initIncoming } from "./links.js";
 import { maybeWhatsNew } from "./whatsnew.js";
 import { loadLocal, onLocalChange } from "./local.js";
 import { announceNewReleases } from "./releases.js";
-import { flush, getSetting, loadLibrary, onChange, onSaveError } from "./library.js";
+import { flush, getSetting, lib, loadLibrary, onChange, onSaveError } from "./library.js";
+import { initTips } from "./tips.js";
 import { markRecent } from "./libtools.js";
 import { initLyrics } from "./lyrics.js";
 import { initMobile } from "./mobile.js";
@@ -66,6 +68,8 @@ initTitlebar();   // своя полоска заголовка окна (в п�
 initCompact();    // мини-плеер поверх окон (тоже только в программе)
 restoreSession();   // что играло в прошлый раз — на паузе и уже подгружается (после всех init: они слушают смену трека)
 initIncoming();     // трек, присланный из браузера кнопкой «+ Sono» (после restoreSession — чтобы он его не перебил)
+// Новый человек (медиатека пуста, приветствия ещё не было) — ему все подсказки; обновившемуся — только про новое
+initTips(!getSetting("onboarded", false) && !lib.history.length && !lib.liked.length && !lib.playlists.length);
 maybeWelcome();   // первый запуск — приветствие и экскурсия
 setTimeout(maybeWhatsNew, 1200);
 
@@ -92,8 +96,8 @@ whenWindowApi(sendCloseToTray);
 document.addEventListener("sono:close-to-tray", sendCloseToTray);
 setTimeout(announceNewReleases, 6000);   // вышло что-то у исполнителей, на которых подписан, — уведомление   // обновились — коротко рассказать, что нового (после приветствия, если оно было)
 watchAppUpdate();   // скачалась новая версия Sono — предложим обновиться
-// Щелчок по названию трека на «Сейчас играет» — открыть его альбом/сингл и подсветить трек
-document.querySelector('#np-info [data-np="title"]').addEventListener("click", () => openTrackAlbum(state.current));
+// Щелчок по названию трека на «Сейчас играет» — страница трека (альбом — ссылкой на ней)
+document.querySelector('#np-info [data-np="title"]').addEventListener("click", () => openTrack(state.current));
 // Скачивания: значки у треков и кнопки «Скачать» обновляются, пока сервер качает
 onDownloadsChange(() => { syncAllRows(); refreshDownloads(); });
 onLocalChange(() => refreshViews("local"));   // нашлись новые свои файлы — медиатека и открытый список

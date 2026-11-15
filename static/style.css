@@ -1177,6 +1177,36 @@ body.on-flow .top { border-bottom-color: transparent; }
   pointer-events: none;
 }
 .release-src svg { width: 17px; height: 17px; }
+/* «Новинки»: пометка «Из ваших любимых» (releaseview.js) — снизу слева, над обложкой */
+.release-fav {
+  position: absolute; left: 6px; bottom: 6px; z-index: 1;
+  max-width: calc(100% - 12px);
+  padding: 3px 7px; border-radius: 10px;
+  background: rgb(var(--shade-rgb) / 0.72); color: var(--text);
+  font-size: 10.5px; font-weight: 700; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
+/* Заголовок ряда на «Главной» с кнопкой «Все» справа */
+.home-h-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 34px 0 14px; }
+.home-h-row .home-h { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-h-all {
+  flex-shrink: 0; padding: 4px 2px;
+  border: 0; background: none; color: var(--muted);
+  font: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer;
+}
+.home-h-all:hover { color: var(--text); text-decoration: underline; }
+/* Экран «Новинки» */
+.nr-page { padding: 28px var(--pad) 40px; }
+.nr-head { margin-bottom: 18px; }
+.nr-status { margin: 0 0 6px; }
+/* Фильтры — одной строкой; не помещаются (телефон) — листаются вбок */
+.nr-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.nr-tabs .seg-btn { flex-shrink: 0; white-space: nowrap; }
+.nr-groups .meta-section:first-child { margin-top: 10px; }
+.nr-note, .nr-empty { margin: 26px 0 0; max-width: 620px; font-size: 14px; line-height: 1.45; color: var(--muted); }
+.nr-empty { font-size: 15px; }
 .home-tile:hover .tile-play { opacity: 1; transform: translateY(50%); }
 .tile-play:hover { transform: translateY(50%) scale(1.08) !important; }
 
@@ -1632,6 +1662,39 @@ body.playing [data-np="play"] .i-pause, .big-play.is-playing .i-pause { opacity:
   cursor: pointer;
 }
 .meta-more:hover { color: var(--text); }
+
+/* ---------- Страница трека (trackpage.js) ---------- */
+.tp-stats { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.tp-stats:empty { display: none; }
+.tp-loading { margin: 0; font-size: 14px; color: var(--faint); }
+.tp-note { margin: 4px 0 0; font-size: 14px; color: var(--muted); }
+.tp-credits {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 24px;
+  margin: 0; font-size: 14.5px; line-height: 1.4;
+}
+.tp-credits dt { color: var(--muted); }
+.tp-credits dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.tp-source { margin: 12px 0 0; font-size: 12.5px; color: var(--faint); }
+.tp-lyrics {
+  white-space: pre-line;
+  font-size: 17px; line-height: 1.55; font-weight: 600;
+  color: var(--text);
+  max-width: 640px;
+}
+.tp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.tp-chip {
+  height: 34px; padding: 0 14px;
+  border: 0; border-radius: 999px;
+  background: rgb(var(--fg-rgb) / 0.08);
+  color: var(--text); font: inherit; font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.tp-chip:hover { background: rgb(var(--fg-rgb) / 0.14); }
+.tp-like.on { color: var(--accent); }
+body.mobile .tp-credits { grid-template-columns: 1fr; gap: 2px; }
+body.mobile .tp-credits dd { margin-bottom: 8px; }
+body.mobile .tp-lyrics { font-size: 16px; }
 
 /* Сетка релизов и похожих исполнителей: сколько влезает по ширине */
 .release-grid {
@@ -2204,6 +2267,35 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
 .tour-count { flex: 1; font-size: 12.5px; color: var(--faint); }
 .tour-close { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; font-size: 20px; color: var(--muted); }
 
+/* Подсказки к функциям (tips.js): пузырёк со стрелкой к кнопке */
+.tip {
+  position: fixed; z-index: 120;
+  width: 290px; max-width: calc(100vw - 20px);
+  padding: 14px 16px 12px;
+  border-radius: 14px;
+  background: var(--dialog-bg);
+  border: 1px solid var(--line);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  animation: tip-in 0.25s var(--ease);
+}
+.tip.leaving { opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+@keyframes tip-in { from { opacity: 0; transform: translateY(6px); } }
+.tip.above { animation-name: tip-in-above; }
+@keyframes tip-in-above { from { opacity: 0; transform: translateY(-6px); } }
+/* Стрелка — повёрнутый квадратик того же цвета, с той же рамкой */
+.tip::before {
+  content: ""; position: absolute; top: -7px; left: calc(var(--arrow-x, 50%) - 6px);
+  width: 12px; height: 12px;
+  background: var(--dialog-bg);
+  border-left: 1px solid var(--line); border-top: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+.tip.above::before { top: auto; bottom: -7px; transform: rotate(225deg); }
+.tip-title { font-size: 14.5px; font-weight: 700; }
+.tip-text { margin: 6px 0 12px; font-size: 13.5px; line-height: 1.45; color: var(--muted); }
+.tip-ok { height: 32px; padding: 0 16px; font-size: 13px; }
+.tip-target { opacity: 1 !important; }
+
 /* Переключатели (Оформление) */
 .set-switch {
   position: relative;
@@ -2290,6 +2382,46 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
 /* Окно «Поделиться» */
 .share-dialog { width: min(500px, calc(100vw - 32px)); }
 .share-dialog p { margin: 0 0 14px; }
+/* «Поделиться картинкой»: слева предпросмотр, справа выбор размера и строчки */
+.sharecard-dialog {
+  width: min(820px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; align-items: stretch;
+}
+.sharecard-preview { display: flex; justify-content: center; align-items: center; }
+.sharecard-canvas {
+  display: block;
+  height: min(560px, calc(100vh - 120px)); width: auto; aspect-ratio: 9 / 16;
+  border-radius: 14px;
+  background: rgb(var(--fg-rgb) / 0.06);
+  box-shadow: 0 10px 30px rgb(var(--shade-rgb) / 0.35);
+}
+.sharecard-preview.square .sharecard-canvas { height: auto; width: min(400px, calc(100vh - 120px)); aspect-ratio: 1; }
+.sharecard-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; max-height: min(560px, calc(100vh - 120px)); }
+.sharecard-label { margin-top: 18px; }
+.sharecard-lines {
+  flex: 0 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 0 -6px; padding: 0 6px;
+}
+.sharecard-line {
+  border: 0; border-radius: 8px;
+  padding: 7px 10px 7px;
+  background: none;
+  color: var(--muted);
+  font: inherit; font-size: 14px; line-height: 1.35; text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.sharecard-line:hover { background: rgb(var(--fg-rgb) / 0.07); color: var(--text); }
+.sharecard-line.on { background: rgb(var(--fg-rgb) / 0.16); color: var(--text); font-weight: 600; }
+.sharecard-note { font-size: 13px; line-height: 1.45; color: var(--faint); padding: 4px 0; }
+.sharecard-side .dialog-buttons { margin-top: auto; padding-top: 16px; }
+body.mobile .sharecard-dialog { grid-template-columns: 1fr; gap: 14px; overflow-y: auto; }
+body.mobile .sharecard-canvas { height: min(46vh, 420px); }
+body.mobile .sharecard-preview.square .sharecard-canvas { width: min(70vw, 320px); }
+body.mobile .sharecard-side { max-height: none; }
+body.mobile .sharecard-lines { max-height: 30vh; }
 .share-code { height: auto; padding: 10px 12px; resize: none; font-family: Consolas, monospace; font-size: 12px; line-height: 1.4; word-break: break-all; }
 
 /* ---------- Окно импорта ---------- */
@@ -2699,6 +2831,8 @@ body.mobile .home-cards {
 body.mobile .home-cards::-webkit-scrollbar { display: none; }
 body.mobile .home-card { padding: 8px; }
 body.mobile .home-card .tile-play { display: none; }
+body.mobile .release-fav { left: 4px; bottom: 4px; max-width: calc(100% - 8px); padding: 2px 6px; font-size: 10px; }
+body.mobile .nr-page { padding-top: 18px; }
 body.mobile .pl-hero { padding-top: 20px; }
 body.mobile .pl-header { flex-direction: column; align-items: flex-start; gap: 14px; }
 body.mobile .pl-header .collection-cover { width: min(56vw, 220px); align-self: center; }

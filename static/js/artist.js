@@ -15,7 +15,7 @@ import { artistStatsLine } from "./stats.js";
 
 const cache = new Map();   // адрес → ответ сервера (обещание; на время работы программы)
 
-function load(url) {
+export function load(url) {
   if (!cache.has(url)) {
     // Храним само обещание: наведение мыши и щелчок по той же ссылке ждут один и тот же запрос
     const job = fetch(url).then(async (res) => {
@@ -56,7 +56,7 @@ const playingFrom = (ctx) => !!state.current && state.context && contextKey(stat
 // ---------- Общие кусочки ----------
 
 /** Цвет шапки — по картинке (фото исполнителя или обложка) */
-function paintHero(hero, url, fallbackName) {
+export function paintHero(hero, url, fallbackName) {
   hero.style.setProperty("--hero", `hsl(${nameHue(fallbackName || "")} 40% 30%)`);
   if (!url) return;
   const img = new Image();
@@ -68,7 +68,7 @@ function paintHero(hero, url, fallbackName) {
 }
 
 /** Картинка или заглушка с нотой (у релизов из Deezer обложек нет) */
-function picture(url, className, name = "") {
+export function picture(url, className, name = "") {
   const box = el("div", className);
   if (url) {
     const img = el("img");
@@ -124,14 +124,14 @@ function trackList(tracks, context, limit = tracks.length) {
   return card;
 }
 
-function section(title, ...children) {
+export function section(title, ...children) {
   const s = el("section", "meta-section");
   s.append(el("h2", "meta-h", title), ...children);
   return s;
 }
 
 /** Экран ошибки: что не открылось, почему, и «Повторить» (раньше — серая строка с пунктиром в углу) */
-function failBox(what, err, retry) {
+export function failBox(what, err, retry) {
   const box = el("div", "meta-fail");
   const icon = el("span", "meta-fail-icon");
   icon.innerHTML = icons.compass;

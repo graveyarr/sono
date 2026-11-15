@@ -2,6 +2,7 @@
 
 Запуск:  python app.py   → открыть http://127.0.0.1:5000
 """
+import base64
 import hashlib
 import json
 import mimetypes
@@ -27,6 +28,7 @@ from flask import Flask, Response, abort, jsonify, request, send_file
 
 import appupdate
 import artists
+import credits
 import discord_rpc
 import flow
 import importer
@@ -416,6 +418,8 @@ def search(source: str, query: str, limit: int = 10) -> list[dict]:
 
 
 _track_stats: dict[str, dict] = {}   # «источник:id» → {plays, likes}: запоминаем из поиска и из yt-dlp
+_yt_details: dict[str, dict] = {}   # id видео → описание, дата, просмотры (из ответа yt-dlp при получении звука)
+YT_DETAIL_KEYS = ("title", "description", "upload_date", "view_count", "like_count", "channel", "uploader", "artists")
 
 
 def track_stats(source: str, track_id: str) -> dict:
@@ -594,6 +598,10 @@ def _resolve_stream_uncached(video_id: str, kind: str = "audio") -> tuple[str, d
     headers = info.get("http_headers") or {}
     # Заодно запоминаем просмотры и лайки — экрану «Сейчас играет» не придётся спрашивать yt-dlp ещё раз
     _track_stats[f"youtube:{video_id}"] = {"plays": info.get("view_count"), "likes": info.get("like_count"), "full": True}
+    # …и описание — для страницы трека (щелчок по названию на «Сейчас играет» откроет её без нового запроса)
+    _yt_details[video_id] = {k: info.get(k) for k in YT_DETAIL_KEYS}
+    while len(_yt_details) > 200:
+        _yt_details.pop(next(iter(_yt_details)))
     _stream_cache[video_id if kind == "audio" else f"video:{video_id}"] = (_link_expiry(url), url, headers)
     _save_stream_links()
     quality = f"{info.get('abr')} kbps" if kind == "audio" else f"{info.get('height')}p {info.get('vcodec')}"
@@ -1381,6 +1389,9 @@ def api_import_cancel(job_id):
 EXPORT_DIR = Path.home() / "Downloads"
 if not EXPORT_DIR.is_dir():
     EXPORT_DIR = Path.home()
+if os.environ.get("SONO_EXPORT_DIR"):   # для проверок: файлы не в настоящие «Загрузки»
+    EXPORT_DIR = Path(os.environ["SONO_EXPORT_DIR"])
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 if ANDROID:
     # На телефоне «Загрузок» у приложения нет: файл кладём в свою папку, а страница сразу отдаёт его
     # в системное «Поделиться» (MainActivity.shareFile → ShareProvider читает только из этой папки)
@@ -1395,7 +1406,7 @@ def _safe_name(name: str) -> str:
 
 def _unique_path(name: str) -> Path:
     if ANDROID:   # отправленное уже ушло через «Поделиться» — старые файлы не копим
-        for old in EXPORT_DIR.glob("*.json"):
+        for old in [*EXPORT_DIR.glob("*.json"), *EXPORT_DIR.glob("*.png")]:
             old.unlink(missing_ok=True)
     path = EXPORT_DIR / name
     n = 2
@@ -1501,6 +1512,25 @@ def api_share_playlist():
     path = _unique_path(f"{_safe_name(name)}.sono.json")
     path.write_text(json.dumps({"format": "sono-playlist", "version": 1, "name": name, "tracks": tracks},
                                ensure_ascii=False, indent=1), encoding="utf-8")
+    return jsonify(path=str(path), name=path.name)
+
+
+@app.post("/api/share/image")
+def api_share_image():
+    """Картинка «Поделиться треком» (рисует страница) — PNG в «Загрузки»."""
+    data = _body()
+    raw = str(data.get("png") or "")
+    prefix = "data:image/png;base64,"
+    if not raw.startswith(prefix) or len(raw) > 16_000_000:
+        return jsonify(error="Картинка не получилась"), 400
+    try:
+        png = base64.b64decode(raw[len(prefix):], validate=True)
+    except ValueError:
+        return jsonify(error="Картинка не получилась"), 400
+    if not png.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        return jsonify(error="Картинка не получилась"), 400
+    path = _unique_path(f"{_safe_name(str(data.get('name') or 'Sono'))}.png")
+    path.write_bytes(png)
     return jsonify(path=str(path), name=path.name)
 
 
@@ -1860,6 +1890,72 @@ def api_track_stats(source, track_id):
         return jsonify(plays=None, likes=None)
     try:
         return jsonify(track_stats(source, track_id))
+    except Exception as e:
+        return jsonify(error=friendly_error(e)), 502
+
+
+_track_info: dict[str, tuple[float, dict]] = {}   # «источник:id» → (когда, сведения) — на 6 часов
+
+
+def _iso_day(value) -> str | None:
+    return str(value)[:10] if value and re.match(r"\d{4}-\d{2}-\d{2}", str(value)) else None
+
+
+def track_info(source: str, track_id: str) -> dict:
+    """Сведения для страницы трека: прослушивания, лайки, дата, жанр, лейбл и «кто сделал»."""
+    key = f"{source}:{track_id}"
+    have = _track_info.get(key)
+    if have and time.time() - have[0] < 6 * 3600:
+        return have[1]
+    found: dict = {}
+    out: dict = {"plays": None, "likes": None}
+    if source == "soundcloud":
+        t = sc_api(f"/tracks/{track_id}")
+        title, text = t.get("title") or "", t.get("description") or ""
+        pm = t.get("publisher_metadata") or {}
+        release = _iso_day(t.get("release_date"))
+        out.update(plays=t.get("playback_count"), likes=t.get("likes_count"), reposts=t.get("reposts_count"),
+                   genre=credits.genre_ok(t.get("genre")),
+                   label=credits.label_ok(t.get("label_name"), " ".join(filter(None, [(t.get("user") or {}).get("username"), pm.get("artist")]))),
+                   date=release or _iso_day(t.get("display_date")) or _iso_day(t.get("created_at")),
+                   dateKind="release" if release else "upload")
+        if pm.get("writer_composer"):
+            credits._add(found, "writer", credits._names(str(pm["writer_composer"])))
+    else:
+        # Уже включали — сведения остались от получения ссылки на звук. Иначе — тем же «клиентом», что и звук
+        # (без проверки «не робот ли»), потом — всеми
+        info = _yt_details.get(track_id)
+        for kind in () if info else ("yt_fast", "yt_full"):
+            try:
+                with ydl_pool(kind) as ydl:
+                    info = ydl.extract_info(track_url(source, track_id), download=False, process=False)
+                break
+            except Exception:
+                if kind == "yt_full":
+                    raise
+        title, text = info.get("title") or "", info.get("description") or ""
+        ytm = credits.from_youtube_music(text)
+        found.update(ytm["credits"])
+        upload = info.get("upload_date") or ""
+        out.update(plays=info.get("view_count"), likes=info.get("like_count"),
+                   date=ytm.get("date") or (f"{upload[:4]}-{upload[4:6]}-{upload[6:8]}" if len(upload) == 8 else None),
+                   dateKind="release" if ytm.get("date") else "upload",
+                   label=credits.label_ok(ytm.get("label"), " ".join(filter(None, [info.get("channel") or info.get("uploader"), *(info.get("artists") or [])]))))
+        _track_stats[key] = {"plays": out["plays"], "likes": out["likes"], "full": True}
+    credits.from_title(title, found)
+    credits.from_description(text, found)
+    out["credits"] = credits.ordered(found)
+    _track_info[key] = (time.time(), out)
+    return out
+
+
+@app.get("/api/trackinfo/<source>/<track_id>")
+def api_track_info(source, track_id):
+    """Страница трека: прослушивания, дата, жанр, лейбл, «кто сделал»."""
+    if source not in SOURCES or not valid(source, track_id):
+        return jsonify(error="Неверный трек"), 400
+    try:
+        return jsonify(track_info(source, track_id))
     except Exception as e:
         return jsonify(error=friendly_error(e)), 502
 
@@ -2807,21 +2903,20 @@ def _safe_result(future, default=None):
 
 
 def sc_new_releases(ids: list[int], days: int = 90) -> list[dict]:
-    """Новые треки артистов SoundCloud, на которых подписан человек."""
+    """Новинки артистов SoundCloud, на которых подписан человек: свежие альбомы и EP и собственные треки
+    (не больше трёх на артиста — чтобы один не забил весь ряд; треки из свежего альбома — самим альбомом)."""
     since = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
-    jobs = [(uid, _SC_POOL.submit(sc_api, f"/users/{uid}/tracks", limit=5)) for uid in ids[:40]]
-    out = []
-    for uid, job in jobs:
-        mine = 0
-        for t in (_safe_result(job).get("collection") or []):
-            created = (t.get("created_at") or "")[:10]
-            track, _ = importer._sc_track(t, MAX_DURATION)
-            if track and created >= since and mine < 2:   # не больше двух на артиста — чтобы не забил весь ряд
-                mine += 1
-                out.append({"id": f"sc{t['id']}", "type": "track", "title": t.get("title"), "date": created,
-                            "year": created[:4], "cover": _sc_picture(t.get("artwork_url") or (t.get("user") or {}).get("avatar_url"), "t300x300"),
-                            "artist": (t.get("user") or {}).get("username"), "artistId": f"sc:{uid}", "track": track})
-    return out
+
+    def one(uid):
+        try:
+            items = sc_fresh(uid, set(), since)
+        except Exception as e:
+            print(f"[новинки] SoundCloud {uid}: {e}")
+            return []
+        return [{**r, "artist": r.get("artist") or (r.get("track") or {}).get("channel"), "artistId": f"sc:{uid}"}
+                for r in items]
+    # sc_fresh сам ничего не ждёт от _SC_POOL — можно взять его
+    return [r for items in _SC_POOL.map(one, ids[:40]) for r in items]
 
 
 # ---------- Альбомы SoundCloud ----------
@@ -2934,6 +3029,41 @@ def _same_look(a: str | None, b: str | None) -> bool:
 
 
 _sc_twin: dict[int, tuple[float, int | None]] = {}   # исполнитель Яндекса → артист SoundCloud (или None)
+# Те же ответы — и на диске: «Новинки» спрашивают про всех подписок сразу, и после перезапуска искать
+# заново десятки тёзок (по 11 запросов к SoundCloud на исполнителя) незачем. Нашёлся — помним неделю,
+# не нашёлся — сутки (вдруг артист завёл страницу)
+_TWIN_FILE = CACHE_DIR / "sc-twin.json"
+_twin_saved: dict | None = None
+_twin_lock = threading.Lock()
+
+
+def _twin_from_disk(artist_id) -> tuple[bool, int | None]:
+    global _twin_saved
+    with _twin_lock:
+        if _twin_saved is None:
+            try:
+                _twin_saved = json.loads(_TWIN_FILE.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                _twin_saved = {}
+        hit = _twin_saved.get(str(artist_id))
+    if isinstance(hit, list) and len(hit) == 2:
+        ttl = 7 * 86400 if hit[1] else 86400
+        if time.time() - (hit[0] or 0) < ttl:
+            return True, hit[1]
+    return False, None
+
+
+def _twin_to_disk(artist_id, uid: int | None):
+    with _twin_lock:
+        if _twin_saved is None:
+            return
+        _twin_saved[str(artist_id)] = [time.time(), uid]
+        try:
+            tmp = _TWIN_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(_twin_saved), encoding="utf-8")
+            tmp.replace(_TWIN_FILE)
+        except OSError:
+            pass
 
 
 def sc_twin(a: dict) -> int | None:
@@ -2943,6 +3073,10 @@ def sc_twin(a: dict) -> int | None:
     hit = _sc_twin.get(a["id"])
     if hit and time.time() - hit[0] < 24 * 3600:
         return hit[1]
+    known, uid = _twin_from_disk(a["id"])
+    if known:
+        _sc_twin[a["id"]] = (time.time(), uid)
+        return uid
     name = a.get("name") or ""
     found = _sc_cached("/search/users", q=name, limit=20).get("collection") or []
     twins = [u for u in found if u.get("id") and any(_same_look(n, name) for n in (u.get("username"), u.get("permalink")) if n)]
@@ -2953,11 +3087,16 @@ def sc_twin(a: dict) -> int | None:
         ours |= _title_keys(x.get("title"))
     jobs = {u["id"]: (_SC_POOL.submit(_sc_cached, f"/users/{u['id']}/albums", limit=50),
                       _SC_POOL.submit(_sc_cached, f"/users/{u['id']}/tracks", limit=50)) for u in twins}
-    scored = []
+    scored, failed = [], False
     for u in twins:
         theirs = set()
         for job in jobs[u["id"]]:
-            for x in _safe_result(job).get("collection") or []:
+            try:
+                got = job.result(timeout=20)
+            except Exception as e:
+                print(f"[soundcloud] {e}")
+                got, failed = {}, True
+            for x in (got or {}).get("collection") or []:
                 theirs |= _title_keys(x.get("title"))
         scored.append((len(ours & theirs), u.get("followers_count") or 0, u))
     scored.sort(key=lambda s: (s[0], s[1]), reverse=True)
@@ -2982,7 +3121,12 @@ def sc_twin(a: dict) -> int | None:
         if len(verified) == 1:
             uid = verified[0]["id"]
     print(f"[soundcloud] {name}: тёзок {len(twins)}, совпадений {[(s[2].get('permalink'), s[0]) for s in scored]} -> {uid}")
+    if failed:
+        # SoundCloud ответил не на всё: сравнение неполное (настоящий артист мог не ответить, а перезаливщик —
+        # ответить). Ничего не показываем и не запоминаем — спросим в следующий раз
+        return None
     _sc_twin[a["id"]] = (time.time(), uid)
+    _twin_to_disk(a["id"], uid)
     return uid
 
 
@@ -3033,6 +3177,187 @@ def api_new_releases():
         return jsonify(releases=releases)
     except Exception as e:
         return jsonify(error=friendly_error(e)), 502
+
+
+# ---------- Новинки: SoundCloud тех же исполнителей и «Из ваших любимых» ----------
+# У многих исполнителей (особенно андеграунда) свежие треки сначала — или только — появляются на SoundCloud.
+# Для подписок из Яндекса находим того же артиста на SoundCloud (sc_twin — как для альбомов SoundCloud) и
+# берём его собственные загрузки за 3 месяца (репосты чужих треков — нет: это не его новинки), кроме того,
+# что уже есть в Яндексе. Если подписок мало — то же для самых слушаемых исполнителей (их присылает
+# страница: имя и пара песен, по которым проверяем, что это тот самый исполнитель, а не тёзка).
+
+_NEW_POOL = ThreadPoolExecutor(4, thread_name_prefix="new-releases")   # отдельно от _SC_POOL: sc_twin сам ждёт его
+# Отрывки и анонсы — не новинка (сама песня выйдет позже)
+_NOT_A_SONG = re.compile(r"\b(snippet|teaser|preview|trailer|сниппет|тизер|отрывок|анонс)\b"
+                         # запись с концерта («упаду (live 20.09.26)») — тоже не новый релиз; но «Live Forever» — песня
+                         r"|[(\[][^)\]]*\b(live|concert|концерт|лайв)\b", re.I)
+_SC_FRESH_PER_ARTIST = 3   # треков SoundCloud у одного исполнителя — не больше (не забил весь ряд)
+
+
+def _dup_keys(title: str) -> set[str]:
+    """Ключи «та же песня» для новинок: как _title_keys, но и после длинного тире («uglyhot & Boulevard Depo —
+    АЧЧА» — так подписывают лейблы) и слитно («GLOOM ROOM» = «GLOOMROOM»)."""
+    title = str(title or "")
+    keys = _title_keys(title) | {artists._norm(title)}
+    parts = re.split(r"\s[–—]\s", title, maxsplit=1)
+    if len(parts) == 2:
+        keys |= _title_keys(parts[1]) | {artists._norm(parts[1])}
+    return {k.replace(" ", "") for k in keys if k.replace(" ", "")}
+
+
+def _ya_titles(a: dict, since: str) -> set[str]:
+    """Что уже есть в Яндексе у исполнителя: названия релизов, популярных песен и песен свежих альбомов."""
+    have = set()
+
+    def add(title):
+        have.update(_dup_keys(title))
+    # Только Яндекс: релизы из Deezer (id «dz…») приходят без даты и в «Новинки» не попадают — если считать
+    # их «уже есть», свежий альбом не покажется нигде (так пропадал «Turn Sour» у key vs. locket)
+    ya = [r for r in a.get("releases") or [] if str(r.get("id", "")).isdigit()]
+    for x in (a.get("top") or []) + ya:
+        add(x.get("title"))
+    fresh = [r for r in ya if (r.get("date") or "") >= since]
+    for r in fresh[:4]:
+        try:
+            for t in artists.album(r["id"]).get("tracks") or []:
+                add(t.get("title"))
+        except Exception:
+            pass
+    have.discard("")
+    return have
+
+
+def sc_fresh(uid: int, have: set[str], since: str) -> list[dict]:
+    """Свежие релизы и треки артиста SoundCloud, которых нет в have (названия из Яндекса)."""
+    known = lambda title: bool(_dup_keys(title) & have)
+    albums = _sc_cached(f"/users/{uid}/albums", limit=50).get("collection") or []
+    in_albums = {t.get("id") for p in albums for t in p.get("tracks") or []}
+    out, taken = [], set()
+    for r in sc_releases(uid):
+        if r["date"] >= since and not known(r["title"]):
+            out.append(r)
+            taken |= _dup_keys(r["title"])
+    mine = 0
+    for t in _sc_cached(f"/users/{uid}/tracks", limit=50).get("collection") or []:
+        title = t.get("title") or ""
+        created, date = (t.get("created_at") or "")[:10], _sc_date(t)
+        # Дата выхода раньше загрузки — старая песня, выложенная заново: не новинка
+        if mine >= _SC_FRESH_PER_ARTIST or created < since or date < since or t.get("id") in in_albums:
+            continue
+        if (t.get("user") or {}).get("id") != uid or known(title) or _NOT_A_SONG.search(title):
+            continue
+        if _dup_keys(title) & taken:   # сингл уже есть релизом
+            continue
+        track, _ = importer._sc_track(t, MAX_DURATION)
+        if not track or track["duration"] < 60:   # не играет у нас (DRM, отрывок) или совсем короткое
+            continue
+        mine += 1
+        taken |= _dup_keys(title)
+        art = t.get("artwork_url") or (t.get("user") or {}).get("avatar_url")
+        out.append({"id": f"sc{t['id']}", "type": "track", "title": title, "date": date, "year": date[:4],
+                    "cover": _sc_picture(art, "t300x300"), "source": "soundcloud", "track": track})
+    return out
+
+
+def _twin_fresh(artist_id: int, since: str) -> list[dict]:
+    """Свежее с SoundCloud у исполнителя из Яндекса (пусто, если того же артиста там не нашлось)."""
+    try:
+        a = artists.artist(artist_id, bio=False)
+        uid = sc_twin(a)
+        if not uid:
+            return []
+        items = sc_fresh(uid, _ya_titles(a, since), since)
+    except Exception as e:
+        print(f"[новинки] SoundCloud для {artist_id}: {e}")
+        return []
+    return [{**r, "artist": a.get("name") or r.get("artist"), "artistId": artist_id, "scArtist": f"sc:{uid}"}
+            for r in items]
+
+
+def favorite_artist(f: dict) -> str | None:
+    """Самый слушаемый исполнитель → id (Яндекс или «sc:<номер>»). Только если нашёлся тот, у кого есть
+    его песни из медиатеки человека: по одному имени не берём — у многих есть тёзки."""
+    given = str(f.get("id") or "")
+    if given.isdigit() or re.fullmatch(r"sc:\d+", given):
+        return given
+    name = str(f.get("name") or "").strip()[:200]
+    for s in (f.get("tracks") or [])[:3]:
+        if not isinstance(s, dict):
+            continue
+        title, source, tid = str(s.get("title") or "")[:200], str(s.get("source") or ""), str(s.get("id") or "")[:100]
+        try:
+            duration = float(s.get("duration") or 0) or None
+        except (TypeError, ValueError):
+            duration = None
+        key = ("fav", name.lower(), title.lower(), source, tid)
+        if key not in _artist_for_track:
+            found = artists.artist_with_track(name, title, duration) if title else None
+            if not found and source == "soundcloud" and valid(source, tid):
+                found = _sc_uploader(tid, name)
+            _artist_for_track[key] = found
+        found = _artist_for_track[key]
+        if found:
+            fid = str(found["id"])
+            if fid.startswith("sc:"):
+                fid = _ya_for_sc(name, int(fid[3:])) or fid
+            return fid
+    return None
+
+
+def _ya_for_sc(name: str, uid: int) -> str | None:
+    """Исполнитель Яндекса для артиста SoundCloud — только если его «двойник» на SoundCloud (sc_twin) — этот
+    самый артист: тогда в «Новинках» будут и релизы Яндекса, и свежее с SoundCloud без повторов."""
+    try:
+        card = artists.artist_by_name(name)
+        if card and sc_twin(artists.artist(card["id"], bio=False)) == uid:
+            return str(card["id"])
+    except Exception as e:
+        print(f"[новинки] Яндекс для {name}: {e}")
+    return None
+
+
+@app.post("/api/new-releases/more")
+def api_new_releases_more():
+    """Дополнение «Новинок» (страница спрашивает отдельно — SoundCloud отвечает дольше Яндекса):
+    {ids: [подписки], favorites: [{name, id?, tracks: [{title, duration, source, id}]}]} →
+    свежее с SoundCloud у подписок из Яндекса + новинки любимых исполнителей (fav: true)."""
+    data = _body()
+    raw = [str(x) for x in data.get("ids") or []]
+    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - 90 * 86400))
+    follow_ya = [int(x) for x in raw if x.isdigit()][:40]
+    followed = set(raw)
+    favs = [f for f in (data.get("favorites") or [])[:12] if isinstance(f, dict)]
+    try:
+        fav_ids = [x for x in _NEW_POOL.map(lambda f: _safe_call(favorite_artist, f), favs) if x and x not in followed]
+        fav_ids = list(dict.fromkeys(fav_ids))[:10]
+        fav_ya = [int(x) for x in fav_ids if x.isdigit()]
+        fav_sc = [int(x[3:]) for x in fav_ids if x.startswith("sc:")]
+        twins = list(_NEW_POOL.map(lambda i: _twin_fresh(i, since), follow_ya + fav_ya))
+        out = [r for items in twins[:len(follow_ya)] for r in items]
+        fav_out = [r for items in twins[len(follow_ya):] for r in items]
+        if fav_ya:
+            fav_out += artists.new_releases(fav_ya)
+        if fav_sc:
+            fav_out += sc_new_releases(fav_sc)
+        out += [{**r, "fav": True} for r in fav_out]
+        seen, unique = set(), []
+        for r in out:
+            if r["id"] not in seen:
+                seen.add(r["id"])
+                unique.append(r)
+        unique.sort(key=lambda r: r.get("date") or "", reverse=True)
+        return jsonify(releases=unique, favorites=fav_ids)   # favorites — кого узнали (для проверок)
+    except Exception as e:
+        print(f"[новинки] {e}")
+        return jsonify(error=friendly_error(e), releases=[]), 502
+
+
+def _safe_call(fn, *args):
+    try:
+        return fn(*args)
+    except Exception as e:
+        print(f"[новинки] {fn.__name__}: {e}")
+        return None
 
 
 @app.get("/api/album/<album_id>")
