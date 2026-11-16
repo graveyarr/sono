@@ -25,7 +25,7 @@ import { initIncoming } from "./links.js";
 import { maybeWhatsNew } from "./whatsnew.js";
 import { loadLocal, onLocalChange } from "./local.js";
 import { announceNewReleases } from "./releases.js";
-import { flush, getSetting, lib, loadLibrary, onChange, onSaveError } from "./library.js";
+import { flush, getSetting, lib, loadLibrary, onChange, onSaveError, setSetting } from "./library.js";
 import { initTips } from "./tips.js";
 import { markRecent } from "./libtools.js";
 import { initLyrics } from "./lyrics.js";
@@ -33,12 +33,13 @@ import { initMobile } from "./mobile.js";
 import { initPlayer, isPlaying, restoreSession, onPlayState, onTrackChange, playNext, playPrev, seekBy, state, stepVolume, syncLikeButtons, togglePlay } from "./player.js";
 import { initSystem } from "./system.js";
 import { focusSearch, initSearch, refreshHistory } from "./search.js";
-import { displayTrack, syncAllRows, toast } from "./ui.js";
+import { displayTrack, el, openModal, syncAllRows, toast } from "./ui.js";
 import { initViews, refreshDownloads, refreshPlaying, refreshViews, syncPlayButtons } from "./views.js";
 import { whenWindowApi } from "./winapi.js";
 
+let libraryNotice = null;   // файл медиатеки был повреждён и Sono его починил — скажем после запуска
 try {
-  await loadLibrary();
+  libraryNotice = await loadLibrary();
 } catch (err) {
   toast("Не удалось загрузить медиатеку: " + err.message, { error: true });
 }
@@ -70,6 +71,17 @@ restoreSession();   // что играло в прошлый раз — на п�
 initIncoming();     // трек, присланный из браузера кнопкой «+ Sono» (после restoreSession — чтобы он его не перебил)
 // Новый человек (медиатека пуста, приветствия ещё не было) — ему все подсказки; обновившемуся — только про новое
 initTips(!getSetting("onboarded", false) && !lib.history.length && !lib.liked.length && !lib.playlists.length);
+if (libraryNotice) {
+  // Человек не новый — у него просто испортился файл: вместо приветствия объясняем, что случилось
+  setSetting("onboarded", true);
+  const { box, close } = openModal({ className: "library-notice" });
+  const ok = el("button", "btn primary", "Понятно");
+  ok.type = "button";
+  ok.addEventListener("click", close);
+  const buttons = el("div", "dialog-buttons");
+  buttons.append(ok);
+  box.append(el("h2", "", "Медиатека была повреждена"), el("p", "", libraryNotice), buttons);
+}
 maybeWelcome();   // первый запуск — приветствие и экскурсия
 setTimeout(maybeWhatsNew, 1200);
 

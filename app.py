@@ -9,6 +9,7 @@ import mimetypes
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -25,6 +26,7 @@ import updater
 updater.activate()   # до import yt_dlp: если скачана свежая версия yt-dlp — берём её (updater.py)
 import yt_dlp  # noqa: E402
 from flask import Flask, Response, abort, jsonify, request, send_file
+from werkzeug.exceptions import HTTPException
 
 import appupdate
 import artists
@@ -247,6 +249,18 @@ mimetypes.add_type("text/javascript", ".js")
 
 app = Flask(__name__, static_folder=str(BASE_DIR / "static"), static_url_path="")
 
+
+@app.errorhandler(HTTPException)
+def _api_http_error(e):
+    """Ошибки адресов /api/ — понятным JSON по-русски, а не HTML-страницей Flask: страница ждёт JSON,
+    и вместо объяснения человек увидел бы «Unexpected token '<'»."""
+    if not request.path.startswith("/api/"):
+        return e
+    texts = {400: "Неправильный запрос", 404: "Не нашлось", 405: "Этот адрес так не вызывают",
+             413: "Слишком большой запрос", 429: "Слишком много запросов — подождите немного"}
+    return jsonify(error=texts.get(e.code, "Не получилось выполнить запрос")), e.code
+
+
 _locks: dict[str, threading.Lock] = {}   # чтобы одно и то же не делать дважды одновременно
 _locks_guard = threading.Lock()
 
@@ -261,9 +275,19 @@ def friendly_error(e: Exception) -> str:
     text = str(e)
     if "DRM" in text:
         return "Этот трек защищён от копирования (DRM), сыграть его нельзя"
-    if "Sign in" in text or ("age" in text.lower() and "confirm" in text.lower()):
+    # Только настоящие «войдите» и «подтвердите возраст». Раньше хватало слов «age» и «confirm» где угодно —
+    # и обычный обрыв связи («Unable to download API page … Confirm you are on the latest version») выдавался
+    # за «Сайт требует войти в аккаунт»
+    if "Sign in" in text or re.search(r"confirm your age|age[- ]restricted|inappropriate for some users", text, re.I):
         return "Сайт требует войти в аккаунт, чтобы открыть этот трек"
-    if "unavailable" in text.lower() or "not available" in text.lower():
+    network = re.search(r"getaddrinfo|Failed to resolve|NameResolution|Name or service not known|Errno 1100[14]|"
+                        r"Unable to connect to proxy|ProxyError|Tunnel connection failed|unreachable network|"
+                        r"Network is unreachable|Errno 10051|Errno 10065|timed out|HTTPSConnectionPool|"
+                        r"Connection(Error| aborted| reset| refused)", text)
+    # Связи нет совсем (выключен Wi-Fi, выдернут кабель) — так и говорим, а не «смените DNS» или «обход»
+    if (network or isinstance(e, requests.RequestException)) and not internet_ok():
+        return OFFLINE_TEXT
+    if ("unavailable" in text.lower() or "not available" in text.lower()) and not network:
         return "Трек недоступен (удалён или закрыт в вашей стране)"
     # Имя сайта не превратилось в адрес (у друга: «Failed to resolve 'www.youtube.com' ([Errno 11001]
     # getaddrinfo failed)») — DNS провайдера не отвечает или блокирует сайт. Обход режет имя сайта в
@@ -274,11 +298,42 @@ def friendly_error(e: Exception) -> str:
         return (f"Не удаётся найти {host}: DNS вашего провайдера не отвечает или блокирует его. "
                 "Включите «Встроенный обход» в Настройках (он ищет адрес сам), смените DNS на 1.1.1.1 или 8.8.8.8 "
                 "либо включите VPN")
-    if isinstance(e, requests.RequestException) or re.search(r"timed out|HTTPSConnectionPool|Connection(Error| aborted| reset)", text):
+    if isinstance(e, requests.RequestException) or network:
         host = "YouTube" if "googlevideo" in text or "youtube" in text else "SoundCloud" if "soundcloud" in text or "sndcdn" in text else "Сайт"
         return (f"{host} не ответил вовремя. Попробуйте ещё раз; если повторяется — "
                 "проверьте интернет или способ обхода блокировок (Настройки)")
-    return re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?", "", text)   # убираем техническую приставку yt-dlp
+    text = re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?", "", text)   # убираем техническую приставку yt-dlp
+    # Техническое английское сообщение yt-dlp человеку ничего не скажет
+    if "please report this issue" in text or re.match(r"[\w-]+: (Unable|Unsupported|Requested|Got error)", text):
+        return "Сайт ответил ошибкой — попробуйте ещё раз. Если повторяется, обновите yt-dlp (Настройки → Обновления)"
+    return text
+
+
+_online = {"at": 0.0, "ok": True}
+OFFLINE_TEXT = "Нет подключения к интернету — проверьте Wi-Fi или кабель. Скачанные треки играют и без него"
+
+
+def site_down(text: str) -> str:
+    """«Сайт не ответил» — или «нет интернета», если его нет совсем."""
+    return text if internet_ok() else OFFLINE_TEXT
+
+
+def internet_ok() -> bool:
+    """Есть ли интернет вообще: знает ли система адрес хоть одного из двух больших сайтов (помним 15 с).
+    Отличает «нет интернета» от «провайдер блокирует YouTube» — советы для них разные."""
+    if time.time() - _online["at"] < 15:
+        return _online["ok"]
+    import socket
+    ok = False
+    for host in ("ya.ru", "cloudflare.com"):
+        try:
+            socket.getaddrinfo(host, 443)
+            ok = True
+            break
+        except OSError:
+            continue
+    _online.update(at=time.time(), ok=ok)
+    return ok
 
 
 LOCAL_ID = re.compile(r"^[0-9a-f]{16}$")   # свои файлы с компьютера (localfiles.py): sha1 пути
@@ -1283,7 +1338,8 @@ def load_library() -> dict:
     except FileNotFoundError:
         data = {}
     except (OSError, ValueError) as e:
-        # Файл испорчен — не затираем его, а откладываем в сторону, чтобы данные можно было спасти
+        # Файл испорчен (например, выключили свет во время записи) — не затираем его, а откладываем
+        # в сторону, чтобы данные можно было спасти, и берём запасную копию (save_library_section)
         broken = LIBRARY_FILE.with_name(f"library.broken-{int(time.time())}.json")
         print(f"[library] файл не читается ({e}), сохранил его как {broken.name}")
         try:
@@ -1291,8 +1347,40 @@ def load_library() -> dict:
         except OSError:
             pass
         data = {}
+        try:
+            data = json.loads(LIBRARY_BACKUP.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("внутри не словарь")
+            when = datetime.fromtimestamp(LIBRARY_BACKUP.stat().st_mtime).strftime("%d.%m.%Y %H:%M")
+            shutil.copy2(LIBRARY_BACKUP, LIBRARY_FILE)
+            _library_notice["text"] = (f"Файл медиатеки оказался повреждён — Sono восстановил запасную копию "
+                                       f"от {when}. Испорченный файл сохранён рядом: {broken.name}")
+        except (OSError, ValueError):
+            data = {}
+            _library_notice["text"] = ("Файл медиатеки оказался повреждён, а запасной копии нет — медиатека "
+                                       f"начата заново. Испорченный файл сохранён рядом: {broken.name}. Если у вас "
+                                       "есть копия медиатеки, восстановите её в Настройках → «Медиатека»")
     return {name: data[name] if isinstance(data.get(name), kind) else kind()
             for name, kind in LIBRARY_SECTIONS.items()}
+
+
+LIBRARY_BACKUP = LIBRARY_FILE.with_name("library.backup.json")
+_library_notice = {"text": None}   # что сказать при запуске, если медиатеку пришлось чинить
+
+
+def _backup_library():
+    """Запасная копия медиатеки — не чаще раза в час и только непустой (пустой не затираем хорошую)."""
+    try:
+        if LIBRARY_BACKUP.exists() and time.time() - LIBRARY_BACKUP.stat().st_mtime < 3600:
+            return
+        data = json.loads(LIBRARY_FILE.read_text(encoding="utf-8"))
+        if not (data.get("liked") or data.get("playlists") or data.get("history")):
+            return
+        tmp = LIBRARY_BACKUP.with_suffix(".tmp")
+        shutil.copy2(LIBRARY_FILE, tmp)
+        os.replace(tmp, LIBRARY_BACKUP)
+    except (OSError, ValueError):
+        pass
 
 
 def save_library_section(name: str, value) -> None:
@@ -1302,6 +1390,7 @@ def save_library_section(name: str, value) -> None:
         tmp = LIBRARY_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(tmp, LIBRARY_FILE)   # подмена целиком: если что-то упадёт, старый файл останется цел
+        _backup_library()
 
 
 # ---------- HTTP-маршруты ----------
@@ -1366,7 +1455,7 @@ def api_soundcloud_profile():
         return jsonify(error=str(e)), 404
     except Exception as e:
         print(f"[import] профиль SoundCloud {nick}: {e}")
-        return jsonify(error="SoundCloud не ответил — попробуйте ещё раз"), 502
+        return jsonify(error=site_down("SoundCloud не ответил — попробуйте ещё раз")), 502
 
 
 @app.get("/api/import/<job_id>")
@@ -1547,7 +1636,11 @@ def api_reveal():
 @app.get("/api/library")
 def api_library():
     with _library_lock:
-        return jsonify(load_library())
+        data = load_library()
+    if _library_notice["text"]:   # медиатеку пришлось чинить — скажем один раз
+        data = {**data, "notice": _library_notice["text"]}
+        _library_notice["text"] = None
+    return jsonify(data)
 
 
 @app.put("/api/library/<section>")
@@ -2421,7 +2514,7 @@ def api_workshop_install():
     except ValueError as e:
         return jsonify(error=f"Не получилось поставить тему: {e}"), 400
     except Exception as e:   # сеть, диск
-        return jsonify(error=f"Не получилось поставить тему: {e}"), 500
+        return jsonify(error=f"Не получилось поставить тему: {friendly_error(e)}"), 500
     return jsonify(ok=True, **info)
 
 
@@ -2774,7 +2867,7 @@ def _meta_call(fn, *args):
         text = str(e)
         site = "Deezer" if "deezer" in text else "Яндекс Музыка" if "yandex" in text else \
                "SoundCloud" if "soundcloud" in text else "сайт с музыкальной базой"
-        return jsonify(error=f"{site} сейчас не отвечает. Обычно это ненадолго — попробуйте ещё раз через минуту",
+        return jsonify(error=site_down(f"{site} сейчас не отвечает. Обычно это ненадолго — попробуйте ещё раз через минуту"),
                        site=site), 502
 
 
@@ -3162,7 +3255,7 @@ def api_sc_artist(uid):
         return jsonify(error=friendly_error(e)), 502
     except Exception as e:
         print(f"[soundcloud] артист {uid}: {e}")
-        return jsonify(error="SoundCloud не ответил — попробуйте ещё раз"), 502
+        return jsonify(error=site_down("SoundCloud не ответил — попробуйте ещё раз")), 502
 
 
 @app.post("/api/new-releases")
@@ -3371,7 +3464,7 @@ def api_album(album_id):
             return jsonify(error=friendly_error(e)), 502
         except Exception as e:
             print(f"[soundcloud] альбом {album_id}: {e}")
-            return jsonify(error="SoundCloud не ответил — попробуйте ещё раз"), 502
+            return jsonify(error=site_down("SoundCloud не ответил — попробуйте ещё раз")), 502
     if not re.match(r"^(dz)?\d+$", album_id):
         return jsonify(error="Неправильный адрес альбома"), 400
     return _meta_call(artists.album, album_id)

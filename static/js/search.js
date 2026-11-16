@@ -198,6 +198,7 @@ function showSearchError(text) {
   panelMode = "results";
   results = [];
   rowsEl.replaceChildren();
+  panelTitle.textContent = "Поиск";   // не «Ищу на YouTube…» — поиск уже закончился ошибкой
   panelMessage.textContent = text;
   panelMessage.classList.add("error");
 }

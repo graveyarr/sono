@@ -87,11 +87,14 @@ export function flush() {
   }
 }
 
+/** Загрузить медиатеку. Возвращает текст, если её пришлось чинить (файл был повреждён), иначе null */
 export async function loadLibrary() {
   const res = await fetch("/api/library");
   if (!res.ok) throw new Error(`сервер ответил ${res.status}`);
-  Object.assign(lib, await res.json());
+  const { notice = null, ...data } = await res.json();
+  Object.assign(lib, data);
   migrateFromLocalStorage();
+  return notice;
 }
 
 // Раньше история и настройки жили в localStorage браузера — переносим один раз

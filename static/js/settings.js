@@ -10,7 +10,7 @@ import { icons } from "./icons.js";
 import { getSetting, lib, likeTarget, likeTargetName, motionOff, setSetting } from "./library.js";
 import { setMinibarLarge, syncLikeButtons } from "./player.js";
 import { obsEnabled, presenceEnabled, setObsServer, updatePresence } from "./presence.js";
-import { confirmDialog, el, iconButton, openMenu, plural, syncAllRows, toast } from "./ui.js";
+import { confirmDialog, el, iconButton, openMenu, plural, speedText, syncAllRows, toast } from "./ui.js";
 import { VIZ_PRESETS, VIZ_STYLES, applyVizColors, applyVizStyle, paletteFor, refreshViz, themeVizStyle, vizColorsSetting,
   vizEnabled, vizStyleSetting } from "./viz.js";
 import { showWelcome, startTour } from "./welcome.js";
@@ -201,7 +201,7 @@ function testResults() {
     fill.style.width = `${((r.youtube || 0) / max) * 100}%`;
     bar.append(fill);
     row.append(el("span", "set-result-name", label(r.name)), bar,
-      el("span", "set-result-num", r.youtube ? `${r.youtube} МБ/с` : "не работает"),
+      el("span", "set-result-num", r.youtube ? speedText(r.youtube) : "не работает"),
       el("span", "set-result-sc", r.soundcloud ? `SC ${r.soundcloud} мс` : "SC —"));
     wrap.append(row);
   }
@@ -1030,7 +1030,7 @@ function zapretResults(p) {
     fill.style.width = `${(r.youtube / max) * 100}%`;
     bar.append(fill);
     row.append(el("span", "set-result-name", name), bar,
-      el("span", "set-result-num", r.youtube > 0.05 ? `${r.youtube} МБ/с` : "не работает"),
+      el("span", "set-result-num", r.youtube > 0.05 ? speedText(r.youtube) : "не работает"),
       el("span", "set-result-sc", r.soundcloud > 0 ? "SC ✓" : "SC —"));
     return row;
   };

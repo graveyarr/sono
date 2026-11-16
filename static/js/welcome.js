@@ -7,7 +7,7 @@ import { icons } from "./icons.js";
 import { openImportDialog } from "./import.js";
 import { getSetting, lib, setSetting } from "./library.js";
 import { openView } from "./nav.js";
-import { el, openModal, toast } from "./ui.js";
+import { el, openModal, speedText, toast } from "./ui.js";
 
 // ---------- Приветствие ----------
 
@@ -112,6 +112,13 @@ export function showWelcome() {
       close();
       openImportDialog({ yandex: true, onOpen: (id) => openView(`playlist:${id}`) });
     });
+    // Со SoundCloud — тоже целиком: лайки, плейлисты, подписки (андеграунда там больше, чем где-либо)
+    const soundcloud = el("button", "btn ghost", "Всё со SoundCloud");
+    soundcloud.type = "button";
+    soundcloud.addEventListener("click", () => {
+      close();
+      openImportDialog({ move: "soundcloud", onOpen: (id) => openView(`playlist:${id}`) });
+    });
     const link = el("button", "btn ghost", "Плейлист по ссылке");
     link.type = "button";
     link.addEventListener("click", () => {
@@ -125,9 +132,9 @@ export function showWelcome() {
     restore.addEventListener("click", () => picker.click());
     picker.addEventListener("change", () => restoreBackup(picker));
     const actions = el("div", "welcome-actions");
-    actions.append(yandex, link, restore, picker);
+    actions.append(yandex, soundcloud, link, restore, picker);
     return [el("h2", "", "Перенесите свою музыку"),
-      el("p", "", "С Яндекс Музыки можно переехать целиком: «Мне нравится», плейлисты и любимые исполнители — одной ссылкой. "
+      el("p", "", "С Яндекс Музыки и SoundCloud можно переехать целиком: лайки, плейлисты и любимые исполнители — одной ссылкой. "
         + "Отдельные плейлисты и альбомы переносятся по ссылке из Spotify, Яндекс Музыки, Apple Music, Deezer, "
         + "YouTube и SoundCloud — или просто списком «Исполнитель — Название» (например, из VK)."),
       el("p", "welcome-muted", isMobile ? "Если вы уже пользовались Sono на компьютере — восстановите копию медиатеки (её делают в Настройках → «Медиатека»)."
@@ -159,13 +166,13 @@ async function runNetworkTest(result, button) {
     if (!best) {
       result.replaceChildren(el("p", "import-error", "YouTube и SoundCloud не открылись ни одним способом. Попробуйте zapret или свой VPN — это в настройках."));
     } else if (direct?.youtube && direct?.soundcloud) {
-      result.replaceChildren(el("p", "welcome-ok", `Всё хорошо: YouTube и SoundCloud и так работают (${direct.youtube} МБ/с).`));
+      result.replaceChildren(el("p", "welcome-ok", `Всё хорошо: YouTube и SoundCloud и так работают (${speedText(direct.youtube)}).`));
     } else {
       await fetch("/api/network", { method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(best) });
       const yt = data.results.find((r) => r.name === best.strategy)?.youtube;
       result.replaceChildren(el("p", "welcome-ok", best.mode === "proxy" ? "Готово: включил ваш прокси."
-        : `Готово: YouTube — «${names[best.strategy] ?? best.strategy}»${yt ? ` (${yt} МБ/с)` : ""}, `
+        : `Готово: YouTube — «${names[best.strategy] ?? best.strategy}»${yt ? ` (${speedText(yt)})` : ""}, `
           + `SoundCloud — «${names[best.strategySc] ?? best.strategySc}».`));
     }
   } catch (err) {

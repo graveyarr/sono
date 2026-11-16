@@ -68,12 +68,13 @@ let moveSvc = "yandex";
 
 let prefillUrl = "";   // ссылка из строки поиска — окно откроется с ней
 
-/** onOpen(playlistId) — что делать по кнопке «Открыть плейлист»; yandex — сразу открыть «Переезд из Яндекс Музыки»;
+/** onOpen(playlistId) — что делать по кнопке «Открыть плейлист»; yandex — сразу открыть «Переезд из Яндекс Музыки»
+    (move: "soundcloud" — «Переезд со SoundCloud»);
     url — ссылка на плейлист (вставили в поиск): окно сразу с ней, остаётся нажать «Импортировать» */
-export function openImportDialog({ onOpen, yandex = false, url = "" } = {}) {
+export function openImportDialog({ onOpen, yandex = false, move = null, url = "" } = {}) {
   onOpenPlaylist = onOpen;
   if (url && !(job && job.status === "running")) { mode = "link"; prefillUrl = url; result = null; }
-  if (yandex) { mode = "yandex"; moveSvc = "yandex"; yandexProfile = null; }
+  if (yandex || MOVES[move]) { mode = "yandex"; moveSvc = MOVES[move] ? move : "yandex"; yandexProfile = null; }
   else if (mode === "yandex" || mode === "files") mode = "link";   // в прошлый раз закрыли окно на переезде — обычный импорт с начала
   match = getSetting("importMatch", "auto");
   if (!MATCH_OPTIONS.some((o) => o.value === match)) match = "auto";

@@ -633,6 +633,7 @@ function artistItem(a) {
   } else {
     pic.textContent = (a.name || "?").slice(0, 1).toUpperCase();
     pic.style.background = `hsl(${nameHue(a.name || "")} 35% 30%)`;
+    pic.style.color = "#fff";   // кружок тёмный при любой теме — буква белая (в «Светлой» была тёмной на тёмном)
   }
   const text = el("div", "lib-text");
   text.append(el("div", "lib-name", a.name || "Исполнитель"), el("div", "lib-sub", String(a.id).startsWith("sc:") ? "Исполнитель · SoundCloud" : "Исполнитель"));
@@ -891,11 +892,15 @@ function renderList(fresh) {
   empty.hidden = true;
   let tools, drawSelectBar, clearSelection;
   let shownSongs = [];   // песни в том порядке, в каком стоят строки (для перетаскивания)
+  // Первое открытие длинного списка: сразу — первые строки (их и видно), остальные — следом, не задерживая показ
+  // (3000 треков рисовались ~1 с целиком). При перерисовке — сразу все: иначе потерялось бы место прокрутки
+  let firstDraw = fresh;
+  let drawToken = 0;
   const drawList = () => {
     const shown = orderedTracks(songs, st);
     shownSongs = shown.map((x) => x.group);
     const queue = shown.map((x) => x.track);
-    list.replaceChildren(...shown.map(({ track, group }, n) => {
+    const makeRow = ({ track, group }, n) => {
       const row = trackRow(track, {
         index: n,
         numbered: true,
@@ -910,7 +915,22 @@ function renderList(fresh) {
       row.classList.toggle("selected", st.selected.has(keyOf(track)));
       row.addEventListener("mouseenter", () => prefetch(track));   // пока ведут курсор — готовим трек
       return row;
-    }));
+    };
+    const token = ++drawToken;
+    const first = firstDraw ? Math.min(shown.length, 120) : shown.length;
+    firstDraw = false;
+    list.replaceChildren(...shown.slice(0, first).map((x, n) => makeRow(x, n)));
+    let at = first;
+    const rest = () => {
+      if (token !== drawToken || !list.isConnected) return;   // список уже перерисовали или ушли с экрана
+      const part = shown.slice(at, at + 400);
+      list.append(...part.map((x, i) => makeRow(x, at + i)));
+      at += part.length;
+      fillPlays(list, info.tracks);
+      markCurrentRows(state.current ? keyOf(state.current) : null);
+      if (at < shown.length) setTimeout(rest, 0);
+    };
+    if (at < shown.length) setTimeout(rest, 0);
     // Свой порядок меняется перетаскиванием, только когда список показан как есть (без сортировки и поиска)
     list.classList.toggle("sortable", !!info.playlist && st.sort === "own" && !st.query);
     empty.hidden = shown.length > 0;

@@ -81,6 +81,7 @@ export function picture(url, className, name = "") {
     box.classList.add("no-image");
     const hue = nameHue(name);
     box.style.background = `linear-gradient(135deg, hsl(${hue} 40% 30%), hsl(${(hue + 40) % 360} 45% 16%))`;
+    box.style.color = "rgb(255 255 255 / 0.8)";   // фон тёмный при любой теме — значок светлый
     box.innerHTML = icons.note;
   }
   return box;

@@ -85,7 +85,9 @@ export function setStatus(text, isError = false) {
   if (text) console.log("[status]", text);
   // Строка состояния есть только на «Сейчас играет» — на других экранах ошибку показываем уведомлением,
   // иначе трек молча не играет. Во Flow пропуск ненайденного трека — обычное дело, не шумим
-  if (isError && text && !document.body.classList.contains("on-now") && state.context?.type !== "flow") {
+  // …кроме «нет интернета»: тогда не откроется ничего, и молчащий Flow выглядит как зависший
+  const offline = /Нет подключения к интернету/.test(text);
+  if (isError && text && !document.body.classList.contains("on-now") && (state.context?.type !== "flow" || offline)) {
     toast(text, { error: true });
   }
 }

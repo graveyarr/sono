@@ -17,6 +17,8 @@ local.json
 libcheck.json
 local.tmp
 library.broken-*.json
+library.backup.json
+library.backup.tmp
 sono.log
 player.log
 webview/

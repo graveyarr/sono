@@ -52,10 +52,25 @@ export function el(tag, className = "", text = "") {
   return node;
 }
 
+// Значки — строки SVG. Разбирать строку в каждой из тысяч строк трека дорого (3000 треков — ~1,3 с):
+// разбираем один раз, дальше копируем готовое
+const parsedIcons = new Map();
+/** Вставить значок (строку SVG/HTML) внутрь node вместо его содержимого */
+export function setIcon(node, svg) {
+  let tpl = parsedIcons.get(svg);
+  if (!tpl) {
+    tpl = document.createElement("template");
+    tpl.innerHTML = svg;
+    if (parsedIcons.size > 300) parsedIcons.clear();
+    parsedIcons.set(svg, tpl);
+  }
+  node.replaceChildren(tpl.content.cloneNode(true));
+}
+
 export function iconButton(icon, label, className = "") {
   const btn = el("button", `icon-btn ${className}`.trim());
   btn.type = "button";
-  btn.innerHTML = icon;
+  setIcon(btn, icon);
   btn.setAttribute("aria-label", label);
   btn.title = label;
   return btn;
@@ -85,6 +100,9 @@ export function formatTime(sec) {
 }
 
 /** 1 трек, 2 трека, 5 треков */
+/** «0,33 МБ/с» — скорость по-русски (с запятой) */
+export const speedText = (v) => `${Number(v).toLocaleString("ru", { maximumFractionDigits: 2 })} МБ/с`;
+
 export function plural(n, one, few, many) {
   const mod10 = n % 10, mod100 = n % 100;
   if (mod10 === 1 && mod100 !== 11) return `${n} ${one}`;
@@ -179,8 +197,8 @@ export function trackRow(track, { index = 0, numbered = false, showSource = fals
 
   if (numbered) {
     const num = el("span", "t-num");
-    num.innerHTML = `<span class="t-index">${index + 1}</span><span class="t-play">${icons.play}</span>
-      <span class="t-eq"><i></i><i></i><i></i></span>`;
+    setIcon(num, `<span class="t-index"></span><span class="t-play">${icons.play}</span><span class="t-eq"><i></i><i></i><i></i></span>`);
+    num.firstChild.textContent = index + 1;
     li.append(num);
   }
 
@@ -200,7 +218,7 @@ export function trackRow(track, { index = 0, numbered = false, showSource = fals
   if (!numbered && track.plays != null) parts.push(playsText(track.plays, track.source).replace(/(просмотр|прослушивани)\S*/, (w) => (w.startsWith("просмотр") ? "просм." : "прослуш.")));
   const sub = el("div", "t-sub");
   const dl = el("span", "t-dl");   // значок «скачано» (виден, когда трек скачан или качается)
-  dl.innerHTML = icons.downloaded;
+  setIcon(dl, icons.downloaded);
   sub.append(dl, artistLinks(track, shown.artist), document.createTextNode(parts.length ? " · " + parts.join(" · ") : ""));
   if (many) {   // одна песня с нескольких сайтов — видно, что загрузок несколько, и можно выбрать, какая играет
     const chip = el("button", "t-uploads", plural(uploads.length, "загрузка", "загрузки", "загрузок"));
@@ -276,7 +294,7 @@ function syncRow(li, track = { source: li.dataset.key.split(":")[0], id: li.data
   const like = li.querySelector(".t-like");
   if (like && like.dataset.state !== String(liked)) {
     like.dataset.state = String(liked);
-    like.innerHTML = liked ? icons.heartFilled : icons.heart;
+    setIcon(like, liked ? icons.heartFilled : icons.heart);
     like.title = liked ? "Убрать из избранного" : "В избранное";
     like.setAttribute("aria-label", like.title);
   }
@@ -337,6 +355,7 @@ export function collectionCover(kind, { name = "", tracks = [], cover = null } =
     const hue = nameHue(name);
     box.classList.add("empty");
     box.style.background = `linear-gradient(135deg, hsl(${hue} 45% 32%), hsl(${(hue + 40) % 360} 50% 18%))`;
+    box.style.color = "rgb(255 255 255 / 0.8)";   // фон тёмный при любой теме — значок светлый
     box.innerHTML = icons.note;
   }
   return box;

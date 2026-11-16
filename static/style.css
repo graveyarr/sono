@@ -586,6 +586,10 @@ body.back-in-panel:not(.mobile) .panel-back {
 @keyframes row-in {
   from { opacity: 0; transform: translateY(6px); }
 }
+/* Длинные списки (тысячи треков): появление видно только у первых строк — остальным анимация не нужна,
+   а строки за экраном браузер не раскладывает и не рисует, пока до них не прокрутят (3000 треков: ~1,4 с → доли секунды) */
+.tracklist > .track:nth-child(n+31) { animation: none; }
+.tracklist > .track { content-visibility: auto; contain-intrinsic-size: auto 54px; }
 
 .thumb {
   width: 48px; height: 48px; flex: none;

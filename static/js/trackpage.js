@@ -5,7 +5,7 @@
 // Нет данных — блока нет (лучше не показать, чем показать сомнительное).
 
 import { openAddToPlaylist, openTrackAlbum, openTrackMenu, toggleLike } from "./actions.js";
-import { failBox, load, paintHero, section } from "./artist.js";
+import { load, paintHero, section } from "./artist.js";
 import { listRecs, songKey, startFlow } from "./flow.js";
 import { icons } from "./icons.js";
 import { isLiked, keyOf, lib } from "./library.js";
