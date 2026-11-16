@@ -482,7 +482,9 @@ def _words(text: str) -> set[str]:
 SC_OTHER_VERSIONS = ("remix", "ремикс", "type beat", "live", "cover", "кавер", "slowed", "sped up", "speed up",
                      "nightcore", "karaoke", "караоке", "instrumental", "инструментал", "минус", "8d", "reverb",
                      "mashup", "мэшап", "bootleg", "flip)", "remake", "ремейк", "phonk",
-                     "og version", "leak", "snippet", "слив")   # ранние и слитые версии — не то, что вышло
+                     "og version", "leak", "snippet", "слив",   # ранние и слитые версии — не то, что вышло
+                     "play along", "playthrough", "piano version", "acoustic",   # каверы на инструментах
+                     "bass boost", "bassboost")
 
 
 def _close_enough(track: dict, duration: float | None, artist: str, title: str) -> bool:

@@ -194,7 +194,9 @@ function testResults() {
   }
   const max = Math.max(...results.map((r) => r.youtube || 0), 0.1);
   for (const r of results) {
-    const isBest = best && (best.mode === "proxy" ? r.name === "proxy" : r.name === best.strategy || r.name === best.strategySc);
+    // Подсвечиваем только то, что сработало: способ «по умолчанию» для неоткрывшегося сайта лучшим не назовём
+    const isBest = best && (best.mode === "proxy" ? r.name === "proxy"
+      : (r.name === best.strategy && r.youtube) || (r.name === best.strategySc && r.soundcloud));
     const row = el("div", `set-result${isBest ? " best" : ""}`);
     const bar = el("div", "set-bar");
     const fill = el("i");
@@ -213,9 +215,14 @@ function testResults() {
   const notes = [];
   if (best.mode === "proxy") notes.push("Лучше всего — через ваш прокси.");
   else {
-    notes.push(`YouTube — «${label(best.strategy)}», SoundCloud — «${label(best.strategySc)}».`);
-    if (!results.some((r) => r.youtube)) notes.push("YouTube не открылся ни одним способом.");
-    if (!results.some((r) => r.soundcloud)) notes.push("SoundCloud не открылся ни одним способом.");
+    const ytOk = results.some((r) => r.youtube), scOk = results.some((r) => r.soundcloud);
+    // Называем способ только для того сайта, который им открылся
+    if (ytOk) notes.push(`YouTube — «${label(best.strategy)}».`);
+    if (scOk) notes.push(`SoundCloud — «${label(best.strategySc)}».`);
+    // Так было у автора 16 ноября (Ростелеком): к серверам звука YouTube пускают только «разрешённые» сайты
+    if (!ytOk) notes.push("YouTube не открылся ни одним способом — похоже, провайдер блокирует его полностью, "
+      + "и тут поможет только VPN или «Свой прокси». Пока так, Sono включает песни с SoundCloud, где они там есть.");
+    if (!scOk) notes.push("SoundCloud не открылся ни одним способом.");
     if (direct?.youtube && direct?.soundcloud) notes.push("Напрямую и так всё работает — обход вам, скорее всего, не нужен (но и не мешает).");
   }
   wrap.append(el("p", "set-hint", notes.join(" ")));

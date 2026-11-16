@@ -17,9 +17,10 @@ def check_search(source: str) -> dict:
     if not results:
         sys.exit("   ОШИБКА: ничего не найдено")
     for r in results:
-        print(f"   {r['id']}  {r['title']}  [{r['duration']:.0f} c]")
+        print(f"   {r['id']}  {r['title']}  [{r['duration']:.0f} c]{'  (DRM)' if r.get('drm') else ''}")
     print("   OK\n")
-    return results[0]
+    # Защищённое от копирования (DRM) сыграть нельзя — проверяем на первом незащищённом
+    return next((r for r in results if not r.get("drm")), results[0])
 
 
 # ----- YouTube -----

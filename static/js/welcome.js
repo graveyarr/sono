@@ -20,10 +20,10 @@ const FEATURES = [
   { icon: "flow", title: "Flow под ваш вкус", text: "Бесконечная подборка. Учится на лайках и пропусках." },
   isMobile
     ? { icon: "plus", title: "Перенос с Яндекса и Spotify", text: "Плейлисты и «Мне нравится» — по ссылке, за минуту." }
-    : { icon: "compass", title: "Работает без VPN", text: "Встроенный обход блокировок YouTube и SoundCloud." },
+    : { icon: "compass", title: "Работает без VPN", text: "Встроенный обход блокировок. Закрыт YouTube — включит ту же песню с SoundCloud." },
   { icon: "download", title: "Офлайн", text: "Скачивайте треки и плейлисты — играют без интернета." },
   { icon: "fx", title: "Slowed, reverb, басы", text: "Звуковые эффекты и эквалайзер прямо в плеере." },
-  { icon: "note", title: "Тексты и клипы", text: "Текст песни строка за строкой и клип вместо обложки." },
+  { icon: "note", title: "Тексты, клипы, новинки", text: "Текст строка за строкой, клип вместо обложки и свежие релизы ваших исполнителей." },
 ];
 
 export function showWelcome() {
@@ -171,9 +171,15 @@ async function runNetworkTest(result, button) {
       await fetch("/api/network", { method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(best) });
       const yt = data.results.find((r) => r.name === best.strategy)?.youtube;
+      const scOk = data.results.some((r) => r.soundcloud);
+      // Называем способ только для открывшегося сайта (у автора 16 ноября YouTube был закрыт полностью)
+      const parts = [yt ? `YouTube — «${names[best.strategy] ?? best.strategy}» (${speedText(yt)})` : "",
+        scOk ? `SoundCloud — «${names[best.strategySc] ?? best.strategySc}»` : ""].filter(Boolean);
+      const lost = !yt ? " YouTube у вашего провайдера не открылся ни одним способом — для него нужен VPN. "
+          + "Пока так, Sono будет включать песни с SoundCloud."
+        : !scOk ? " SoundCloud не открылся ни одним способом — для него нужен VPN." : "";
       result.replaceChildren(el("p", "welcome-ok", best.mode === "proxy" ? "Готово: включил ваш прокси."
-        : `Готово: YouTube — «${names[best.strategy] ?? best.strategy}»${yt ? ` (${speedText(yt)})` : ""}, `
-          + `SoundCloud — «${names[best.strategySc] ?? best.strategySc}».`));
+        : `Готово: ${parts.join(", ")}.${lost}`));
     }
   } catch (err) {
     result.replaceChildren(el("p", "import-error", `Не получилось проверить: ${err.message}`));

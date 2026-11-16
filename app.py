@@ -300,6 +300,12 @@ def friendly_error(e: Exception) -> str:
                 "либо включите VPN")
     if isinstance(e, requests.RequestException) or network:
         host = "YouTube" if "googlevideo" in text or "youtube" in text else "SoundCloud" if "soundcloud" in text or "sndcdn" in text else "Сайт"
+        if host == "YouTube" and _network.get("mode") != "proxy":
+            # Замер 16 ноября (Ростелеком, мимо VPN): к серверам звука YouTube пропускаются только «разрешённые»
+            # имена сайтов — не помогает ни один способ обхода, а SoundCloud играет. Совет «проверьте способ»
+            # тут бесполезен — говорим, что поможет на самом деле
+            return ("YouTube не отвечает. Если так со всеми треками YouTube — провайдер блокирует его сильнее, "
+                    "чем умеет обходить Sono: включите VPN или «Свой прокси» в Настройках. Треки с SoundCloud играют")
         return (f"{host} не ответил вовремя. Попробуйте ещё раз; если повторяется — "
                 "проверьте интернет или способ обхода блокировок (Настройки)")
     text = re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?", "", text)   # убираем техническую приставку yt-dlp
@@ -3570,7 +3576,16 @@ def api_replacement():
     if not title:
         abort(400)
     try:
-        found = find_replacement(source, track_id, artist, title, data.get("duration"), str(data.get("metaId") or ""))
+        if data.get("soundcloud"):
+            # YouTube не отвечает (провайдер блокирует) — та же песня с SoundCloud, но только на этот раз:
+            # загрузка YouTube не сломана, и пару трека из базы не переписываем
+            # Только явно та же запись (как у «Авто»): каверы и перезаливы с другой длиной — нет
+            duration = data.get("duration")
+            found = importer._find_pair("soundcloud", lambda src, q, limit=8: [
+                t for t in search(src, q, limit=limit) if importer._close_enough(t, duration, artist, title)],
+                artist, title, duration)
+        else:
+            found = find_replacement(source, track_id, artist, title, data.get("duration"), str(data.get("metaId") or ""))
     except Exception as e:
         print(f"[replacement] {artist} — {title}: {e}")
         return jsonify(error=friendly_error(e)), 502

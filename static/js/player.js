@@ -167,6 +167,23 @@ function playAt(track, queue, index, context) {
   setStatus("");
   all("play").forEach((b) => b.classList.add("loading"));
 
+  // Только что YouTube не отвечал совсем — не ждём его ~20 с снова, а сразу ищем песню на SoundCloud.
+  // Не нашлась — пробуем YouTube как обычно (вдруг уже заработал)
+  if (track.source === "youtube" && Date.now() < youtubeDownUntil && !replaceTried.has(keyOf(track))) {
+    replaceTried.add(keyOf(track));
+    audio.pause();
+    soundcloudCopy(track).then((alt) => {
+      if (state.current !== track) return;   // пока искали, включили другое
+      if (!alt) return startStream(track);
+      state.queue[state.index] = alt;
+      playAt(alt, state.queue, state.index, state.context);
+    });
+    return;
+  }
+  startStream(track);
+}
+
+function startStream(track) {
   pendingSeek = null;
   audio.dataset.trackDuration = track.duration || "";   // для плавного затухания в конце (audio.js)
   audio.src = trackPath("stream", track);
@@ -285,14 +302,25 @@ function savedTwinOf(track) {
   return null;
 }
 
-async function findReplacement(track) {
+// YouTube не отвечает совсем (провайдер блокирует, 16 ноября у автора — мимо VPN): играем ту же песню
+// с SoundCloud, но не запоминаем её вместо загрузки YouTube — с VPN YouTube снова заработает
+const YOUTUBE_DOWN = /^YouTube не отвечает/;
+let youtubeDownUntil = 0;   // до этого времени треки YouTube сразу ищем на SoundCloud (playAt)
+
+/** Та же песня с SoundCloud: из медиатеки, а нет — поиском (только явно та же запись) */
+function soundcloudCopy(track) {
+  const saved = savedTwinOf(track);
+  return saved?.source === "soundcloud" ? Promise.resolve(saved) : findReplacement(track, true);
+}
+
+async function findReplacement(track, soundcloud = false) {
   const shown = displayTrack(track);
   try {
     const res = await fetch("/api/replacement", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ source: track.source, id: track.id, artist: shown.artist, title: shown.title,
-                             duration: track.duration, metaId: track.metaId }),
+                             duration: track.duration, metaId: track.metaId, soundcloud }),
     });
     if (!res.ok) return null;
     const found = await res.json();
@@ -782,7 +810,10 @@ export function initPlayer() {
 
   const loading = (on) => all("play").forEach((b) => b.classList.toggle("loading", on));
   audio.addEventListener("waiting", () => loading(true));
-  audio.addEventListener("playing", () => { loading(false); setStatus(""); prefetchNext(); });
+  audio.addEventListener("playing", () => {
+    loading(false); setStatus(""); prefetchNext();
+    if (state.current?.source === "youtube") youtubeDownUntil = 0;   // YouTube снова играет (включили VPN)
+  });
   audio.addEventListener("canplay", () => loading(false));
   audio.addEventListener("ended", () => {
     if (state.stopAfterTrack) {   // таймер сна «до конца трека» — дальше не играем
@@ -813,6 +844,21 @@ export function initPlayer() {
     clearTimeout(slowTimer);
     slowToast?.close();
     const track = state.current;
+    if (YOUTUBE_DOWN.test(msg) && track.source === "youtube" && !replaceTried.has(keyOf(track))) {
+      replaceTried.add(keyOf(track));
+      youtubeDownUntil = Date.now() + 10 * 60 * 1000;
+      setStatus("YouTube не отвечает — ищу эту песню на SoundCloud…");
+      all("play").forEach((b) => b.classList.add("loading"));
+      const alt = await soundcloudCopy(track);
+      if (audio.src !== src) return;   // пока искали, включили другое
+      if (alt) {
+        removeFromHistory(track);
+        swapCurrent(alt);
+        toast("YouTube не отвечает — включаю песни с SoundCloud, где они там есть");
+        return;
+      }
+      loading(false);
+    }
     const broken = REPLACEABLE.test(msg) && track.source !== "local";
     if (broken && !replaceTried.has(keyOf(track))) {
       replaceTried.add(keyOf(track));

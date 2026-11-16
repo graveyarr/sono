@@ -23,7 +23,6 @@ import select
 import socket
 import ssl
 import sys
-import tempfile
 import threading
 import time
 import urllib.parse
@@ -121,9 +120,9 @@ def build_fake(size: int, host: bytes = FAKE_HOST) -> bytes | None:
 
 
 # ---------- Подмена отправленного пакета (для fake) ----------
-# Хитрость ByeDPI: данные отдаются системе «по ссылке» (Windows — TransmitFile из файла,
-# Linux/Android — vmsplice из памяти), с низким TTL. Пакет уходит и теряется по дороге,
-# а мы тут же подменяем байты в файле/памяти на настоящие. Сервер не подтвердил приём —
+# Хитрость ByeDPI: данные отдаются системе «по ссылке» (Windows — WSASend без буфера отправки,
+# Linux/Android — vmsplice), с низким TTL. Пакет уходит и теряется по дороге,
+# а мы тут же подменяем байты в памяти на настоящие. Сервер не подтвердил приём —
 # система пересылает пакет сама, уже с настоящими байтами и обычным TTL.
 
 _keep: list = []   # то, что система ещё может читать или куда писать (держим, пока не закончит)
@@ -147,51 +146,45 @@ if sys.platform == "win32":
         _fields_ = [("Internal", ctypes.c_void_p), ("InternalHigh", ctypes.c_void_p),
                     ("Offset", W.DWORD), ("OffsetHigh", W.DWORD), ("hEvent", W.HANDLE)]
 
+    class _WSABUF(ctypes.Structure):
+        _fields_ = [("len", ctypes.c_ulong), ("buf", ctypes.c_void_p)]
+
     try:
         _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        _mswsock = ctypes.WinDLL("mswsock", use_last_error=True)
-        _k32.CreateFileW.restype = W.HANDLE
-        _k32.CreateFileW.argtypes = [W.LPCWSTR, W.DWORD, W.DWORD, ctypes.c_void_p, W.DWORD, W.DWORD, W.HANDLE]
-        _k32.WriteFile.argtypes = [W.HANDLE, ctypes.c_char_p, W.DWORD, ctypes.POINTER(W.DWORD), ctypes.c_void_p]
-        _k32.SetFilePointer.argtypes = [W.HANDLE, ctypes.c_long, ctypes.c_void_p, W.DWORD]
+        _ws2 = ctypes.WinDLL("ws2_32", use_last_error=True)
         _k32.CreateEventW.restype = W.HANDLE
         _k32.CreateEventW.argtypes = [ctypes.c_void_p, W.BOOL, W.BOOL, ctypes.c_void_p]
         _k32.CloseHandle.argtypes = [W.HANDLE]
-        _mswsock.TransmitFile.argtypes = [ctypes.c_size_t, W.HANDLE, W.DWORD, W.DWORD,
-                                          ctypes.POINTER(_OVERLAPPED), ctypes.c_void_p, W.DWORD]
-        _mswsock.TransmitFile.restype = W.BOOL
+        _ws2.WSASend.argtypes = [ctypes.c_size_t, ctypes.POINTER(_WSABUF), W.DWORD, ctypes.POINTER(W.DWORD),
+                                 W.DWORD, ctypes.POINTER(_OVERLAPPED), ctypes.c_void_p]
         FAKE_OK = True
     except (OSError, AttributeError):
         FAKE_OK = False
 
-    def _write_at_start(handle, data: bytes):
-        _k32.SetFilePointer(handle, 0, None, 0)
-        done = W.DWORD()
-        if not _k32.WriteFile(handle, data, len(data), ctypes.byref(done), None):
-            raise OSError(ctypes.get_last_error(), "WriteFile")
-        _k32.SetFilePointer(handle, 0, None, 0)
-
     def _send_swapped(sock: socket.socket, fake: bytes, real: bytes, ttl: int):
-        path = os.path.join(tempfile.gettempdir(), f"sono-fake-{os.getpid()}-{threading.get_ident()}-{id(sock)}.bin")
-        # FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE — файл сам исчезнет
-        handle = _k32.CreateFileW(path, 0xC0000000, 7, None, 2, 0x100 | 0x04000000, None)
-        if not handle or handle == W.HANDLE(-1).value:
-            raise OSError(ctypes.get_last_error(), "CreateFile")
+        # Без буфера отправки (SO_SNDBUF = 0) Windows шлёт и пересылает прямо из нашей памяти,
+        # не копируя: первый раз уходит подделка (с малым TTL — до сервера не дойдёт), а повтор —
+        # уже настоящие байты, которые мы туда записали. Раньше было через TransmitFile из временного
+        # файла, но с ноября 2026 Windows копирует файл при отправке — повтор нёс подделку
+        # (сервер отвечал «SSL: INVALID_SESSION_ID» при любом TTL, SoundCloud мимо VPN не открывался).
+        memory = ctypes.create_string_buffer(fake, len(fake))
+        buffer = _WSABUF(len(fake), ctypes.addressof(memory))
         event = _k32.CreateEventW(None, True, False, None)
         overlapped = _OVERLAPPED(hEvent=event)
-        # Windows допишет итог в overlapped, когда сервер подтвердит приём, — держим до тех пор
-        _remember(overlapped, lambda: (_k32.CloseHandle(event), _k32.CloseHandle(handle)))
-        _write_at_start(handle, fake)
+        # Windows допишет итог в overlapped и будет читать память, пока сервер не подтвердит приём, — держим
+        _remember((memory, buffer, overlapped), lambda: _k32.CloseHandle(event))
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 0)
         old = sock.getsockopt(socket.IPPROTO_IP, socket.IP_TTL) or 128
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, ttl)
         try:
-            if not _mswsock.TransmitFile(sock.fileno(), handle, len(fake), len(fake),
-                                         ctypes.byref(overlapped), None, 0):
+            sent = W.DWORD()
+            if _ws2.WSASend(sock.fileno(), ctypes.byref(buffer), 1, ctypes.byref(sent), 0,
+                            ctypes.byref(overlapped), None) != 0:
                 error = ctypes.get_last_error()
-                if error != 997:   # ERROR_IO_PENDING — отправка идёт, так и надо
-                    raise OSError(error, "TransmitFile")
+                if error != 997:   # WSA_IO_PENDING — отправка идёт, так и надо
+                    raise OSError(error, "WSASend")
             time.sleep(0.005)   # пакет ушёл — подменяем байты на настоящие
-            _write_at_start(handle, real)
+            ctypes.memmove(memory, real, len(real))
         finally:
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, old)
 
