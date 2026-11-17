@@ -1207,6 +1207,7 @@ body.on-flow .top { border-bottom-color: transparent; }
 .nr-status { margin: 0 0 6px; }
 /* Фильтры — одной строкой; не помещаются (телефон) — листаются вбок */
 .nr-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.nr-tabs::-webkit-scrollbar { display: none; }   /* старый WebView телефона не знает scrollbar-width */
 .nr-tabs .seg-btn { flex-shrink: 0; white-space: nowrap; }
 .nr-groups .meta-section:first-child { margin-top: 10px; }
 .nr-note, .nr-empty { margin: 26px 0 0; max-width: 620px; font-size: 14px; line-height: 1.45; color: var(--muted); }
@@ -3264,6 +3265,9 @@ body.theme-editing:not(.mobile) .toasts { left: calc(50% + var(--sidebar) / 2 - 
 body.mobile.theme-editing .toasts { bottom: calc(var(--editor-h, 46vh) + 12px); }
 /* Пока тема правится, другую не выбрать: черновик лёг бы поверх чужой темы */
 body.theme-editing .theme-grid { pointer-events: none; opacity: 0.5; }
+/* Окна-вопросы («Сохранить изменения в теме?») — над редактором (у него z-index 350, editor.js):
+   на телефоне шторка редактора закрывала кнопки окна, и выйти было нельзя */
+body.theme-editing .dialog-backdrop { z-index: 360; }
 
 /* ---------- Мастерская тем (workshop.js; вход — настройки → «Оформление») ----------
    По мотивам мастерской Steam: слева поиск и разделы со счётчиками, справа «Выбор разработчиков»,
@@ -3451,6 +3455,7 @@ body.theme-editing .theme-grid { pointer-events: none; opacity: 0.5; }
 }
 body.mobile .view-workshop { padding: 18px var(--pad) 32px; }
 body.mobile .ws-cats { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+body.mobile .ws-cats::-webkit-scrollbar { display: none; }
 body.mobile .ws-cat, body.mobile .ws-act.small { height: 36px; }
 
 /* «Рекомендуемые» под своим плейлистом (recs.js) */

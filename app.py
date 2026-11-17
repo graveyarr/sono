@@ -2013,10 +2013,12 @@ def track_info(source: str, track_id: str) -> dict:
         title, text = t.get("title") or "", t.get("description") or ""
         pm = t.get("publisher_metadata") or {}
         release = _iso_day(t.get("release_date"))
+        if release and release != _sc_date(t):
+            release = None   # дата выхода из будущего (артист пишет её сам) — не верим
         out.update(plays=t.get("playback_count"), likes=t.get("likes_count"), reposts=t.get("reposts_count"),
                    genre=credits.genre_ok(t.get("genre")),
                    label=credits.label_ok(t.get("label_name"), " ".join(filter(None, [(t.get("user") or {}).get("username"), pm.get("artist")]))),
-                   date=release or _iso_day(t.get("display_date")) or _iso_day(t.get("created_at")),
+                   date=release or _iso_day(_sc_date({**t, "release_date": None})),
                    dateKind="release" if release else "upload")
         if pm.get("writer_composer"):
             credits._add(found, "writer", credits._names(str(pm["writer_composer"])))
@@ -3045,7 +3047,13 @@ def _sc_cached(path: str, ttl: int = 3600, **params):
 
 
 def _sc_date(p: dict) -> str:
-    return (p.get("release_date") or p.get("display_date") or p.get("published_at") or p.get("created_at") or "")[:10]
+    # Дату выхода на SoundCloud пишет сам артист — бывает и «2033-12-30». Из будущего не верим: берём дату загрузки
+    tomorrow = datetime.fromtimestamp(time.time() + 86400).date().isoformat()
+    for key in ("release_date", "display_date", "published_at", "created_at"):
+        day = (p.get(key) or "")[:10]
+        if day and (day <= tomorrow or key == "created_at"):
+            return day
+    return ""
 
 
 def sc_releases(uid: int) -> list[dict]:

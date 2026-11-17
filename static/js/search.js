@@ -397,4 +397,8 @@ export function initSearch() {
   document.addEventListener("pointerdown", (e) => {
     if (!searchBox.contains(e.target) && !isOverlay(e.target)) closePanel();
   });
+  // Из «⋯» в панели открыли другой экран («О треке», исполнитель, альбом) — панель не должна висеть поверх него
+  document.addEventListener("sono:view", () => {
+    if (document.activeElement !== queryInput) closePanel();
+  });
 }

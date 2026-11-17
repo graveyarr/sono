@@ -55,7 +55,7 @@ let metaToken = 0;   // чтобы медленный ответ не нарис
 function describe(key) {
   if (key === "liked") {
     return { kind: "liked", label: "Плейлист", name: "Избранное", tracks: lib.liked, context: { type: "liked" },
-      empty: "Нажимай ♡ у треков, которые нравятся, — они соберутся здесь." };
+      empty: "Нажимайте ♡ у треков, которые нравятся, — они соберутся здесь." };
   }
   if (key === "disliked") {
     return { kind: "disliked", label: "Скрытые треки", name: "Не нравится", tracks: lib.disliked, context: { type: "disliked" },

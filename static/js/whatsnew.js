@@ -4,7 +4,7 @@
 // Новому пользователю не показываем (у него приветствие), из исходников (версии нет) — только по кнопке.
 
 import { CHANGELOG } from "./changelog.js";
-import { openExternal } from "./device.js";
+import { isMobile, openExternal } from "./device.js";
 import { icons } from "./icons.js";
 import { getSetting, setSetting } from "./library.js";
 import { el, openModal } from "./ui.js";
@@ -33,11 +33,14 @@ export function showWhatsNew(entries = CHANGELOG.slice(0, 1)) {
   for (const entry of entries) {
     if (!one) list.append(el("div", "wn-version", [entry.version, entry.name, entry.date].filter(Boolean).join(" · ")));
     for (const item of entry.items) {
+      // mobile — свой текст для телефона (false — пункт только для компьютера)
+      const sub = isMobile && item.mobile !== undefined ? item.mobile : item.text;
+      if (sub === false) continue;
       const row = el("div", "wn-item");
       const icon = el("span", "wn-icon");
       icon.innerHTML = icons[item.icon] ?? icons.check;
       const text = el("div", "wn-text");
-      text.append(el("div", "wn-title", item.title), el("div", "wn-sub", item.text));
+      text.append(el("div", "wn-title", item.title), el("div", "wn-sub", sub));
       row.append(icon, text);
       list.append(row);
     }

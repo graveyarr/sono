@@ -37,7 +37,7 @@ const TIPS = [
   },
   {
     id: "trackPage", fresh: true, title: "Страница трека",
-    text: "Щёлкните по названию — откроется страница трека: кто его сделал, текст, похожие и другие загрузки.",
+    text: (isMobile ? "Коснитесь названия" : "Щёлкните по названию") + " — откроется страница трека: кто его сделал, текст, похожие и другие загрузки.",
     used: '#np-info [data-np="title"]',
     anchor: () => (view === "now" && state.current ? visible(document.querySelector('#np-info [data-np="title"]')) : null),
   },
@@ -66,7 +66,7 @@ const TIPS = [
   },
   {
     id: "lyrics", title: "Текст песни",
-    text: "Щёлкните по строке — песня перемотается к ней.",
+    text: (isMobile ? "Коснитесь строки" : "Щёлкните по строке") + " — песня перемотается к ней.",
     used: ".lyrics-line",
     anchor: () => firstVisible("#lyrics .lyrics-line"),
   },

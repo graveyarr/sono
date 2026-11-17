@@ -258,7 +258,8 @@ export async function openShareCard(shown, real = shown) {
   const buttons = el("div", "dialog-buttons");
   let coverReady = Promise.resolve();   // картинку отдаём, когда обложка уже нарисована (или точно не пришла)
   const toBlob = () => coverReady.then(() => new Promise((resolve) => canvas.toBlob(resolve, "image/png")));
-  const save = el("button", "btn ghost", isMobile ? "Отправить…" : "Сохранить");
+  // На телефоне это единственная кнопка — главная (белая)
+  const save = el("button", isMobile ? "btn primary" : "btn ghost", isMobile ? "Отправить…" : "Сохранить");
   save.type = "button";
   save.addEventListener("click", async () => {
     save.disabled = true;

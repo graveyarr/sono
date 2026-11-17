@@ -50,7 +50,7 @@ def current_version() -> str:
         data = json.loads((Path(getattr(sys, "_MEIPASS", ".")) / "bundled_versions.json").read_text(encoding="utf-8"))
         return data.get("app") or "0"
     except (OSError, ValueError):
-        return "0"
+        return os.environ.get("SONO_APP_VERSION") or "0"   # на телефоне версию передаёт приложение (versionName)
 
 
 def enabled() -> bool:
