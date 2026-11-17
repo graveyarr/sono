@@ -102,7 +102,7 @@ end;
 // Тихий установщик (автообновление) тогда молча сдавался — обновление не вставало (было 6 ноября 2026).
 // Медиатека сохраняется сразу после каждого изменения, так что ничего не теряется.
 // Закрываем только копии из папки, куда ставим (не трогаем Sono, запущенный из другого места).
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+procedure CloseRunningSono;
 var
   ResultCode: Integer;
   AppDir: String;
@@ -116,6 +116,11 @@ begin
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   if ResultCode > 0 then
     Sleep(1000);   // дать Windows отпустить файлы закрытых процессов
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  CloseRunningSono;
   Result := '';
 end;
 
@@ -143,6 +148,10 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir, OldDir: String;
 begin
+  // Sono, спрятанный в трей, держит свои файлы — удаление оставляло папку программы
+  // и сам работающий Sono («Часть элементов не удалось удалить», проверка А1, 16 ноября)
+  if CurUninstallStep = usUninstall then
+    CloseRunningSono;
   if CurUninstallStep = usPostUninstall then
   begin
     DataDir := ExpandConstant('{localappdata}\Sono');

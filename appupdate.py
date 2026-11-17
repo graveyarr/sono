@@ -67,6 +67,18 @@ def _set(**kw) -> None:
         _status.update(kw)
 
 
+def _drop_installed() -> None:
+    """Установщик уже поставленной версии больше не нужен. Раньше он лежал в updates\\app до следующего
+    обновления (52 МБ) — замечено при проверке обновления 0.9.9.1 → 1.0.0 в песочнице, 16 ноября."""
+    try:
+        for old in _dir().glob("SonoSetup-*"):
+            ver = old.name.removeprefix("SonoSetup-").split(".exe")[0]
+            if _vtuple(ver) <= _vtuple(current_version()):
+                old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def start() -> None:
     """Запустить фоновую проверку: сейчас и потом раз в CHECK_EVERY."""
     global _started
@@ -76,6 +88,7 @@ def start() -> None:
 
     def loop():
         time.sleep(20)   # не мешаем запуску программы
+        _drop_installed()
         while True:
             check()
             time.sleep(CHECK_EVERY)

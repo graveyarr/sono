@@ -37,6 +37,7 @@ WM_USER, WM_APP, WM_COMMAND, WM_DESTROY = 0x0400, 0x8000, 0x0111, 0x0002
 WM_TRAY = WM_APP + 0x60          # сообщения от значка
 WM_TRAY_UPDATE = WM_APP + 0x61   # обновить подсказку (из другого потока)
 WM_TRAY_HOTKEYS = WM_APP + 0x62  # включить/выключить глобальные клавиши (wParam 1/0) — в потоке значка
+WM_TRAY_MEDIA = WM_APP + 0x63    # ловить медиаклавиши или отпустить (wParam 1/0) — в потоке значка
 WM_HOTKEY = 0x0312
 user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.SendMessageW.restype = LRESULT
@@ -55,10 +56,20 @@ HOTKEYS = {
     5: ("Ctrl+Alt+↓", 0x28, "voldown"),
     6: ("Ctrl+Alt+L", 0x4C, "like"),
 }
+# Медиаклавиши клавиатуры (▶⏸ ⏭ ⏮, на ноутбуках Fn+F5…). Встроенный браузер (WebView2) слышит их, только
+# пока окно Sono в фокусе: Windows не считает его медиаплеером (сессии SMTC нет даже с флагом
+# HardwareMediaKeyHandling — проверено в песочнице 17 ноября). Поэтому ловим их сами, как Spotify, —
+# но только пока в Sono есть трек (играет или на паузе). Нет трека или Sono закрыт — клавиши снова общие.
+MEDIA_KEYS = {
+    11: ("▶⏸", 0xB3, "toggle"),   # VK_MEDIA_PLAY_PAUSE
+    12: ("⏭", 0xB0, "next"),      # VK_MEDIA_NEXT_TRACK
+    13: ("⏮", 0xB1, "prev"),      # VK_MEDIA_PREV_TRACK
+}
 WM_LBUTTONUP, WM_RBUTTONUP, WM_LBUTTONDBLCLK = 0x0202, 0x0205, 0x0203
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
 NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 1, 2, 4, 0x10
 SW_HIDE, SW_SHOW, SW_RESTORE = 0, 5, 9
+WM_SYSCOMMAND, SC_RESTORE = 0x0112, 0xF120
 CMD_TOGGLE, CMD_NEXT, CMD_PREV, CMD_SHOW, CMD_QUIT = 1, 2, 3, 4, 5
 
 
@@ -82,7 +93,8 @@ _tray_hwnd = None
 _proc = None            # держим ссылку на обработчик — иначе сборщик мусора удалит его
 _nid = None
 _state = {"tip": "Sono", "playing": False, "close_to_tray": True, "quitting": False,
-          "hotkeys": False, "busy": []}   # busy — клавиши, которые уже заняла другая программа
+          "hotkeys": False, "busy": [],   # busy — клавиши, которые уже заняла другая программа
+          "media": False}                 # ловим ли медиаклавиши (MEDIA_KEYS)
 
 
 def _icon():
@@ -101,7 +113,13 @@ def _page(action: str) -> None:
 
 def show_window() -> None:
     if _main_hwnd:
-        user32.ShowWindow(_main_hwnd, SW_RESTORE if user32.IsIconic(_main_hwnd) else SW_SHOW)
+        if not user32.IsWindowVisible(_main_hwnd):
+            user32.ShowWindow(_main_hwnd, SW_SHOW)   # спрятано в трей
+        if user32.IsIconic(_main_hwnd):
+            # Свёрнутое окно разворачиваем так же, как панель задач, — командой окну в его же поток.
+            # ShowWindow(SW_RESTORE) отсюда оставлял окно чёрным: встроенный браузер не узнавал,
+            # что окно снова на экране (проверка А15 в песочнице, 16 ноября)
+            user32.PostMessageW(_main_hwnd, WM_SYSCOMMAND, SC_RESTORE, 0)
         user32.SetForegroundWindow(_main_hwnd)
 
 
@@ -145,8 +163,17 @@ def _wndproc(hwnd, msg, wparam, lparam):
                     busy.append(label)   # уже заняла другая программа — у неё и останется
         _state["busy"] = busy
         return 0
+    if msg == WM_TRAY_MEDIA:
+        for hid, (_label, vk, _action) in MEDIA_KEYS.items():
+            user32.UnregisterHotKey(hwnd, hid)
+            if wparam:
+                user32.RegisterHotKey(hwnd, hid, MOD_NOREPEAT, vk)   # заняла другая программа — пусть у неё и будет
+        return 0
     if msg == WM_HOTKEY and wparam in HOTKEYS:
         _page(HOTKEYS[wparam][2])
+        return 0
+    if msg == WM_HOTKEY and wparam in MEDIA_KEYS:
+        _page(MEDIA_KEYS[wparam][2])
         return 0
     return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
@@ -163,6 +190,8 @@ def _run() -> None:
     shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(_nid))
     if _state["hotkeys"]:   # страница успела включить клавиши раньше, чем появилось окно значка
         _wndproc(_tray_hwnd, WM_TRAY_HOTKEYS, 1, 0)
+    if _state["media"]:
+        _wndproc(_tray_hwnd, WM_TRAY_MEDIA, 1, 0)
     msg = wintypes.MSG()
     while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
         user32.TranslateMessage(ctypes.byref(msg))
@@ -212,6 +241,11 @@ def set_status(title: str, playing: bool) -> None:
     """Страница сообщает, что играет: подсказка значка и пункт «Пауза/Играть» в меню."""
     _state["tip"] = f"Sono — {title}" if title else "Sono"
     _state["playing"] = bool(playing)
+    media = bool(title)   # есть трек — медиаклавиши наши (MEDIA_KEYS)
+    if media != _state["media"]:
+        _state["media"] = media
+        if _tray_hwnd:
+            user32.PostMessageW(_tray_hwnd, WM_TRAY_MEDIA, 1 if media else 0, 0)
     if _tray_hwnd:
         user32.PostMessageW(_tray_hwnd, WM_TRAY_UPDATE, 0, 0)
 

@@ -654,12 +654,14 @@ class DesyncProxy:
     def _fake_failed(self):
         """Сервер ответил на подделку — значит, она до него дошла: TTL великоват
         или весь трафик идёт через VPN (он принимает пакеты раньше, чем те «потеряются»).
-        Два раза подряд — дальше без подделки, только «лишний байт»."""
+        Два раза подряд — дальше без подделки: YouTube — «лишний байт», SoundCloud — без уловок.
+        Раз подделку по пути никто не перехватил, SoundCloud там не блокируют (обычно стоит VPN), а «лишний
+        байт» через VPN с двойным NAT его вешал (проверка в песочнице, 16–17 ноября)."""
         self.fake_failures += 1
         if self.fake_failures >= 2:
-            print("[network] подделка доходит до сервера — дальше «лишний байт» (поможет «Подобрать лучший способ»)")
+            print("[network] подделка доходит до сервера — дальше без неё (поможет «Подобрать лучший способ»)")
             self.strategy = "oob" if self.strategy == "fake" else self.strategy
-            self.sc_strategy = "oob" if self.sc_strategy == "fake" else self.sc_strategy
+            self.sc_strategy = "none" if self.sc_strategy == "fake" else self.sc_strategy
 
     def stop(self):
         self.running = False

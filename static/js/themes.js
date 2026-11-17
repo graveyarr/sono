@@ -110,7 +110,9 @@ function apply(part, theme) {
   if (s.link.getAttribute("href") !== href) s.link.href = href;   // уже подключена сервером — не перечитываем
   document.documentElement.dataset[data] = theme.folder;   // для тем, которым нужно знать себя (THEMES.md)
   if (part === "theme") { setCoverColorsMode(theme.coverColors); applyIcons(theme); }
-  if (theme.kind === "user") watch(part, theme);
+  // Следим только за своими темами (их правят в папке). Тему из мастерской руками не правят, а опрос
+  // раз в 1,5 с писал в sono.log ~40 строк в минуту (проверка А15, 16 ноября)
+  if (theme.kind === "user" && !theme.workshop) watch(part, theme);
 }
 
 /** Своя тема: перечитываем, как только сохранили theme.css или значки (заодно и theme.json —

@@ -20,13 +20,10 @@ import urllib.request
 
 _started = time.perf_counter()
 
-# Медиаклавиши клавиатуры (▶/⏭/⏮, на ноутбуках — Fn+F5/F6/F7) и панель Windows с названием трека
-# (всплывает у регулятора громкости): во встроенном Edge (WebView2) это выключено — клавиши работали,
-# только пока окно в фокусе, а свёрнутое окно их не слышало. Включаем ту же функцию, что у обычного Chrome.
-# WebView2 читает параметры из этой переменной при запуске, поэтому ставим её до import webview
-_args = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
-if "HardwareMediaKeyHandling" not in _args:
-    os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (_args + " --enable-features=HardwareMediaKeyHandling").strip()
+# Медиаклавиши клавиатуры (▶/⏭/⏮) ловит значок в трее (tray.MEDIA_KEYS): встроенный Edge (WebView2) слышит
+# их, только пока окно в фокусе. Флаг --enable-features=HardwareMediaKeyHandling (раньше ставился здесь
+# переменной окружения) не помогает: pywebview перекрывает переменную, а дописанный в параметры флаг
+# Windows всё равно не делает Sono медиаплеером (проверено в песочнице 16–17 ноября)
 
 from paths import DATA_DIR  # noqa: E402
 
@@ -141,8 +138,31 @@ def _load_server():
 
 threading.Thread(target=_load_server, daemon=True).start()
 
-window = webview.create_window("Sono", html=SPLASH, width=1100, height=760,
-                               min_size=(860, 600), background_color="#0a0a0a",   # тёмный фон — без белой вспышки
+def _fit_window(want_w=1100, want_h=760, min_w=860, min_h=600, gap=24):
+    """Размер и место окна под экран. Раньше было всегда 1100×760 — на ноутбуке 1366×768
+    низ окна с плеером уходил под панель задач (проверка А1 в песочнице, 16 ноября).
+    Всё в логических пикселях (как ждёт pywebview): рабочая область — экран без панели задач."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        rect = wintypes.RECT()
+        ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0)   # SPI_GETWORKAREA
+        scale = (ctypes.windll.user32.GetDpiForSystem() or 96) / 96
+        left, top = rect.left / scale, rect.top / scale
+        wa_w, wa_h = (rect.right - rect.left) / scale, (rect.bottom - rect.top) / scale
+        if wa_w < 200 or wa_h < 200:
+            raise ValueError("странная рабочая область")
+    except Exception:
+        return dict(width=want_w, height=want_h, min_size=(min_w, min_h))
+    w = int(min(want_w, wa_w - gap * 2))
+    h = int(min(want_h, wa_h - gap * 2))
+    min_w, min_h = min(min_w, w), min(min_h, h)   # совсем маленький экран: даём окну быть меньше
+    return dict(width=w, height=h, min_size=(min_w, min_h),
+                x=int(left + (wa_w - w) / 2), y=int(top + (wa_h - h) / 2))
+
+
+window = webview.create_window("Sono", html=SPLASH, **_fit_window(),
+                               background_color="#0a0a0a",   # тёмный фон — без белой вспышки
                                minimized=IN_TRAY,   # автозапуск: окно не выскакивает посреди экрана
                                js_api=titlebar.WindowApi())   # кнопки своей полоски заголовка
 # Системную полоску заголовка заменяем своей (titlebar.py) — до показа окна, чтобы не мелькала
