@@ -1,8 +1,14 @@
 // Капсула-плеер («Живая обложка», ПК): светящийся край-полоска и время у курсора над ним.
 // Полоска — тонкий край по низу капсулы (style.css → .minibar .mini-progress). Наводите — над капсулой
 // белая пилюля «1:24 / 3:05» ровно над курсором; тянете — она едет вместе с ним. Сама перемотка — как
-// раньше (player.js слушает этот же ползунок). Без зависимостей от других модулей: длительность читаем
-// из того же текста «0:00», что пишет player.js.
+// раньше (player.js слушает этот же ползунок). Длительность читаем из того же текста «0:00», что пишет player.js.
+// Кнопка «⋯» прячет редкое: «Не нравится», эффекты и таймер сна (их кнопки в капсуле видны, только пока включены).
+
+import { fxActive } from "./audio.js";
+import { openFxPanel } from "./fx.js";
+import { icons } from "./icons.js";
+import { sleepMenuItems } from "./sleep.js";
+import { openMenu } from "./ui.js";
 
 const bar = document.getElementById("minibar");
 const input = bar?.querySelector('.mini-progress input[data-np="seek"]');
@@ -59,5 +65,27 @@ export function initCapsule() {
     dragging = false;
     const r = input.getBoundingClientRect();
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) bar.classList.remove("seeking");
+  });
+}
+
+/** «⋯» в капсуле: редкие кнопки — в меню. Сами кнопки остаются в разметке (их состояние ведут player.js,
+    fx.js, sleep.js), а на ПК капсула показывает только включённые эффекты и таймер (style.css) */
+export function initCapsuleMore() {
+  const more = bar?.querySelector(".mini-more");
+  if (!more) return;
+  more.innerHTML = icons.more;
+  const dislike = bar.querySelector('[data-np="dislike"]');
+  more.addEventListener("click", () => {
+    const disliked = dislike?.classList.contains("on");
+    openMenu(more, [
+      {
+        label: disliked ? "Убрать дизлайк" : "Не нравится",
+        icon: disliked ? icons.dislikeFilled : icons.dislike,
+        disabled: !dislike || dislike.disabled,
+        action: () => dislike?.click(),
+      },
+      { label: fxActive() ? "Звуковые эффекты (включены)" : "Звуковые эффекты", icon: icons.fx, action: () => openFxPanel(more) },
+      { label: "Таймер сна", icon: icons.moon, submenu: sleepMenuItems },
+    ]);
   });
 }

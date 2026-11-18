@@ -3,7 +3,7 @@
 import { openAddToPlaylist, toggleDislike, toggleLike } from "./actions.js";
 import { openTrack } from "./nav.js";
 import { initDownloads, onDownloadsChange, takeNoSpaceNotice } from "./downloads.js";
-import { initCapsule } from "./capsule.js";
+import { initCapsule, initCapsuleMore } from "./capsule.js";
 import { initFlow } from "./flow.js";
 import { initPresence } from "./presence.js";
 import { initViz } from "./viz.js";
@@ -122,6 +122,7 @@ onDownloadsChange(() => {
 onLocalChange(() => refreshViews("local"));   // нашлись новые свои файлы — медиатека и открытый список
 initDownloads();
 initCapsule();   // время у курсора над полоской капсулы-плеера
+initCapsuleMore();   // «⋯» капсулы: «Не нравится», эффекты, таймер сна
 // Окно свёрнуто или спрятано в трей — живой фон стоит (style.css → body.bg-paused)
 const pauseBackdrop = () => document.body.classList.toggle("bg-paused", document.hidden);
 document.addEventListener("visibilitychange", pauseBackdrop);

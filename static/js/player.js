@@ -6,6 +6,7 @@ import { icons } from "./icons.js";
 import { setCrossfadeHandler } from "./audio.js";
 import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, lib, removeFromHistory, sessionChanged, setAltVersion, setSetting, slim } from "./library.js";
 import { isMeta, missingReason, resolveMeta, toReal } from "./meta.js";
+import { fadeUp, flipImage, liveUi, riseWords, setDiscSpinning, sheen, swapImage } from "./motion.js";
 import { twinsIn } from "./samesong.js";
 import { SOURCE_NAMES, artistLinks, compactNumber, coverUrl, displayTrack, formatTime, imageHsl, isBroken, playsText, replay, toast, trackPath } from "./ui.js";
 
@@ -27,6 +28,7 @@ export const state = {
   repeat: "off",   // повтор: off | all (всю очередь) | one (один трек)
   original: null,  // очередь в исходном порядке — чтобы вернуть его, когда перемешивание выключат
   stopAfterTrack: null,   // таймер сна «до конца трека»: функция — вызвать, когда трек доиграет (дальше не идём)
+  dir: 1,          // куда сменился трек: 1 — вперёд, −1 — назад (обложки уезжают в ту же сторону)
 };
 
 const shuffled = (list) => {
@@ -157,6 +159,7 @@ function playAt(track, queue, index, context) {
   const alt = altVersionOf(track);
   if (alt) { track = alt; queue[index] = alt; }
   metaToken++;   // если до этого искали трек из базы — его ответ уже не нужен
+  state.dir = queue === state.queue && index < state.index ? -1 : 1;
   state.queue = queue;
   state.index = index;
   state.current = track;
@@ -196,14 +199,28 @@ function startStream(track) {
 }
 
 /** Название, исполнитель, обложка, ползунок (на месте at секунд) — всё, кроме самого звука */
+let shownKey = null;   // какой трек уже показан (то же самое второй раз — без анимаций смены)
 function showTrackInfo(track, at) {
   const shown = displayTrack(track);
-  all("title").forEach((n) => { n.textContent = shown.title; n.title = track.title; });
-  all("artist").forEach((n) => n.replaceChildren(artistLinks(track, shown.artist)));
-  all("cover-mini").forEach((img) => { img.classList.remove("broken"); img.src = coverUrl(track); });
+  // «Живая обложка» (ПК): трек сменился — слова названия поднимаются по одному, подписи всплывают,
+  // обложка в капсуле переворачивается монеткой, по стеклу капсулы проходит блик
+  const live = liveUi(), swap = live && !!shownKey && shownKey !== keyOf(track);
+  shownKey = keyOf(track);
+  all("title").forEach((n) => {
+    if (live && n.closest("#np-info")) riseWords(n, shown.title, { animate: swap });
+    else { n.textContent = shown.title; if (swap) fadeUp(n); }
+    n.title = track.title;
+  });
+  all("artist").forEach((n) => { n.replaceChildren(artistLinks(track, shown.artist)); if (swap) fadeUp(n, n.closest("#np-info") ? 460 : 260); });
+  all("cover-mini").forEach((img) => {
+    img.classList.remove("broken");
+    if (swap && img.closest(".minibar")) flipImage(img, coverUrl(track), state.dir);
+    else img.src = coverUrl(track);
+  });
+  if (swap) sheen(document.getElementById("minibar"));
   sourceBadge.textContent = SOURCE_NAMES[track.source] ?? "";
   showTrackStats(track);
-  replay(infoEl, "swap");
+  if (!live) replay(infoEl, "swap");
   showCover(track);
 
   const fraction = track.duration ? Math.min(at / track.duration, 1) : 0;
@@ -573,8 +590,10 @@ function applyCoverColors(img) {
   const accent = s < 12 ? "hsl(0 0% 92%)" : `hsl(${h.toFixed(0)} ${Math.max(s, 55).toFixed(0)}% 72%)`;
   root.setProperty("--cover-tint", tint);
   root.setProperty("--cover-accent", accent);
-  // Тусклая обложка — фону нужен «запасной цвет» (style.css → .bg-glow), иначе он мутный
+  // Тусклая обложка — фону нужен «запасной цвет» (style.css → .bg-glow), иначе он мутный. Он — яркий вариант
+  // оттенка обложки (бежевая → тёплый); у совсем серой оттенка нет — тогда фиолетовый Sono
   document.querySelector(".backdrop")?.classList.toggle("dull", s < 38);
+  root.setProperty("--glow-color", s < 12 ? "hsl(262 70% 62%)" : `hsl(${h.toFixed(0)} 72% 62%)`);
   if (coverMode === "off") return;
   if (coverMode !== "accent") root.setProperty("--tint", tint);
   if (coverMode !== "tint") root.setProperty("--accent", accent);
@@ -586,6 +605,7 @@ function resetCoverColors() {
   document.documentElement.style.removeProperty("--accent");
   document.documentElement.style.removeProperty("--cover-tint");
   document.documentElement.style.removeProperty("--cover-accent");
+  document.documentElement.style.removeProperty("--glow-color");
 }
 
 export function setCoverColorsMode(mode) {
@@ -604,10 +624,17 @@ let artFront = 0;
 function blurredCover(img) {
   try {
     const c = document.createElement("canvas");
-    c.width = c.height = 48;
     const x = c.getContext("2d");
-    x.filter = "blur(5px) saturate(2)";   // насыщеннее — как в макете «Живая обложка»
-    x.drawImage(img, -8, -8, 64, 64);   // с запасом по краям — чтобы размытие не темнело к краю
+    if (liveUi()) {
+      // ПК: из этой копии — только пятна фона; сочнее, чтобы фон был не тусклее макета «Живая обложка»
+      c.width = c.height = 64;
+      x.filter = "blur(3px) saturate(3.6)";
+      x.drawImage(img, -8, -8, 80, 80);   // с запасом по краям — чтобы размытие не темнело к краю
+    } else {
+      c.width = c.height = 48;
+      x.filter = "blur(5px) saturate(2)";
+      x.drawImage(img, -8, -8, 64, 64);
+    }
     return c.toDataURL("image/jpeg", 0.9);
   } catch {
     return null;
@@ -618,7 +645,8 @@ function setBackdrop(url) {
   artFront ^= 1;
   const next = artLayers[artFront], prev = artLayers[artFront ^ 1];
   if (url) {
-    next.style.backgroundImage = `url("${url}")`;
+    // Растянутая обложка под пятнами — только на телефоне (на ПК она давала сероватую «пелену»)
+    next.style.backgroundImage = liveUi() ? "" : `url("${url}")`;
     next.style.setProperty("--art", `url("${url}")`);   // пятна «живой обложки» (style.css → .bg-art i)
     next.classList.add("on");
   }
@@ -626,12 +654,15 @@ function setBackdrop(url) {
 }
 
 async function showCover(track) {
-  coverEl.classList.remove("shown");
+  // «Живая обложка»: старая обложка не гаснет заранее — она уедет вбок, когда новая будет готова
+  const slide = liveUi() && coverEl.classList.contains("shown") && !!coverEl.getAttribute("src");
+  if (!slide) coverEl.classList.remove("shown");
   const url = coverUrl(track, "large");
   const img = new Image();
   img.src = url;
   try { await img.decode(); } catch {
     if (state.current !== track) return;
+    coverEl.classList.remove("shown");
     lastCoverImg = null;
     resetCoverColors();
     setBackdrop(null);
@@ -639,10 +670,13 @@ async function showCover(track) {
     return;   // обложки нет — остаётся заглушка с нотой
   }
   if (state.current !== track) return;   // пока грузили, включили другой трек
-  await wait(150);                       // даём старой обложке погаснуть
-  if (state.current !== track) return;
-  coverEl.src = url;
-  coverEl.classList.add("shown");
+  if (slide) swapImage(coverEl, url, state.dir);
+  else {
+    await wait(150);                       // даём старой обложке погаснуть
+    if (state.current !== track) return;
+    coverEl.src = url;
+    coverEl.classList.add("shown");
+  }
   // Обложка для тем: background: var(--cover-url) — копии обложки в рамках, наклейках и т.п. (тема «Алукард»)
   document.documentElement.style.setProperty("--cover-url", `url("${url.replace(/["\\\n]/g, encodeURIComponent)}")`);
   setBackdrop(blurredCover(img));
@@ -805,6 +839,7 @@ export function initPlayer() {
   const syncPlaying = () => {
     const playing = !audio.paused;
     document.body.classList.toggle("playing", playing);
+    setDiscSpinning(document.querySelector(".minibar .mini-track img"), playing);   // пластинка в капсуле
     all("play").forEach((b) => b.setAttribute("aria-label", playing ? "Пауза" : "Играть"));
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = playing ? "playing" : "paused";
     playListeners.forEach((fn) => fn(playing));

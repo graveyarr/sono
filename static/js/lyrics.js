@@ -1,8 +1,12 @@
 // Текст песни на экране «Сейчас играет» (кнопка с микрофоном).
 // Текст берёт сервер из LRCLIB. Если у песни есть тайминги строк — текущая строка
 // подсвечивается и прокручивается к середине, по щелчку на строку — перемотка к ней.
+// «По словам» («Живая обложка», ПК): строки едут вверх, текущая крупнее, дальние размыты, слова загораются
+// по очереди (у LRCLIB отметки только у строк — слова раскладываем по времени строки). Та же строка —
+// в карточке «Сейчас играет» на «Главной» (showLyricLine).
 
 import { getSetting, keyOf, setSetting } from "./library.js";
+import { EASE, calm, liveUi } from "./motion.js";
 import { onTrackChange, seekTo, state, togglePlay } from "./player.js";
 import { displayTrack, el } from "./ui.js";
 
@@ -11,16 +15,23 @@ const audio = document.getElementById("player");
 const buttons = () => document.querySelectorAll('[data-np="lyrics"]');
 
 let visible = false;
-let loadedKey = null;   // для какого трека текст уже загружен
-let lines = [];         // [{ time, node }] — строки с таймингами
+let dataKey = null;     // для какого трека текст уже загружен (или грузится)
+let data = null;        // ответ сервера для dataKey
+let timed = [];         // [[время, строка]] — строки с отметками времени (для панели и «Главной»)
+let shownKey = null;    // для какого трека нарисована панель
+let lines = [];         // [{ time, node, words }] — строки панели с таймингами
 let activeIndex = -1;
 let listEl = null;      // прокручиваемый список строк
 let userScrolledAt = 0; // когда человек сам крутил текст — автопрокрутка ненадолго уступает
+let hero = null;        // строчка текста в карточке «Сейчас играет» на «Главной»
+let heroIndex = -2;     // какая строка в ней сейчас
 
 function apply() {
   const shown = visible && !!state.current;
   document.body.classList.toggle("show-lyrics", shown);
+  const wasHidden = box.hidden;
   box.hidden = !shown;
+  if (shown && wasHidden && lines.length) { activeIndex = -2; sync(true); }   // показали панель — к текущей строке
   buttons().forEach((b) => {
     b.classList.toggle("on", visible);
     b.title = visible ? "Скрыть текст" : "Текст песни";
@@ -31,19 +42,22 @@ function apply() {
   document.querySelectorAll('[data-np="queue"]').forEach((b) => b.classList.toggle("on", queueOn));
   box.classList.remove(...LYRICS_STYLES.map((x) => `ls-${x.id}`));
   box.classList.add(`ls-${lyricsStyle()}`);
-  if (shown) load();
+  load();
 }
 
 // Оформление текста (Настройки → Оформление): «Карточка» — фон цвета обложки, как в Spotify (по умолчанию);
 // «Спокойный» — тонкий текст без эффектов; «Крупный» — прежний: большая светящаяся строка (другу казался смешным)
+// «По словам» — для нового вида на компьютере (по умолчанию там); на телефоне его пока нет
 export const LYRICS_STYLES = [
+  ...(liveUi() ? [{ id: "words", title: "По словам", hint: "Строки плывут вверх, слова загораются по очереди" }] : []),
   { id: "card", title: "Карточка", hint: "Фон цвета обложки, текущая строка — белая" },
   { id: "minimal", title: "Спокойный", hint: "Тонкий текст без эффектов" },
   { id: "big", title: "Крупный", hint: "Большие строки, текущая светится" },
 ];
 export const lyricsStyle = () => {
-  const id = getSetting("lyricsStyle", "card");
-  return LYRICS_STYLES.some((x) => x.id === id) ? id : "card";
+  const fallback = liveUi() ? "words" : "card";
+  const id = getSetting("lyricsStyle", fallback);
+  return LYRICS_STYLES.some((x) => x.id === id) ? id : fallback;
 };
 export function setLyricsStyle(id) {
   setSetting("lyricsStyle", id);
@@ -78,7 +92,7 @@ function offsetControl() {
   later.title = "Текст спешит — показывать строки позже";
   const change = (v) => {
     offset = Math.max(-30, Math.min(30, Math.round(v * 10) / 10));
-    saveOffset(loadedKey, offset);
+    saveOffset(dataKey, offset);
     value.textContent = offsetText(offset);
     activeIndex = -2;
     sync(true);
@@ -136,70 +150,162 @@ function prefetchNextLyrics() {
   if (visible && next && next.source !== "meta") fetchLyrics(next).catch(() => {});
 }
 
+/** Нужен ли текст: открыт на «Сейчас играет» или есть строчка на «Главной» */
+const wanted = () => !!state.current && (visible || (!!hero && hero.isConnected));
+
 async function load() {
   const track = state.current;
-  if (!track || loadedKey === keyOf(track)) return;
-  const key = loadedKey = keyOf(track);
-  showLoading();
-  let data;
-  try {
-    data = await fetchLyrics(track);
-    setTimeout(prefetchNextLyrics, 3000);   // следующий — чуть позже: сначала звук текущего
-  } catch (err) {
-    if (loadedKey === key) { loadedKey = null; showMessage(err.message); }   // null — чтобы можно было повторить
+  if (!wanted()) return;
+  const key = keyOf(track);
+  if (dataKey === key) {   // текст уже есть (или грузится) — дорисовать панель, если её открыли
+    if (visible && data && shownKey !== key) renderPanel();
     return;
   }
-  if (loadedKey !== key) return;   // пока ждали, включили другой трек
-  render(data);
+  dataKey = key;
+  data = null;
+  timed = [];
+  shownKey = null;
+  heroIndex = -2;
+  if (hero) { hero.replaceChildren(); hero.classList.add("empty"); }
+  if (visible) showLoading();
+  let got;
+  try {
+    got = await fetchLyrics(track);
+    setTimeout(prefetchNextLyrics, 3000);   // следующий — чуть позже: сначала звук текущего
+  } catch (err) {
+    if (dataKey === key) { dataKey = null; if (visible) showMessage(err.message); }   // null — чтобы можно было повторить
+    return;
+  }
+  if (dataKey !== key) return;   // пока ждали, включили другой трек
+  data = got;
+  timed = got.found && !got.instrumental ? got.synced : [];
+  offset = offsetOf(key);
+  if (visible) renderPanel();
+  activeIndex = -2;
+  sync(true);
 }
 
-function render(data) {
+/** Строка — отдельные слова (для «По словам»; в остальных видах слова просто стоят подряд) */
+function wordsOf(text) {
+  const frag = document.createDocumentFragment(), words = [];
+  String(text).split(/(\s+)/).forEach((part) => {
+    if (!part) return;
+    if (/^\s+$/.test(part)) { frag.append(" "); return; }
+    const w = el("span", "lw", part);
+    frag.append(w);
+    words.push(w);
+  });
+  return { frag, words };
+}
+
+function renderPanel() {
+  shownKey = dataKey;
   activeIndex = -1;
   if (!data.found) return showMessage("Текст для этого трека не нашёлся.");
   if (data.instrumental) return showMessage("♪ Инструментальная композиция — без слов.");
 
   listEl = el("div", "lyrics-lines");
   lines = [];
-  offset = offsetOf(loadedKey);
+  offset = offsetOf(dataKey);
   if (data.synced.length) {
-    for (const [time, words] of data.synced) {
-      const line = el("button", "lyrics-line", words || "♪");
+    for (const [time, text] of data.synced) {
+      const line = el("button", "lyrics-line");
       line.type = "button";
+      const { frag, words } = wordsOf(text || "♪");
+      line.append(frag);
       line.addEventListener("click", () => {
         seekTo(Math.max(0, time + offset));
         if (audio.paused) togglePlay();
         userScrolledAt = 0;   // щёлкнули по строке — снова следим за песней
       });
       listEl.append(line);
-      lines.push({ time, node: line });
+      lines.push({ time, node: line, words });
     }
   } else {
     listEl.append(el("div", "lyrics-plain", data.plain), el("p", "lyrics-note", "У этого текста нет таймингов — он не прокручивается за песней."));
   }
   if (data.source) listEl.append(el("p", "lyrics-note lyrics-source", `Текст — ${data.source}`));   // откуда текст
   // Человек крутит текст сам — несколько секунд не мешаем
-  const userScroll = () => { userScrolledAt = Date.now(); };
+  const userScroll = () => { userScrolledAt = Date.now(); scrollAnim++; };
   listEl.addEventListener("wheel", userScroll, { passive: true });
   listEl.addEventListener("pointerdown", userScroll);
   box.replaceChildren(head(lines.length > 0), listEl);
   sync(true);
+  // Вход на экран: строки выплывают из размытия по очереди
+  if (!calm() && box.classList.contains("ls-words") && box.getClientRects().length) {
+    const from = Math.max(0, activeIndex - 3);   // видны строки вокруг текущей — они и выплывают
+    lines.slice(from, from + 10).forEach((l, i) => l.node.animate([{ offset: 0, opacity: 0, transform: "translateY(26px)", filter: "blur(12px)" }],
+      { duration: 800, delay: 120 + i * 60, easing: EASE, fill: "backwards" }));
+  }
 }
 
-/** Подсветить строку, которая звучит сейчас, и прокрутить к ней */
+/** Прокрутка к строке за 0,9 с той же «пружиной», что и всё остальное (обычная плавная — резче и короче) */
+let scrollAnim = 0;
+function glide(target) {
+  const list = listEl, from = list.scrollTop, t0 = performance.now(), id = ++scrollAnim;
+  const step = (now) => {
+    if (id !== scrollAnim || list !== listEl) return;
+    const k = Math.min(1, (now - t0) / 900), e = 1 - (1 - k) ** 4;
+    list.scrollTop = from + (target - from) * e;
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/** Подсветить строку, которая звучит сейчас, и прокрутить к ней; в «По словам» — ещё и слова */
 function sync(instant = false) {
-  if (!visible || !lines.length) return;
+  // Строчка на «Главной»: пустая она спрятана — смотрим, видна ли сама карточка
+  const heroOn = !!hero && hero.isConnected && (hero.parentElement?.getClientRects().length ?? 0) > 0;
+  if ((!visible && !heroOn) || !timed.length) return;
   const t = audio.currentTime + 0.3 - offset;   // чуть заранее — строка загорается к моменту, когда её поют
   let i = -1;
-  while (i + 1 < lines.length && lines[i + 1].time <= t) i++;
-  if (i === activeIndex) return;
-  activeIndex = i;
-  lines.forEach((line, n) => {
-    line.node.classList.toggle("active", n === i);
-    line.node.classList.toggle("past", n < i);
-  });
-  if (i < 0 || Date.now() - userScrolledAt < 4000) return;
-  const node = lines[i].node;
-  listEl.scrollTo({ top: node.offsetTop - listEl.clientHeight * 0.38, behavior: instant ? "auto" : "smooth" });
+  while (i + 1 < timed.length && timed[i + 1][0] <= t) i++;
+  // Сколько строки уже спето: слова загораются равномерно за время строки (на четверть быстрее —
+  // последние слова обычно тянут). Пауза до следующей строки считается не длиннее 8 с
+  const start = i < 0 ? 0 : timed[i][0], end = timed[i + 1]?.[0] ?? start + 4;
+  const frac = i < 0 ? 0 : Math.min(1, (t - start) / Math.max(0.6, Math.min(end - start, 8)));
+  const words = visible && box.classList.contains("ls-words");
+  if (i !== activeIndex) {
+    activeIndex = i;
+    lines.forEach((line, n) => {
+      line.node.classList.toggle("active", n === i);
+      line.node.classList.toggle("past", n < i);
+      line.node.classList.toggle("far", Math.abs(n - Math.max(i, 0)) >= 2);
+    });
+    if (visible && listEl && i >= 0 && lines[i] && Date.now() - userScrolledAt >= 4000) {
+      const top = lines[i].node.offsetTop - listEl.clientHeight * (words ? 0.3 : 0.38);
+      if (words && !instant && !calm()) glide(top);
+      else { scrollAnim++; listEl.scrollTo({ top, behavior: instant ? "auto" : "smooth" }); }
+    }
+  }
+  if (heroOn && heroIndex !== Math.max(i, 0)) drawHero(Math.max(i, 0), i >= 0);
+  const lit = (count) => Math.ceil(frac * 1.25 * count);
+  if (words && lines[i]) { const ws = lines[i].words, n = lit(ws.length); ws.forEach((w, k) => w.classList.toggle("lit", k < n)); }
+  if (heroOn) { const ws = hero.querySelectorAll(".lw"), n = hero.classList.contains("ahead") ? 0 : lit(ws.length); ws.forEach((w, k) => w.classList.toggle("lit", k < n)); }
+}
+
+/** Строчка в карточке на «Главной»: новая выплывает снизу из размытия */
+function drawHero(i, singing) {
+  heroIndex = i;
+  // Проигрыш (пустая строка) — показываем бледной следующую строку со словами
+  let k = i;
+  while (k < timed.length && !(timed[k][1] || "").trim()) k++;
+  const text = timed[k]?.[1] || "";
+  hero.replaceChildren(wordsOf(text).frag);
+  hero.classList.toggle("empty", !text);
+  hero.classList.toggle("ahead", !singing || k !== i);   // её ещё не поют — бледная
+  if (!calm()) hero.animate([{ opacity: 0, transform: "translateY(10px)", filter: "blur(6px)" }, { opacity: 1, transform: "none", filter: "blur(0)" }],
+    { duration: 600, easing: EASE });
+}
+
+/** Карточка «Сейчас играет» на «Главной» показывает строку текста (null — убрать) */
+export function showLyricLine(node) {
+  if (hero !== node) heroIndex = -2;
+  hero = node;
+  if (!hero) return;
+  if (!timed.length) { hero.replaceChildren(); hero.classList.add("empty"); }
+  load();
+  sync(true);
 }
 
 export const isLyricsVisible = () => visible;
@@ -212,7 +318,7 @@ export function setLyricsVisible(show) {
 }
 
 export function initLyrics() {
-  visible = !!getSetting("showLyrics", false);
+  visible = !!getSetting("showLyrics", liveUi());   // в новом виде «Сейчас играет» — обложка и текст
   buttons().forEach((b) => b.addEventListener("click", () => {
     visible = !visible;
     setSetting("showLyrics", visible);
@@ -222,6 +328,10 @@ export function initLyrics() {
   audio.addEventListener("timeupdate", () => sync());
   // timeupdate приходит лишь ~4 раза в секунду — строка загоралась с опозданием до 0,25 с. Чаще — только пока играет
   setInterval(() => { if (!audio.paused) sync(); }, 100);
+  audio.addEventListener("play", () => sync(true));
   audio.addEventListener("seeked", () => { activeIndex = -2; userScrolledAt = 0; sync(true); });   // перемотали — сразу к нужной строке
+  // Открыли «Сейчас играет» — текст мог нарисоваться, пока экран был спрятан (строки были без размеров):
+  // сразу ставим на текущую строку, без проезда
+  document.addEventListener("sono:view", (e) => { if (e.detail === "now" && visible) { activeIndex = -2; userScrolledAt = 0; sync(true); } });
   apply();
 }

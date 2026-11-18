@@ -68,3 +68,12 @@ input[type="range"]::-webkit-slider-thumb { background: #1c1c1c; }
 /* Круглая ▶ у плеера — тёмная (белая на светлом почти не видна); на тёмных карточках остаётся белой */
 button.play { background: #1c1c1c; color: #fff; }
 :is(.flow-card, .pl-hero, .flowv, .mix-art, .pick-art) button.play { background: #fff; color: #000; }
+
+/* Текст «По словам» («Живая обложка»), как в светлом макете: что споют — бледнее, спетое — плотнее,
+   у звучащих слов — белое свечение (тёмное выходило грязной тенью) */
+.ls-words .lw { color: rgb(var(--fg-rgb) / 0.3); }
+/* Карточки на «Главной»: наведённая — почти белая, ▶ — тёмная (как в светлом макете) */
+.home-card:hover { background: rgba(255, 255, 255, 0.85); }
+.home-card .tile-play { background: #17111f; color: #fff; }
+.ls-words .lyrics-line.past .lw { color: rgb(var(--fg-rgb) / 0.68); }
+.ls-words .lyrics-line.active .lw.lit { text-shadow: 0 0 24px rgba(255, 255, 255, 0.9); }

@@ -555,8 +555,16 @@ document.body.append(toasts);
 
 /** Уведомление внизу. action: { label, run } — кнопка в уведомлении (например, «Отменить»); тогда оно висит дольше.
  *  duration — сколько висеть (мс), если обычного времени мало */
-export function toast(text, { error = false, action = null, duration = 0 } = {}) {
+export function toast(text, { error = false, action = null, duration = 0, image = null } = {}) {
   const item = el("div", `toast${error ? " error" : ""}${action ? " with-action" : ""}`, text);
+  if (image) {   // маленькая обложка слева (например, «Добавлено в «Избранное»»)
+    const img = el("img", "toast-img");
+    img.alt = "";
+    img.src = image;
+    img.onerror = () => img.remove();
+    item.prepend(img);
+    item.classList.add("with-image");
+  }
   const leave = () => {
     item.classList.add("leaving");
     setTimeout(() => item.remove(), 300);

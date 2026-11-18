@@ -43,6 +43,8 @@
     <canvas class="now-bg" id="now-bg"></canvas>
     <div class="bg-grain"></div>
     <div class="bg-shade"></div>
+    <!-- «Фон под бас» (Настройки → Оформление, motion.js): на ударе снизу вспыхивает свет цвета обложки -->
+    <div class="bg-beat"></div>
   </div>
 
   <!-- Фильтры для тем (THEMES.md): «жидкий хром» — буквы и формы как надутый металл с отражениями.
@@ -252,15 +254,15 @@
             </div>
             <div class="np-actions">
               <!-- Клип вместо обложки (clip.js): видна, только когда у трека нашёлся клип -->
-              <button type="button" class="icon-btn toggle-btn" data-np="clip" aria-label="Клип вместо обложки" hidden></button>
+              <button type="button" class="icon-btn toggle-btn" data-np="clip" data-label="Клип" aria-label="Клип вместо обложки" hidden></button>
               <!-- Звуковые эффекты: slowed + reverb, nightcore, басы (fx.js) -->
-              <button type="button" class="icon-btn toggle-btn" data-np="fx" title="Звуковые эффекты" aria-label="Звуковые эффекты"></button>
-              <button type="button" class="icon-btn toggle-btn" data-np="sleep" title="Таймер сна" aria-label="Таймер сна"></button>
-              <button type="button" class="icon-btn toggle-btn" data-np="lyrics" title="Текст песни" aria-label="Текст песни" disabled>
+              <button type="button" class="icon-btn toggle-btn" data-np="fx" data-label="Эффекты" title="Звуковые эффекты" aria-label="Звуковые эффекты"></button>
+              <button type="button" class="icon-btn toggle-btn" data-np="sleep" data-label="Таймер сна" title="Таймер сна" aria-label="Таймер сна"></button>
+              <button type="button" class="icon-btn toggle-btn" data-np="lyrics" data-label="Текст" title="Текст песни" aria-label="Текст песни" disabled>
                 <svg data-i="lyrics" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
               </button>
               <button type="button" class="icon-btn" data-np="dislike" aria-label="Не нравится" disabled></button>
-              <button type="button" class="icon-btn" data-np="add" title="Добавить в плейлист" aria-label="Добавить в плейлист" disabled>
+              <button type="button" class="icon-btn" data-np="add" data-label="В плейлист" title="Добавить в плейлист" aria-label="Добавить в плейлист" disabled>
                 <svg data-i="addTo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
               </button>
               <button type="button" class="icon-btn like" data-np="like" aria-label="В избранное" disabled></button>
@@ -348,6 +350,8 @@
   <!-- Мини-плеер: полоса внизу во всю ширину. Видна, когда открыт плейлист, а музыка играет.
        Три зоны: трек слева, кнопки по центру, громкость справа. -->
   <footer class="minibar glass" id="minibar">
+    <!-- Блик по стеклу капсулы при смене трека (motion.js → sheen) -->
+    <div class="sheen-box" aria-hidden="true"><i></i></div>
     <div class="mini-left">
       <button type="button" class="mini-track" id="minibar-open" title="Открыть «Сейчас играет»">
         <img data-np="cover-mini" alt="">
@@ -383,6 +387,10 @@
     </div>
 
     <div class="mini-right">
+      <!-- Текст песни: на «Сейчас играет» — показать/спрятать, с других экранов — открыть её с текстом (views.js) -->
+      <button type="button" class="icon-btn small toggle-btn mini-lyrics" data-np="lyrics" title="Текст песни" aria-label="Текст песни" disabled>
+        <svg data-i="lyrics" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      </button>
       <button type="button" class="icon-btn small toggle-btn" data-np="fx" title="Звуковые эффекты" aria-label="Звуковые эффекты"></button>
       <button type="button" class="icon-btn small toggle-btn" data-np="sleep" title="Таймер сна" aria-label="Таймер сна"></button>
       <button type="button" class="icon-btn small toggle-btn" data-np="queue" aria-label="Очередь"></button>
@@ -395,6 +403,8 @@
         <!-- Проценты над шариком — видны, пока наводят или тянут (player.js → placeVolumeTips) -->
         <span class="vol-tip" data-np="volume-tip" aria-hidden="true">60%</span>
       </div>
+      <!-- «⋯» капсулы (ПК): «Не нравится», «Звуковые эффекты», «Таймер сна» — чтобы капсула не была тесной (capsule.js) -->
+      <button type="button" class="icon-btn small mini-more" aria-label="Ещё" title="Ещё"></button>
     </div>
   </footer>
 

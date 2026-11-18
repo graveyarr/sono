@@ -14,8 +14,9 @@ import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
 import { openAlbumAt, openArtist, openTrack, splitArtists } from "./nav.js";
 import { playNext, queueLater, queueNext, returnToQueue, state } from "./player.js";
 import { twinsIn } from "./samesong.js";
-import { confirmDialog, displayTrack, el, formatTime, openMenu, plural, promptDialog, sourceLabel, toast } from "./ui.js";
+import { confirmDialog, coverUrl, displayTrack, el, formatTime, openMenu, plural, promptDialog, sourceLabel, toast } from "./ui.js";
 import { openExternal } from "./device.js";
+import { burstLike } from "./motion.js";
 
 const isCurrent = (track) => !!state.current && keyOf(state.current) === keyOf(track);
 
@@ -39,7 +40,10 @@ function withReal(fn) {
 export const toggleLike = withReal((track) => {
   const where = library.likeTarget() ? `«${library.likeTargetName()}»` : null;   // ♡ кладёт в плейлист из настроек
   const added = library.toggleLike(track);
-  toast(where ? (added ? `Добавлено в ${where}` : `Удалено из ${where}`) : (added ? "Добавлено в избранное" : "Удалено из избранного"));
+  // Лайк текущему треку — сердечки подпрыгивают с искрами (motion.js); в уведомлении — обложка
+  if (added && isCurrent(track)) burstLike();
+  toast(where ? (added ? `Добавлено в ${where}` : `Удалено из ${where}`) : (added ? "Добавлено в «Избранное»" : "Удалено из «Избранного»"),
+    { image: added ? coverUrl(track) : null });
 });
 
 export const toggleDislike = withReal((track) => {

@@ -8,7 +8,7 @@
 
 import { icons } from "./icons.js";
 import { getPlaylist, getSetting, lib, setSetting } from "./library.js";
-import { el, promptDialog, toast } from "./ui.js";
+import { el, openMenu, promptDialog, toast } from "./ui.js";
 
 export const SORTS = [
   ["recent", "Недавние"],
@@ -113,9 +113,11 @@ export function folderMenuItem(playlist) {
 
 // ---------- Строка фильтров над медиатекой ----------
 
-/** Чипы «Плейлисты / Исполнители», поиск по медиатеке и сортировка. rerender — перерисовать список */
-export function toolsRow(rerender, openSortMenu, hasArtists) {
-  const row = el("div", "lib-tools");
+/** Чипы «Плейлисты / Исполнители», поиск по медиатеке и сортировка. rerender — перерисовать список.
+    compact (ПК, «Живая обложка») — без отдельной строки: в заголовке «Медиатека» только 🔍 (поле открывается
+    на месте заголовка) и «≡» (меню: что показывать и сортировка) — views.js ставит строку в .lib-head */
+export function toolsRow(rerender, openSortMenu, hasArtists, compact = false) {
+  const row = el("div", `lib-tools${compact ? " compact" : ""}`);
   const chips = el("div", "lib-chips");
   for (const [value, label] of [["playlists", "Плейлисты"], ["artists", "Исполнители"]]) {
     if (value === "artists" && !hasArtists) continue;
@@ -145,6 +147,16 @@ export function toolsRow(rerender, openSortMenu, hasArtists) {
   });
   icon.addEventListener("click", () => { libFilter.searching = true; search.classList.add("open"); input.focus(); });
   search.append(icon, input);
+  if (compact) {
+    const menuBtn = el("button", `icon-btn small lib-view${libFilter.chip !== "all" ? " on" : ""}`);
+    menuBtn.type = "button";
+    menuBtn.innerHTML = icons.sortList ?? "";
+    menuBtn.title = libFilter.chip !== "all" ? "Показ и сортировка (включён фильтр)" : "Показ и сортировка";
+    menuBtn.setAttribute("aria-label", menuBtn.title);
+    menuBtn.addEventListener("click", () => openMenu(menuBtn, viewMenuItems(hasArtists, rerender)));
+    row.append(search, menuBtn);
+    return row;
+  }
   const sort = el("button", "lib-sort");
   sort.type = "button";
   sort.innerHTML = `<span></span>${icons.sortList ?? ""}`;
@@ -163,4 +175,16 @@ export function sortMenuItems() {
     { note: "Сортировка" },
     ...SORTS.map(([value, label]) => ({ label, icon: value === now ? icons.check : "", action: () => { setSetting("libSort", value); changed(); } })),
   ];
+}
+
+/** Меню «≡» в заголовке медиатеки (ПК): «Показывать» (если есть подписки на исполнителей) и сортировка */
+function viewMenuItems(hasArtists, rerender) {
+  const shown = !hasArtists ? [] : [
+    { note: "Показывать" },
+    ...[["all", "Всё"], ["playlists", "Плейлисты"], ["artists", "Исполнители"]].map(([value, label]) => ({
+      label, icon: libFilter.chip === value ? icons.check : "", action: () => { libFilter.chip = value; rerender(); },
+    })),
+    { sep: true },
+  ];
+  return [...shown, ...sortMenuItems()];
 }

@@ -10,13 +10,14 @@ import { renderWorkshop } from "./workshop.js";
 import { wrappedButton, wrappedCard } from "./wrapped.js";
 import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
-import { setNavigator, trackForPage } from "./nav.js";
+import { openTrack, setNavigator, trackForPage } from "./nav.js";
 import { renderTrack } from "./trackpage.js";
 import { openImportDialog } from "./import.js";
 import { createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isAutoDownload, isDisliked, keyOf, lib, moveSongInPlaylist, pickedUpload, setSetting } from "./library.js";
 import { groupSongs, songCount, uniqueSongs } from "./samesong.js";
-import { isLyricsVisible, setLyricsVisible } from "./lyrics.js";
-import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueLater, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
+import { isLyricsVisible, setLyricsVisible, showLyricLine } from "./lyrics.js";
+import { anim, fadeUp, liveUi, rise, riseWords, sheen, swapImage, withTransition } from "./motion.js";
+import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueLater, queueNext, removeFromQueue, state, syncLikeButtons, togglePlay } from "./player.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
 import { watchReleases } from "./releases.js";
 import { releaseCard, renderReleases } from "./releaseview.js";
@@ -25,7 +26,7 @@ import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, re
 import { localTracks } from "./local.js";
 import { countDownloaded, download, removeDownload, setAutoList, songsToDownload } from "./downloads.js";
 import { renderSettings } from "./settings.js";
-import { choiceDialog, collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
+import { artistLinks, choiceDialog, collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
 
 const viewHome = document.getElementById("view-home");
 const viewNow = document.getElementById("view-now");
@@ -137,14 +138,25 @@ export function prefetchFirst(tracks, key) {
 
 const FIXED_VIEWS = ["home", "flow", "now", "settings", "stats", "workshop"];   // экраны со своей секцией (остальные — списки)
 
+/** Открыть экран. Возвращает обещание «экран уже на месте»: на ПК смена идёт через переход
+    (View Transitions, motion.js) — новый экран появляется не сразу, а в следующем кадре */
 export function showView(key, { back = false } = {}) {
   if (!FIXED_VIEWS.includes(key) && !isMetaView(key) && !describe(key)) key = "home";
   const changed = key !== view;
+  const first = !view;
   if (changed && view && !back) {
     backStack.push(view);
     if (backStack.length > 50) backStack.shift();
   }
   view = key;
+  // «Живая обложка»: старый экран тает, обложка перелетает, новый собирается по кусочкам
+  if (changed && !first && liveUi()) return withTransition(() => applyView(true), () => enterView(view));
+  applyView(changed);
+  return Promise.resolve();
+}
+
+/** Показать экран view (changed — его только что открыли) */
+function applyView(changed) {
   const isList = !FIXED_VIEWS.includes(view);
   viewHome.hidden = view !== "home";
   viewNow.hidden = view !== "now";
@@ -153,7 +165,7 @@ export function showView(key, { back = false } = {}) {
   viewStats.hidden = view !== "stats";
   viewWorkshop.hidden = view !== "workshop";
   viewList.hidden = !isList;
-  if (view === "home") renderHome();
+  if (view === "home") renderHome(changed);
   if (view === "now") renderUpNext();
   if (view === "settings" && changed) renderSettings();
   if (view === "flow") renderFlowView();
@@ -165,8 +177,10 @@ export function showView(key, { back = false } = {}) {
   if (changed) {
     const shown = { home: viewHome, now: viewNow, settings: viewSettings, flow: viewFlow, stats: viewStats, workshop: viewWorkshop }[view] ?? viewList;
     shown.classList.remove("entering");
-    void shown.offsetWidth;
-    shown.classList.add("entering");
+    if (!liveUi()) {   // на ПК вход рисует переход (enterView)
+      void shown.offsetWidth;
+      shown.classList.add("entering");
+    }
     scroller.scrollTop = 0;
   }
   document.body.classList.toggle("on-now", view === "now");
@@ -294,7 +308,8 @@ function flowCard() {
 const homeRest = el("div", "home-rest");
 const homeGreet = el("h1", "home-greet");
 
-function renderHome() {
+function renderHome(entering = false) {
+  if (liveUi()) return renderHomeLive(entering);
   if (!viewHome.contains(homeRest)) {
     const hero = el("div", "home-hero");
     hero.append(homeGreet, el("p", "home-sub", "Что послушаем?"));
@@ -339,6 +354,330 @@ function renderHome() {
   homeRest.replaceChildren(...children);
   markCurrentRows(state.current ? keyOf(state.current) : null);
   syncPlayButtons();
+}
+
+// ---------- «Живая обложка» (ПК): карточка «Сейчас играет» и три карточки Flow ----------
+// Как в одобренном макете B-zhivoy.html. Телефон пока остаётся прежним (его переделываем отдельным шагом).
+
+const MIC_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
+
+/** Кнопка-пилюля с подписью */
+function pill(label, icon, cls = "") {
+  const b = el("button", `nc-pill ${cls}`.trim());
+  b.type = "button";
+  b.innerHTML = icon;
+  b.append(el("span", "", label));
+  return b;
+}
+
+/** Открыть «Сейчас играет» с текстом песни */
+function openLyrics() {
+  showView("now");
+  if (!isLyricsVisible()) setLyricsVisible(true);
+}
+
+let nowCardEl = null, nowCardKey = null, nowCardParts = null;
+function nowCard() {
+  if (nowCardEl) return nowCardEl;
+  const card = nowCardEl = el("section", "now-card glass");
+  card.innerHTML = '<div class="sheen-box"><i></i></div>';
+  const cover = el("button", "nc-cover");
+  cover.type = "button";
+  cover.title = "Открыть «Сейчас играет»";
+  const img = el("img");
+  img.alt = "";
+  img.onerror = () => img.classList.add("broken");
+  cover.append(img);
+  cover.addEventListener("click", () => showView("now"));
+
+  const body = el("div", "nc-body");
+  const title = el("h1", "nc-title");
+  title.addEventListener("click", () => openTrack(state.current));   // щелчок по названию — страница трека
+  const who = el("div", "nc-who");
+  const line = el("div", "nc-line empty");   // строка текста песни, слова загораются (lyrics.js)
+  const acts = el("div", "nc-acts");
+  const lyricsBtn = pill("Текст", MIC_ICON, "white");
+  lyricsBtn.addEventListener("click", openLyrics);
+  // Сердечко — как остальные [data-np="like"]: значок и «on» ставит player.js, подпись — style.css
+  const like = el("button", "nc-pill nc-like");
+  like.type = "button";
+  like.dataset.np = "like";
+  like.addEventListener("click", () => { if (state.current) toggleLike(state.current); });
+  const similar = pill("Похожее", icons.flow);
+  similar.title = "Радио по этому треку: сначала он, дальше похожее";
+  similar.addEventListener("click", () => { if (state.current) startFlow({ track: state.current }); });
+  acts.append(lyricsBtn, like, similar);
+  body.append(el("small", "nc-kicker", "Сейчас играет"), title, who, line, acts);
+
+  const next = el("div", "nc-next");
+  const nextList = el("div", "nc-next-list");
+  next.append(el("h5", "", "Далее"), nextList);
+  card.append(cover, body, next);
+  nowCardParts = { img, title, who, line, nextList, next };
+  return card;
+}
+
+/** Обновить карточку под текущий трек. animate — трек сменился у человека на глазах */
+function updateNowCard(animate) {
+  const t = state.current;
+  if (!t) return;
+  const card = nowCard(), { img, title, who, line } = nowCardParts;
+  const key = keyOf(t);
+  const changed = key !== nowCardKey;
+  const swap = animate && changed && !!nowCardKey;
+  nowCardKey = key;
+  if (changed) {
+    const shown = displayTrack(t);
+    img.classList.remove("broken");
+    if (swap) swapImage(img, coverUrl(t, "large"), state.dir);
+    else img.src = coverUrl(t, "large");
+    riseWords(title, shown.title, { animate: swap });
+    title.title = t.title;
+    who.replaceChildren(artistLinks(t, shown.artist));
+    // Альбом — если он не называется так же, как трек (тогда это сингл)
+    const album = (t.album || "").trim();
+    if (album && album.toLowerCase() !== shown.title.toLowerCase()) who.append(` · Альбом «${album}»`);
+    if (swap) { fadeUp(who, 260); sheen(card); }
+  }
+  renderNextRows(swap);
+  syncLikeButtons();   // подпись и значок сердечка в карточке
+  showLyricLine(line);
+}
+
+/** «Далее»: три следующих трека очереди; при смене трека въезжают по очереди */
+let nextSig = "";
+function renderNextRows(animate) {
+  const { nextList, next } = nowCardParts;
+  const rows = [];
+  for (let i = state.index + 1; i < state.queue.length && rows.length < 3; i++) {
+    if (!isDisliked(state.queue[i])) rows.push(i);
+  }
+  next.hidden = !rows.length;
+  const sig = rows.map((i) => `${i}:${keyOf(state.queue[i])}`).join("|");
+  if (sig === nextSig && !animate) return;
+  nextSig = sig;
+  const loads = [];
+  nextList.replaceChildren(...rows.map((i) => {
+    const track = state.queue[i], shown = displayTrack(track);
+    const r = el("button", "nc-next-row");
+    r.type = "button";
+    // Обложка в рамке-заглушке: пока сервер её готовит (первый раз у SoundCloud ~1 с), виден мягкий квадрат,
+    // а сама картинка проявляется, а не выскакивает
+    const art = el("span", "nc-next-art");
+    const img = el("img");
+    img.alt = "";
+    img.src = coverUrl(track);
+    if (!img.complete) {
+      img.classList.add("wait");
+      loads.push(img.decode().catch(() => {}).then(() => img.classList.remove("wait")));
+    }
+    img.onerror = () => img.classList.add("broken");
+    art.append(img);
+    const text = el("span", "nc-next-text");
+    text.append(el("b", "", shown.title), el("span", "", shown.artist));
+    r.append(art, text);
+    r.title = track.title;
+    r.addEventListener("click", () => playFromQueue(i));
+    r.addEventListener("mouseenter", () => prefetch(track));
+    return r;
+  }));
+  if (animate) [...nextList.children].forEach((r, i) => anim(r, [{ opacity: 0, transform: `translateX(${state.dir * 24}px)` }, { opacity: 1, transform: "none" }], { duration: 520, delay: 160 + i * 70 }));
+  // Заранее — уже ПОСЛЕ маленьких обложек (картинки SoundCloud сервер качает не больше чем в 3 соединения,
+  // и большая, начатая первой, задерживала маленькие в «Далее»): большая обложка следующего трека —
+  // при переключении она сразу выезжает вместе с названием; маленькие ещё двух треков — въедут в «Далее» следом
+  Promise.all(loads).then(() => {
+    if (nextSig !== sig) return;
+    if (rows.length) new Image().src = coverUrl(state.queue[rows[0]], "large");
+    let more = 0;
+    for (let i = rows.at(-1) + 1; i < state.queue.length && more < 2; i++) {
+      if (!isDisliked(state.queue[i])) { new Image().src = coverUrl(state.queue[i]); more++; }
+    }
+  });
+}
+
+/** Нет трека — вместо карточки приветствие */
+let greetEl = null;
+function greetCard() {
+  if (!greetEl) {
+    greetEl = el("div", "home-hero");
+    greetEl.append(homeGreet, el("p", "home-sub", "Что послушаем?"));
+  }
+  if (homeGreet.textContent !== greeting()) homeGreet.textContent = greeting();
+  return greetEl;
+}
+
+const FLOW_CARDS = [
+  { mode: "liked", title: "Любимое", sub: "То, что уже нравится" },
+  { mode: "mix", title: "Микс", sub: "Любимое и новое" },
+  { mode: "discover", title: "Открытия", sub: "Кого вы ещё не слышали" },
+];
+
+/** Три цветные карточки Flow: фон — размытая обложка из медиатеки, ▶ — Flow в этом режиме */
+let flowRowEl = null;
+function flowRow() {
+  if (flowRowEl) return flowRowEl;
+  const row = flowRowEl = el("section", "home-flow");
+  const head = el("button", "home-h home-h-link", "Flow — бесконечно и под ваш вкус");
+  head.type = "button";
+  head.title = "Открыть Flow";
+  head.addEventListener("click", () => showView("flow"));
+  const cards = el("div", "fl-cards");
+  for (const c of FLOW_CARDS) {
+    const card = el("button", "fl-card");
+    card.type = "button";
+    card.dataset.mode = c.mode;
+    card.title = FLOW_MODES.find((m) => m.value === c.mode)?.hint ?? "";
+    const play = el("span", "fl-play");
+    play.innerHTML = `<span class="i-play">${icons.play}</span><span class="i-pause">${icons.pause}</span>`;
+    card.append(el("span", "fl-bg"), el("b", "", c.title), el("span", "fl-sub", c.sub), play);
+    card.addEventListener("click", () => onFlowCard(c));
+    card.addEventListener("pointerenter", () => { if (!playingFrom("flow:main")) warmFlow(c.mode); });
+    cards.append(card);
+  }
+  row.append(head, cards);
+  return row;
+}
+
+function onFlowCard(c) {
+  if (playingFrom("flow:main")) {
+    if (flowMode() === c.mode) return togglePlay();
+    setFlowMode(c.mode);
+    toast(`Flow: «${c.title}» — со следующего трека`);
+    return syncFlowCards();
+  }
+  if (!hasTaste()) return showView("flow");   // вкуса ещё нет — сначала выбрать исполнителей
+  setFlowMode(c.mode);
+  startFlow({ mode: c.mode });
+}
+
+/** Обложки для фона карточек: разные и яркие картинки из избранного, истории и плейлистов. Насыщенность
+    каждой считаем один раз (картинка грузится в фоне); тусклые (бежевые, серые) не берём — карточка
+    выходила мутной. Ярких не нашлось — у карточки свои цветные пятна */
+const coverSat = new Map();   // адрес обложки → насыщенность 0–100 (−1 — ещё считается)
+function scoreCover(url) {
+  if (coverSat.has(url)) return;
+  coverSat.set(url, -1);
+  const img = new Image();
+  img.onload = () => {
+    coverSat.set(url, vividness(img));
+    syncFlowCards();
+  };
+  img.onerror = () => coverSat.set(url, 0);
+  img.src = url;
+}
+/** Насколько картинка цветная в целом (0–100): средняя «цветность» всех точек. imageHsl для этого не годится —
+    он нарочно ищет цвет даже в серой обложке с одним красным пятном */
+function vividness(img) {
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 24;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(img, 0, 0, 24, 24);
+    const d = x.getImageData(0, 0, 24, 24).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]);
+    return (sum / (d.length / 4) / 255) * 100;
+  } catch {
+    return 0;
+  }
+}
+function flowCovers() {
+  const seen = new Set(), candidates = [];
+  const pool = [...lib.liked.slice(0, 30), ...lib.history.slice(0, 30), ...lib.playlists.flatMap((p) => p.tracks.slice(0, 4))];
+  for (const t of pool) {
+    const url = coverUrl(t);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    candidates.push(url);
+    if (candidates.length === 14) break;
+  }
+  candidates.forEach(scoreCover);
+  return candidates.filter((u) => coverSat.get(u) >= 25).slice(0, 3);
+}
+
+function syncFlowCards() {
+  if (!flowRowEl) return;
+  const covers = flowCovers();
+  flowRowEl.querySelectorAll(".fl-card").forEach((card, i) => {
+    const url = covers[i] ?? "";
+    const want = url ? `url("${url.replace(/["\\\n]/g, encodeURIComponent)}")` : "";
+    if (card.style.getPropertyValue("--img") !== want) card.style.setProperty("--img", want);
+    card.classList.toggle("no-img", !url);
+    const on = playingFrom("flow:main") && flowMode() === card.dataset.mode;
+    card.classList.toggle("is-playing", on && isPlaying());
+  });
+}
+
+/** Главная в новом виде: карточка «Сейчас играет» (или приветствие), Flow, ряды карточек */
+function renderHomeLive(entering) {
+  const top = state.current ? nowCard() : greetCard();
+  if (viewHome.firstElementChild !== top || !viewHome.contains(homeRest)) viewHome.replaceChildren(top, flowRow(), homeRest);
+  if (state.current) updateNowCard(!entering);
+  else showLyricLine(null);
+  syncFlowCards();
+
+  const children = [];
+  const wrapped = wrappedCard();   // «Ваш год в музыке» — в декабре и январе
+  if (wrapped) children.push(wrapped);
+  const mixes = el("div", "home-mixes");
+  const fresh = el("div", "home-new");
+  children.push(mixes, fresh);
+  const made = picksRow();         // «Собрано для вас» — подборки по вкусу
+  if (made) children.push(...made);
+  const recent = uniqueSongs(lib.history.filter((t) => !isDisliked(t))).slice(0, 10);
+  if (recent.length) {
+    const cards = el("div", "home-cards");
+    recent.forEach((t, i) => cards.append(trackCard(t, recent, i, { type: "history" })));
+    children.push(el("h2", "home-h", "Недавно слушали"), cards);
+  }
+  const stats = statsCard();   // «Ваша статистика» — есть, когда уже что-то послушали
+  if (stats) children.push(stats);
+  if (!recent.length) {
+    const start = el("div", "home-start");
+    start.append(el("h2", "", "С чего начать"),
+      el("p", "", "Найдите трек через поиск сверху — или перенесите свои плейлисты из Spotify, YouTube или SoundCloud."));
+    const importBtn = el("button", "btn primary", "Импортировать плейлист");
+    importBtn.type = "button";
+    importBtn.addEventListener("click", () => openImportDialog({ onOpen: (id) => showView(`playlist:${id}`) }));
+    start.append(importBtn);
+    children.push(start);
+  }
+  mixesRow(mixes);
+  newReleasesRow(fresh);
+  homeRest.replaceChildren(...children);
+  markCurrentRows(state.current ? keyOf(state.current) : null);
+  syncPlayButtons();
+}
+
+// ---------- Вход на экран («Живая обложка»): куски выплывают из размытия по очереди ----------
+
+function enterView(key) {
+  if (key === "home") {
+    const card = viewHome.querySelector(".now-card, .home-hero");
+    anim(card, [{ offset: 0, opacity: 0, transform: "scale(.98)" }], { duration: 450, fill: "backwards" });
+    card?.querySelectorAll(".nc-body > *, .nc-next h5, .nc-next-row, .home-hero > *").forEach((n, i) => rise(n, 120 + i * 45, 14));
+    viewHome.querySelectorAll(".home-flow .home-h, .fl-card, .home-rest .home-h, .home-rest .home-card, .home-rest .home-h-row")
+      .forEach((n, i) => rise(n, 220 + Math.min(i, 14) * 40));
+    return;
+  }
+  if (key === "now") {
+    // Фон чуть «наезжает» — ощущение глубины
+    anim(document.querySelector(".backdrop"), [{ transform: "scale(1.08)" }, { transform: "none" }], { duration: 1400, fill: "none" });
+    document.querySelectorAll("#np-info [data-np=title] .wd").forEach((w, i) => rise(w, 380 + Math.min(i, 10) * 60, 14, 600));
+    rise(document.querySelector("#np-info [data-np=artist]"), 460, 10);
+    rise(document.querySelector("#view-now .np-actions"), 520, 10);
+    rise(document.querySelector("#lyrics .lyrics-head"), 300, 8);
+    // Строки текста выплывают по очереди — те, что видны: от пары строк над текущей и ниже
+    const lines = [...document.querySelectorAll("#lyrics .lyrics-line")];
+    const from = Math.max(0, lines.findIndex((p) => p.classList.contains("active")) - 3);
+    lines.slice(from, from + 10).forEach((p, i) => anim(p, [{ offset: 0, opacity: 0, transform: "translateY(26px)", filter: "blur(12px)" }],
+      { duration: 800, delay: 340 + i * 80, fill: "backwards" }));
+    document.querySelectorAll("#up-next .up-next-head, #up-next .up-next-label, #up-next .up-next-item").forEach((n, i) => i < 14 && rise(n, 300 + i * 40, 14));
+    return;
+  }
+  // Остальные экраны: крупные куски по очереди
+  const box = document.querySelector(".views > .view:not([hidden])");
+  [...(box?.children ?? [])].slice(0, 8).forEach((n, i) => rise(n, 80 + i * 60, 16));
 }
 
 // Цвет полосы с названием у каждой подборки
@@ -411,7 +750,12 @@ function mixesRow(box) {
         face.title = a.name;
         faces.append(face);
       }
-      art.append(el("span", "mix-badge", "Микс"), faces);
+      art.append(faces);   // без метки «Микс»: и так понятно из заголовка «Ваши миксы»
+      if (liveUi()) {   // ▶ выпрыгивает при наведении, как у остальных карточек (щелчок — по всей карточке)
+        const playBtn = el("span", "tile-play");
+        playBtn.innerHTML = icons.play;
+        art.append(playBtn);
+      }
       card.append(art, el("span", "home-card-title", mix.name),
         el("span", "home-card-artist", mix.artists.length > 2 ? mix.artists.map((a) => a.name).join(", ") : "и похожие исполнители"));
       card.title = mix.artists.map((a) => a.name).join(", ");
@@ -714,10 +1058,14 @@ export function renderSidebar({ keepFocus = false } = {}) {
   // Строка фильтров — над списком (перерисовывается вместе с ним)
   const artistsAll = followedArtists();
   if (libFilter.chip === "artists" && !artistsAll.length) libFilter.chip = "all";
-  const row = toolsRow((opts) => renderSidebar(opts), (anchor) => openMenu(anchor, sortMenuItems()), artistsAll.length > 0);
+  // ПК: без отдельной строки — 🔍 и «≡» в заголовке «Медиатека», перед «+» (libtools.js → compact)
+  const compact = liveUi();
+  const row = toolsRow((opts) => renderSidebar(opts), (anchor) => openMenu(anchor, sortMenuItems()), artistsAll.length > 0, compact);
   const oldRow = document.querySelector(".lib-tools");
   const hadFocus = keepFocus && oldRow?.contains(document.activeElement);
-  if (oldRow) oldRow.replaceWith(row); else libList.before(row);
+  if (oldRow) oldRow.replaceWith(row);
+  else if (compact) document.getElementById("new-playlist").before(row);
+  else libList.before(row);
   if (hadFocus) {
     const input = row.querySelector("input");
     input.focus();
@@ -1304,6 +1652,7 @@ export function syncPlayButtons() {
   document.querySelectorAll("[data-collection]").forEach((btn) => {
     btn.classList.toggle("is-playing", playingFrom(btn.dataset.collection) && isPlaying());
   });
+  syncFlowCards();
 }
 
 // ---------- Подключение ----------
@@ -1336,6 +1685,11 @@ const isListView = () => !!view && !FIXED_VIEWS.includes(view) && !isMetaView(vi
 /** Сменился трек (или очередь) — подсветить его в списках и в медиатеке, обновить «Далее» */
 export function refreshPlaying() {
   if (view === "now") renderUpNext();
+  // Карточка «Сейчас играет» на «Главной»: трек сменился — обложка, название и «Далее» меняются на глазах
+  if (view === "home" && liveUi()) {
+    if (state.current && nowCardEl?.isConnected) updateNowCard(true);
+    else renderHome();
+  }
   markCurrentRows(state.current ? keyOf(state.current) : null);
   libList.querySelectorAll(".lib-item").forEach((li) => li.classList.toggle("playing-from", playingFrom(li.dataset.view)));
   syncPlayButtons();
@@ -1371,10 +1725,15 @@ export function initViews() {
   navWorkshop.addEventListener("click", () => showView("workshop"));
   // «Вид» в верхней полосе — пока открывает «Настройки → Оформление» (своя панель «Вид» — следующим шагом)
   document.getElementById("look-btn").addEventListener("click", () => {
-    showView("settings");
-    requestAnimationFrame(() => [...document.querySelectorAll(".set-nav-btn")]
-      .find((b) => b.textContent.trim() === "Оформление")?.click());
+    showView("settings").then(() => requestAnimationFrame(() => [...document.querySelectorAll(".set-nav-btn")]
+      .find((b) => b.textContent.trim() === "Оформление")?.click()));
   });
+  // Микрофон в капсуле: не на «Сейчас играет» — открыть её с текстом (а не просто переключить текст)
+  document.querySelector(".minibar .mini-right")?.addEventListener("click", (e) => {
+    if (!e.target.closest('[data-np="lyrics"]') || view === "now") return;
+    e.stopImmediatePropagation();
+    openLyrics();
+  }, true);
   // «+» в медиатеке: создать пустой плейлист или импортировать по ссылке
   const newBtn = document.getElementById("new-playlist");
   newBtn.addEventListener("click", () => openMenu(newBtn, [

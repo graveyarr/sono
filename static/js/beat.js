@@ -8,11 +8,13 @@
 import { animFrame } from "./raf.js";
 import { motionOff } from "./library.js";
 import { analyserNode, audioContext } from "./audio.js";
+import { bgBeat, bgBeatOn } from "./motion.js";
 
 const audio = document.getElementById("player");
 const root = document.documentElement;
 
 let wanted = false, running = false;
+let themeWants = false;   // тема просит удары (--beat: on); ещё их просит «Фон под бас» (motion.js)
 let buf = null, alpha = 0;
 let lastBeat = 0, count = 0, prev = 0;
 const hist = [];   // [время, энергия басов] за последние 0,6 с
@@ -50,12 +52,14 @@ function tick(ts) {
   if (e > avg * 1.45 && e > prev && e > 0.004 && ts - lastBeat > 200) {
     lastBeat = ts;
     count = (count % 4) + 1;
-    root.dataset.beat = String(count);
+    if (themeWants) root.dataset.beat = String(count);
+    bgBeat(count % 2 === 1);   // «Фон под бас»: 1-й и 3-й удар — сильнее
   }
   prev = e;
 }
 
 function refresh() {
+  wanted = themeWants || bgBeatOn();
   const run = wanted && !audio.paused && !document.hidden && !motionOff();
   if (run && !running) {
     running = true;
@@ -69,7 +73,7 @@ function refresh() {
 
 /** Тему поменяли — спрашиваем, нужны ли ей удары */
 function readTheme() {
-  wanted = getComputedStyle(root).getPropertyValue("--beat").trim() === "on";
+  themeWants = getComputedStyle(root).getPropertyValue("--beat").trim() === "on";
   refresh();
 }
 

@@ -3,6 +3,7 @@
 Запуск:  python app.py   → открыть http://127.0.0.1:5000
 """
 import base64
+import contextlib
 import hashlib
 import json
 import mimetypes
@@ -1250,10 +1251,24 @@ def get_cover_file(source: str, track_id: str, size: str) -> Path | None:
     target = COVER_DIR / f"{cache_key(source, track_id)}_{size}.jpg"
     if target.exists():
         return target
+    # Маленькой нет, а большая уже скачана (играющий трек, следующий в «Далее») — отдаём её сразу,
+    # без похода в сеть: в первый раз обложка SoundCloud готовится ~1 с, и место в списке стояло пустым
+    if size == "small" and (big := COVER_DIR / f"{cache_key(source, track_id)}_large.jpg").exists():
+        return big
     # Не вышло недавно — пока не пробуем: зависшая загрузка держит соединения (_SC_IMG_GATE) до ~20 с,
     # и если каждая перерисовка списка спрашивала бы её заново, остальные обложки ждали бы в очереди
     if time.time() - _cover_failed.get(target.name, 0) < 120:
         return get_cover_file(source, track_id, "small") if size == "large" else None
+    # Ту же обложку спросили дважды сразу (картинка в списке и загрузка заранее) — качаем один раз
+    with _cover_locks_guard:
+        lock = _cover_locks.setdefault(target.name, threading.Lock())
+    with lock:
+        if target.exists():
+            return target
+        return _download_cover(source, track_id, size, target)
+
+
+def _download_cover(source: str, track_id: str, size: str, target: Path) -> Path | None:
     try:
         urls = cover_urls(source, track_id, size)
     except Exception as e:
@@ -1264,7 +1279,7 @@ def get_cover_file(source: str, track_id: str, size: str) -> Path | None:
         print(f"[cover] {source} {track_id}: у трека нет обложки")
     for url in urls:
         try:
-            target.write_bytes(get_image(url))
+            target.write_bytes(get_image(url, urgent=size == "small"))
             print(f"[cover] {source} {track_id} {size}")
             return target
         except Exception as e:   # 404 — следующий адрес (у YouTube их несколько)
@@ -1278,16 +1293,41 @@ def get_cover_file(source: str, track_id: str, size: str) -> Path | None:
 
 
 _cover_failed: dict[str, float] = {}   # файл обложки -> когда не удалось скачать
+_cover_locks: dict[str, threading.Lock] = {}   # файл обложки -> идёт его загрузка
+_cover_locks_guard = threading.Lock()
 
 
 IMG_PART = 12 * 1024   # кусочек картинки SoundCloud — меньше порога заморозки (~16 КБ)
 _IMG_POOL = ThreadPoolExecutor(4, thread_name_prefix="img")
-# Не больше 3 соединений с картинками SoundCloud сразу (на все обложки страницы вместе): при 6 одновременных
-# фильтр часть замораживал — как и с подделками (netbypass._FAKE_GATE)
-_SC_IMG_GATE = threading.Semaphore(3)
+class _ImageGate:
+    """Не больше 3 соединений с картинками SoundCloud сразу (на все обложки страницы вместе): при 6 одновременных
+    фильтр часть замораживал — как и с подделками (netbypass._FAKE_GATE). Маленькие обложки (списки, «Далее»)
+    проходят вперёд кусочков больших: одна большая — до 8 кусочков, и маленькая ждала их по 2–3 с"""
+
+    def __init__(self, n: int):
+        self._free, self._urgent = n, 0
+        self._cv = threading.Condition()
+
+    @contextlib.contextmanager
+    def __call__(self, urgent: bool = False):
+        with self._cv:
+            self._urgent += urgent
+            while not self._free or (not urgent and self._urgent):
+                self._cv.wait()
+            self._urgent -= urgent
+            self._free -= 1
+        try:
+            yield
+        finally:
+            with self._cv:
+                self._free += 1
+                self._cv.notify_all()
 
 
-def get_image(url: str) -> bytes:
+_SC_IMG_GATE = _ImageGate(3)
+
+
+def get_image(url: str, urgent: bool = False) -> bytes:
     """Картинка по адресу — через обход/прокси, как всё остальное.
     Картинки SoundCloud лежат в той же сети Amazon CloudFront, что и звук, а там провайдер «замораживает»
     соединение после первых 16 КБ (замер 7 ноября 2026, «Мимо VPN»: ровно 16384 байта — и тишина; маленькие
@@ -1308,7 +1348,7 @@ def get_image(url: str) -> bytes:
         # requests.get — новая сессия, а значит и новое соединение (через прокси из переменных окружения)
         for attempt in range(3):
             try:
-                with _SC_IMG_GATE:
+                with _SC_IMG_GATE(urgent):
                     resp = requests.get(url, timeout=(6, 6), headers={
                         **headers, "Range": f"bytes={start}-{start + IMG_PART - 1}", "Connection": "close"})
                 resp.raise_for_status()

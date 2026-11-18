@@ -62,7 +62,8 @@ const TIPS = [
   {
     id: "flow", title: "Flow учится на вас",
     text: "Пропущенное звучит реже, дослушанное и ♡ — чаще, а «Не нравится» убирает трек совсем. Чем больше слушаете, тем точнее подборка.",
-    anchor: () => (state.context?.type === "flow" ? firstVisible('[data-np="dislike"]:not(:disabled)') : null),
+    // На ПК «Не нравится» спрятано в «⋯» капсулы — тогда подсказка у «⋯»
+    anchor: () => (state.context?.type === "flow" ? firstVisible('[data-np="dislike"]:not(:disabled)') ?? firstVisible("#minibar .mini-more") : null),
   },
   {
     id: "lyrics", title: "Текст песни",

@@ -84,7 +84,8 @@ function start(minutes) {
   sync();
 }
 
-function openSleepMenu(anchor) {
+/** Пункты меню таймера: и для кнопки-луны, и для подменю «⋯» в капсуле (capsule.js) */
+export function sleepMenuItems() {
   const items = [];
   if (active()) {
     items.push({ note: deadline ? `Выключится через ${minutesLeft()} мин` : "Выключится в конце трека" });
@@ -93,7 +94,14 @@ function openSleepMenu(anchor) {
   }
   MINUTES.forEach((m) => items.push({ label: `${m} минут`, icon: icons.clock, action: () => start(m) }));
   items.push({ label: "До конца трека", icon: icons.moon, action: () => start("track") });
-  openMenu(anchor, items);
+  return items;
+}
+
+/** Таймер сна включён — капсула показывает луну, пока он идёт */
+export const sleepActive = active;
+
+function openSleepMenu(anchor) {
+  openMenu(anchor, sleepMenuItems());
 }
 
 export function initSleepButton() {

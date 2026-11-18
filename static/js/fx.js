@@ -127,6 +127,9 @@ function place(anchor) {
   panel.style.top = `${Math.max(12, top)}px`;
 }
 
+/** Открыть панель эффектов над кнопкой (и из меню «⋯» капсулы — capsule.js) */
+export function openFxPanel(anchor) { open(anchor); }
+
 function open(anchor) {
   if (panel) return close();
   panel = el("div", "fx-panel");

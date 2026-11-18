@@ -313,6 +313,15 @@ function appearanceSection() {
     : "Для слабых компьютеров: ничего не движется само — без плавных переходов, визуализации и живых фонов. "
       + "Sono работает так же, только меньше нагружает компьютер.",
     motionOff(), (on) => { setSetting("reduceMotion", on); applyMotion(); refreshViz(); }));
+  // «Живая обложка» (ПК): движение мягче или фон под музыку (motion.js; телефон — отдельным шагом)
+  if (!isMobile) {
+    section.append(switchRow("Меньше движения",
+      "Только мягкие проявления: фон не плывёт, обложки и экраны не перелетают. Если анимации выключены в Windows — так всегда.",
+      getSetting("calmMotion", false) === true, (on) => { setSetting("calmMotion", on); applyMotion(); }));
+    section.append(switchRow("Фон под бас",
+      "Фон слегка вздрагивает на ударах баса, а снизу вспыхивает свет цвета обложки.",
+      getSetting("bgBeat", false) === true, (on) => { setSetting("bgBeat", on); applyMotion(); }));
+  }
   section.append(switchRow("Клипы вместо обложки",
     "Если у трека есть официальный клип на YouTube, на «Сейчас играет» вместо обложки идёт он — без звука, вместе с музыкой. "
       + "Берёт больше интернета (примерно 2–4 МБ в минуту).",
