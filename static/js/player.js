@@ -594,9 +594,37 @@ function applyCoverColors(img) {
   // оттенка обложки (бежевая → тёплый); у совсем серой оттенка нет — тогда фиолетовый Sono
   document.querySelector(".backdrop")?.classList.toggle("dull", s < 38);
   root.setProperty("--glow-color", s < 12 ? "hsl(262 70% 62%)" : `hsl(${h.toFixed(0)} 72% 62%)`);
+  if (fixedAccent) return applyFixedAccent();
   if (coverMode === "off") return;
   if (coverMode !== "accent") root.setProperty("--tint", tint);
   if (coverMode !== "tint") root.setProperty("--accent", accent);
+}
+
+// Свой цвет из панели «Вид» (look.js): один для всех песен — вместо цвета обложки. Фон (style.css → body.look-fixed)
+// тогда из пятен этого цвета, стекло — его тёмный вариант
+let fixedAccent = null;
+const hexHsl = (hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  const s = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
+  const h = !d ? 0 : max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s * 100, l * 100];
+};
+function applyFixedAccent() {
+  const root = document.documentElement.style;
+  const [h, s] = hexHsl(fixedAccent);
+  if (coverMode !== "off" && coverMode !== "accent") root.setProperty("--tint", `hsl(${h.toFixed(0)} ${Math.min(s, 65).toFixed(0)}% 15%)`);
+  root.setProperty("--accent", fixedAccent);
+  root.setProperty("--glow-color", fixedAccent);
+}
+
+/** hex — свой цвет («#rrggbb»), null — снова под обложку */
+export function setFixedAccent(hex) {
+  const next = /^#[0-9a-f]{6}$/i.test(hex || "") ? hex : null;
+  if (next === fixedAccent) return;
+  fixedAccent = next;
+  if (lastCoverImg && state.current) applyCoverColors(lastCoverImg);
+  else { resetCoverColors(); if (fixedAccent) applyFixedAccent(); }
 }
 
 function resetCoverColors() {

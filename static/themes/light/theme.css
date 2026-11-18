@@ -77,3 +77,6 @@ button.play { background: #1c1c1c; color: #fff; }
 .home-card .tile-play { background: #17111f; color: #fff; }
 .ls-words .lyrics-line.past .lw { color: rgb(var(--fg-rgb) / 0.68); }
 .ls-words .lyrics-line.active .lw.lit { text-shadow: 0 0 24px rgba(255, 255, 255, 0.9); }
+
+/* Панель «Вид» (look.js): выбранное в переключателе — белое, как в макете B-vid (светлая) */
+.lk-seg > i { background: #fff; }

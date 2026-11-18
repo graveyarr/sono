@@ -31,6 +31,7 @@ from werkzeug.exceptions import HTTPException
 
 import appupdate
 import artists
+import backgrounds
 import credits
 import discord_rpc
 import flow
@@ -2519,6 +2520,50 @@ def api_theme_editor_upload():
     except (ValueError, OSError) as e:
         return jsonify(error=f"Не получилось добавить файл: {e}"), 400
     return jsonify(ok=True, file=file_name)
+
+
+# ---------- Свои фоны панели «Вид» (backgrounds.py, страница — js/look.js) ----------
+
+@app.get("/api/backgrounds")
+def api_backgrounds():
+    """Свои фоны (новые первыми) и примеры."""
+    return jsonify(items=backgrounds.list_all())
+
+
+@app.post("/api/backgrounds")
+def api_background_add():
+    """Картинка или GIF — тело запроса целиком (?keep=имя выбранного сейчас фона — его уборка не удалит)."""
+    if (request.content_length or 0) > backgrounds.MAX_SIZE + 1024:
+        return jsonify(error="Файл больше 20 МБ"), 413
+    try:
+        name = backgrounds.save(request.get_data(cache=False), keep=request.args.get("keep", ""))
+    except (ValueError, OSError) as e:
+        return jsonify(error=f"Не получилось добавить фон: {e}"), 400
+    return jsonify(ok=True, id=f"user:{name}", src=f"/api/backgrounds/{name}")
+
+
+@app.get("/api/backgrounds/<name>")
+def api_background_file(name):
+    try:
+        path, mime = backgrounds.path_of(name)
+    except ValueError:
+        abort(404)
+    return send_file(path, mimetype=mime, max_age=86400)   # имя — хэш содержимого: файл под ним не меняется
+
+
+@app.post("/api/backgrounds/<name>/used")
+def api_background_used(name):
+    backgrounds.touch(name)
+    return jsonify(ok=True)
+
+
+@app.delete("/api/backgrounds/<name>")
+def api_background_delete(name):
+    try:
+        backgrounds.delete(name)
+    except (ValueError, OSError):
+        abort(404)
+    return jsonify(ok=True)
 
 
 @app.delete("/api/themes/user/<name>")

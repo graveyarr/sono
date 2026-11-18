@@ -4436,3 +4436,236 @@ body.mobile .track .pl-recs-add { opacity: 1; }   /* на телефоне кн�
 .set-subblock { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
 .set-subtitle { margin: 0 0 6px; font-size: 16px; }
 .set-subblock .set-result-line { margin: 0 0 12px; }
+
+/* ---------- Панель «Вид» (ПК, look.js; макет — design/ui-new/B-vid.html) ----------
+   Выезжает справа, окно слева сужается — видно всё, что меняется. До 1500 px медиатека на это время прячется */
+.lk-panel {
+  position: fixed; z-index: 45;
+  top: var(--gap); right: var(--gap); bottom: var(--gap);
+  width: 440px;
+  display: flex; flex-direction: column;
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--tint) 35%, rgb(var(--shade-rgb) / 0.35));
+  box-shadow: -20px 0 60px -30px rgb(var(--shade-rgb) / 0.5);
+  translate: calc(100% + 30px) 0; opacity: 0; visibility: hidden;
+  transition: translate 0.6s var(--ease), opacity 0.35s, visibility 0s 0.6s, background-color 1.4s var(--ease);
+}
+body.custom-titlebar .lk-panel { top: calc(var(--titlebar) + 10px); }
+body.look-open .lk-panel { translate: 0 0; opacity: 1; visibility: visible; transition: translate 0.6s var(--ease), opacity 0.35s, background-color 1.4s var(--ease); }
+body.mobile .lk-panel { display: none; }
+.lk-head { display: flex; align-items: flex-start; gap: 10px; padding: 20px 18px 10px 24px; }
+.lk-head > div { flex: 1; }
+.lk-head h2 { margin: 0; font: 800 26px/1.15 var(--font-display); letter-spacing: -0.8px; }
+.lk-head p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.lk-x { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
+.lk-x svg { width: 20px; height: 20px; }
+.lk-x:hover { background: var(--glass-hi); color: var(--text); }
+.lk-body { flex: 1; min-height: 0; overflow: auto; padding: 4px 22px 18px; scrollbar-width: thin; scrollbar-color: rgb(var(--fg-rgb) / 0.25) transparent; }
+.lk-foot { display: flex; gap: 8px; padding: 12px 18px 18px; border-top: 1px solid var(--edge); }
+.lk-foot button { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px; border: 0; border-radius: 20px; background: none; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.lk-foot button:hover { color: var(--text); background: var(--glass-hi); }
+.lk-foot .go { margin-left: auto; }
+.lk-foot svg, .lk-link svg { width: 14px; height: 14px; }
+
+/* Окно сужается под панель; капсула — по центру оставшейся части */
+body:not(.mobile) { transition: grid-template-columns 0.45s var(--ease), column-gap 0.45s var(--ease), padding-right 0.6s var(--ease); }
+body.look-open:not(.mobile) { padding-right: calc(var(--gap) * 2 + 440px); }
+body.look-open:not(.mobile) .minibar {
+  right: calc(var(--gap) * 2 + 440px);
+  width: min(900px, calc(100vw - var(--sidebar) - var(--gap) * 4 - 40px - 440px));
+}
+.look-btn.on { background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb)); }
+.look-btn.on:hover { background: rgb(var(--fg-rgb) / 0.85); color: rgb(var(--shade-rgb)); }
+@media (max-width: 1500px) {
+  body.look-open:not(.mobile) { --sidebar: 0px; column-gap: 0px; }
+  body.look-open:not(.mobile) .sidebar { opacity: 0; transform: translateX(-24px); pointer-events: none; border-width: 0; padding-inline: 0; }
+  body.look-open:not(.mobile) .sidebar-toggle { opacity: 0; pointer-events: none; }
+  /* Капсула узкая — название не должно сжиматься в «S…»: на время панели без «Перемешать», «Повтора» и «Очереди» */
+  body.look-open:not(.mobile) .minibar { grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr); }
+  body.look-open:not(.mobile) .minibar :is([data-np="shuffle"], [data-np="repeat"], .mini-right [data-np="queue"]) { display: none; }
+}
+
+/* Разделы */
+.lk-sec { padding: 18px 0 4px; }
+.lk-sec + .lk-sec { border-top: 1px solid var(--edge); }
+.lk-sec h3 { margin: 0 0 10px; font-size: 15px; font-weight: 700; }
+.lk-note { margin-top: 8px; font-size: 12.5px; line-height: 1.35; color: var(--faint); }
+.lk-note:empty { display: none; }
+.lk-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.lk-link { text-decoration: underline; text-underline-offset: 2px; }
+.lk-link:hover { text-decoration-thickness: 2px; }
+/* Переключатель из частей; подсветка переезжает */
+.lk-seg { position: relative; display: flex; padding: 4px; border-radius: 16px; background: rgb(var(--fg-rgb) / 0.08); }
+.lk-seg > i { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: 0; border-radius: 12px; background: rgb(var(--fg-rgb) / 0.16); box-shadow: 0 4px 12px -6px rgb(var(--shade-rgb) / 0.4); transition: translate 0.5s var(--ease), width 0.5s var(--ease), opacity 0.3s; }
+.lk-seg button { position: relative; z-index: 1; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; border: 0; border-radius: 12px; background: none; font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--muted); cursor: pointer; }
+.lk-seg button svg { width: 16px; height: 16px; }
+.lk-seg button.on { color: var(--text); }
+/* Цвета */
+.lk-sw { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+.lk-sw button { position: relative; aspect-ratio: 1; padding: 0; border: 0; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgb(var(--fg-rgb) / 0.2); cursor: pointer; transition: scale 0.35s var(--spring); }
+.lk-sw button:hover { scale: 1.1; }
+.lk-sw button.on { box-shadow: 0 0 0 2px rgb(var(--fg-rgb)), 0 0 0 4px var(--c, var(--accent)); }
+.lk-sw button.on::after { content: ""; position: absolute; inset: 31%; border: solid #fff; border-width: 0 2.5px 2.5px 0; rotate: 45deg; translate: 0 -12%; scale: 0.75 1; filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.4)); }
+.lk-sw .cover { background: var(--cv, rgb(var(--fg-rgb) / 0.2)) center / cover; }
+.lk-sw .cover b { position: absolute; left: 50%; bottom: -5px; translate: -50% 0; padding: 1px 5px; border-radius: 6px; background: #fff; color: #1a0a24; font-size: 9px; font-weight: 800; letter-spacing: 0.3px; white-space: nowrap; }
+/* Плитки с маленькими образцами (нарисованы CSS, обложка — того, что играет) */
+.lk-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 20px; }
+.lk-tiles.four { grid-template-columns: repeat(4, 1fr); }
+.lk-tile { display: flex; flex-direction: column; gap: 7px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; text-align: left; color: var(--muted); cursor: pointer; }
+.lk-tile .pv { position: relative; height: 66px; border-radius: 14px; overflow: hidden; background: rgb(var(--fg-rgb) / 0.08); box-shadow: inset 0 0 0 1px var(--edge); transition: box-shadow 0.3s, translate 0.4s var(--ease); }
+.lk-tiles.four .pv { height: 56px; }
+.lk-tile:hover .pv { translate: 0 -2px; }
+.lk-tile.on { color: var(--text); }
+.lk-tile.on .pv { box-shadow: 0 0 0 2px var(--ink); }
+.lk-tile .pv::after {
+  content: ""; position: absolute; right: 6px; top: 6px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m6 12.5 4 4 8-9' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 11px no-repeat;
+  scale: 0; transition: scale 0.4s var(--spring);
+}
+.lk-tile.on .pv::after { scale: 1; }
+.pv .cv { position: absolute; border-radius: 4px; background: var(--cv) center / cover; }
+.pv .ln { position: absolute; height: 4px; border-radius: 2px; background: rgb(var(--fg-rgb) / 0.45); }
+.pv .ln.hi { background: rgb(var(--fg-rgb) / 0.9); }
+.pv .blob { position: absolute; inset: -30%; background: var(--cv) center / cover; filter: blur(12px) saturate(1.8); }
+.pv .blob.move { animation: lk-drift 6s ease-in-out infinite alternate; }
+@keyframes lk-drift { to { transform: translate(14%, 8%) rotate(30deg) scale(1.15); } }
+.pv .disc { position: absolute; border-radius: 50%; background: radial-gradient(circle, #111 0 9%, transparent 9.5%), repeating-radial-gradient(circle, #151515 0 1.5px, #222 1.5px 3px); box-shadow: 0 4px 10px rgb(0 0 0 / 0.4); }
+.pv .disc::before { content: ""; position: absolute; inset: 30%; border-radius: 50%; background: var(--cv) center / cover; }
+.pv .disc::after { content: ""; position: absolute; inset: 46%; border-radius: 50%; background: #111; }
+.pv .disc.spin { animation: lk-spin 4s linear infinite; }
+@keyframes lk-spin { to { rotate: 360deg; } }
+.pv .cpill { position: absolute; left: 10%; right: 10%; bottom: 14px; height: 22px; border-radius: 11px; background: rgb(var(--fg-rgb) / 0.14); overflow: hidden; }
+.pv .cpill .edge { position: absolute; left: 0; bottom: 0; height: 2px; width: 45%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.pv .bars { position: absolute; left: 10%; right: 10%; bottom: 8px; height: 14px; display: flex; align-items: flex-end; gap: 1.5px; }
+.pv .bars i { flex: 1; border-radius: 1px; background: rgb(var(--fg-rgb) / 0.35); transform-origin: bottom; }
+.pv .bars i.on { background: var(--accent); }
+.pv .bars.jump i { animation: lk-bar 0.9s ease-in-out infinite alternate; }
+@keyframes lk-bar { from { scale: 1 0.3; } }
+.pv .plain { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 12%, rgb(var(--shade-rgb))); }
+.pv .own { position: absolute; inset: 0; background: var(--own, none) center / cover; }
+body.calm .pv :is(.blob, .disc, .bars i) { animation: none; }
+/* «Свой фон» */
+.lk-own { display: none; margin-top: 14px; padding: 14px; border-radius: 20px; background: rgb(var(--fg-rgb) / 0.06); box-shadow: inset 0 0 0 1px var(--edge); }
+.lk-own.show { display: block; animation: lk-in 0.5s var(--ease); }
+@keyframes lk-in { from { opacity: 0; transform: translateY(-6px); } }
+.lk-drop { position: relative; display: flex; align-items: center; gap: 12px; padding: 14px; border: 1.5px dashed rgb(var(--fg-rgb) / 0.3); border-radius: 16px; color: var(--muted); font-size: 13px; line-height: 1.35; cursor: pointer; transition: border-color 0.3s, background-color 0.3s; }
+.lk-drop b { display: block; font-size: 14px; color: var(--text); }
+.lk-drop:hover, .lk-drop.over { border-color: var(--ink); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.lk-drop input { display: none; }
+.lk-drop .ic { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 12px; background: rgb(var(--fg-rgb) / 0.1); color: var(--text); }
+.lk-drop .ic svg { width: 22px; height: 22px; }
+.lk-lib { display: flex; gap: 8px; margin-top: 12px; padding: 3px; overflow-x: auto; scrollbar-width: none; }
+.lk-lib button { position: relative; flex: none; width: 62px; height: 46px; padding: 0; border: 0; border-radius: 11px; background: var(--img) center / cover; box-shadow: inset 0 0 0 1px rgb(var(--fg-rgb) / 0.2); cursor: pointer; transition: box-shadow 0.3s, scale 0.3s var(--spring); }
+.lk-lib button:hover { scale: 1.05; }
+.lk-lib button.on { box-shadow: 0 0 0 2px var(--ink); }
+.lk-lib button span { position: absolute; left: 4px; bottom: 3px; padding: 0 4px; border-radius: 4px; background: rgb(0 0 0 / 0.6); color: #fff; font-size: 9px; font-weight: 800; }
+.lk-lib-del { position: absolute; right: 3px; top: 3px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: rgb(0 0 0 / 0.65); color: #fff; opacity: 0; transition: opacity 0.2s; }
+.lk-lib-del svg { width: 12px; height: 12px; }
+.lk-lib button:hover .lk-lib-del { opacity: 1; }
+.lk-range { margin-top: 14px; }
+.lk-range label { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.lk-range label span { color: var(--faint); font-variant-numeric: tabular-nums; }
+.lk-range input { --fill: var(--ink); height: 22px; }
+.lk-range input::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; }
+/* Выключатель */
+.lk-sw-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; cursor: pointer; }
+.lk-sw-row > div { flex: 1; }
+.lk-sw-row b { display: block; font-size: 14px; font-weight: 600; }
+.lk-sw-row span { font-size: 12.5px; color: var(--faint); }
+.lk-tg { position: relative; width: 44px; height: 26px; flex: none; border-radius: 13px; background: rgb(var(--fg-rgb) / 0.25); transition: background-color 0.3s; }
+.lk-tg::after { content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgb(0 0 0 / 0.3); transition: translate 0.4s var(--spring); }
+.lk-sw-row.on .lk-tg { background: var(--ink); }
+.lk-sw-row.on .lk-tg::after { translate: 18px 0; }
+
+/* ---------- Что меняет «Вид» (ПК) ---------- */
+/* Фон: без движения / однотонный / свой; свой цвет — пятна этого цвета вместо обложки */
+body:not(.mobile)[data-look-bg="still"] :is(.bg-art, .bg-art i) { animation-play-state: paused; }
+body:not(.mobile):is([data-look-bg="own"], [data-look-bg="plain"]) :is(.bg-art, .bg-glow) { opacity: 0 !important; }
+body:not(.mobile).look-fixed:is([data-look-bg="live"], [data-look-bg="still"]) .bg-art { opacity: 0 !important; }
+body:not(.mobile).look-fixed:is([data-look-bg="live"], [data-look-bg="still"]) .bg-glow { opacity: 0.85 !important; animation: look-tint 24s ease-in-out infinite alternate; }
+body:not(.mobile).look-fixed[data-look-bg="still"] .bg-glow { animation-play-state: paused; }
+@keyframes look-tint { to { transform: translate(4%, 6%) scale(1.1); } }
+.own-bg { position: absolute; inset: 0; overflow: hidden; opacity: 0; pointer-events: none; transition: opacity 0.9s var(--ease); }
+.own-bg i { position: absolute; inset: calc(var(--own-blur, 0px) * -2); background: var(--own) center / cover no-repeat; filter: blur(var(--own-blur, 0px)); }
+.own-bg::after { content: ""; position: absolute; inset: 0; background: rgb(var(--shade-rgb) / var(--own-dim, 0.35)); }
+body:not(.mobile)[data-look-bg="own"] .own-bg { opacity: 1; }
+
+/* «Сейчас играет»: пластинка — обложка на виниле, крутится, пока играет; блик стоит на месте */
+body:not(.mobile)[data-look-now="vinyl"] .view-now .cover-wrap {
+  border-radius: 50%; padding: 17%; aspect-ratio: 1;
+  background:
+    radial-gradient(circle, transparent 0 32%, rgb(255 255 255 / 0.07) 32.4% 33%, transparent 33.4%),
+    repeating-radial-gradient(circle, #121014 0 2px, #1c1920 2px 4px);
+  animation: lk-spin 14s linear infinite; animation-play-state: paused;
+}
+body.playing:not(.mobile)[data-look-now="vinyl"] .view-now .cover-wrap { animation-play-state: running; }
+body.calm:not(.mobile)[data-look-now="vinyl"] .view-now .cover-wrap { animation: none; }
+body:not(.mobile)[data-look-now="vinyl"] .view-now #cover { inset: 17%; width: 66%; height: 66%; border-radius: 50%; }
+body:not(.mobile)[data-look-now="vinyl"] .view-now .cover-placeholder { inset: 17%; border-radius: 50%; }
+body:not(.mobile)[data-look-now="vinyl"] .view-now #clip { display: none; }
+body:not(.mobile)[data-look-now="vinyl"] .view-now .cover-wrap::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 4%; aspect-ratio: 1; translate: -50% -50%;
+  border-radius: 50%; background: #0b090d; box-shadow: 0 0 0 2px rgb(255 255 255 / 0.15);
+}
+body:not(.mobile)[data-look-now="vinyl"] .view-now .cover-stage::after {
+  content: ""; position: absolute; z-index: 2; left: 0; top: 0; width: 100%; aspect-ratio: 1; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from 20deg, transparent 0 8%, rgb(255 255 255 / 0.13) 13%, transparent 19% 56%, rgb(255 255 255 / 0.09) 62%, transparent 68%);
+  transition: scale 0.7s var(--spring);
+}
+body:not(.mobile).has-track:not(.playing)[data-look-now="vinyl"] .view-now .cover-stage::after { scale: 0.9; }
+/* Большой — одна огромная обложка посередине, без текста песни */
+body:not(.mobile)[data-look-now="big"] .np-stage { grid-template-columns: minmax(0, 1fr) !important; }
+body:not(.mobile)[data-look-now="big"] .np-stage > :is(.lyrics, .up-next) { display: none; }
+body:not(.mobile)[data-look-now="big"] .np-stage > .deck { justify-self: center !important; width: min(100%, 680px, 62vh); }
+body:not(.mobile)[data-look-now="big"] .view-now .np-row { text-align: center; }
+body:not(.mobile)[data-look-now="big"] .view-now .info h1 { font-size: 52px; letter-spacing: -1.5px; }
+body:not(.mobile)[data-look-now="big"] .view-now .np-actions { justify-content: center; }
+body:not(.mobile)[data-look-now="big"] :is(.view-now .np-actions, .minibar) [data-np="lyrics"] { display: none; }
+
+/* Очередь на «Сейчас играет»: справа — колонкой, снизу — четыре карточки. Пока открыта большая «Очередь»
+   (кнопкой; .show-queue без текста) — её не дублируем */
+.np-queue { display: none; }
+body:not(.mobile):is([data-look-queue="right"], [data-look-queue="bottom"]):not(.show-queue:not(.show-lyrics)) .np-queue:not([hidden]) { display: block; }
+.np-queue { padding: 16px 12px; align-self: center; text-align: left; }
+.np-queue h5 { margin: 0 8px 8px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.np-queue-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 7px 8px; border: 0; border-radius: 14px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background-color 0.25s, translate 0.35s var(--ease); }
+.np-queue-row:hover { background: var(--glass-hi); translate: -3px 0; }
+.np-queue-row .nc-next-art { width: 46px; height: 46px; }
+.np-queue-text { min-width: 0; display: flex; flex-direction: column; }
+.np-queue-text b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-queue-text span { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body:not(.mobile)[data-look-queue="right"]:not(.show-queue:not(.show-lyrics)) .np-stage { grid-template-columns: minmax(0, 1fr) 290px; gap: 40px; }
+body:not(.mobile)[data-look-queue="right"].show-lyrics:not(.show-queue:not(.show-lyrics)):not([data-look-now="big"]) .np-stage { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) 290px; }
+body:not(.mobile)[data-look-queue="right"]:not(.show-queue:not(.show-lyrics)) .np-stage > .deck { justify-self: end; }
+body:not(.mobile)[data-look-queue="right"][data-look-now="big"]:not(.show-queue:not(.show-lyrics)) .np-stage { grid-template-columns: minmax(0, 1fr) 290px !important; }
+body:not(.mobile)[data-look-queue="right"] .np-queue { width: 100%; }
+body:not(.mobile)[data-look-queue="bottom"]:not(.show-queue:not(.show-lyrics)) .np-stage { grid-template-rows: minmax(0, 1fr) auto; row-gap: 22px; }
+body:not(.mobile)[data-look-queue="bottom"] .np-queue { grid-column: 1 / -1; justify-self: stretch; align-self: end; padding: 12px; }
+body:not(.mobile)[data-look-queue="bottom"] .np-queue h5 { display: none; }
+/* Кнопки под названием обычно висят ниже (absolute) — над очередью снизу им нужно своё место */
+body:not(.mobile)[data-look-queue="bottom"]:not(.show-queue:not(.show-lyrics)) .view-now .np-actions { position: static; }
+body:not(.mobile)[data-look-queue="bottom"]:not(.show-queue:not(.show-lyrics)) .view-now .status { margin-top: 12px; }
+body:not(.mobile)[data-look-queue="bottom"] .np-queue-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+body:not(.mobile)[data-look-queue="bottom"] .np-queue-row:nth-child(n+5) { display: none; }
+body:not(.mobile)[data-look-queue="bottom"] .np-queue-row:hover { translate: 0 -2px; }
+body:not(.mobile)[data-look-queue="bottom"]:not(.show-queue:not(.show-lyrics)) .np-stage > .deck { width: min(100%, 520px, 46vh); }
+body:not(.mobile)[data-look-queue="bottom"]:not(.show-queue:not(.show-lyrics)) .lyrics.ls-words { height: min(48vh, 520px); }
+@media (max-width: 1500px) {
+  body:not(.mobile)[data-look-queue="bottom"] .np-queue-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  body:not(.mobile)[data-look-queue="bottom"] .np-queue-row:nth-child(4) { display: none; }
+}
+
+/* Полоска времени в капсуле: волна трека / живая — столбики по низу капсулы (look.js), капсула чуть выше */
+.cap-wave { display: none; }
+body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .cap-wave {
+  position: absolute; z-index: 1; left: 46px; right: 46px; bottom: 8px; height: 14px;
+  display: flex; align-items: flex-end; gap: 2px; pointer-events: none;
+}
+.cap-wave i { flex: 1; height: 30%; border-radius: 1.5px; background: rgb(var(--fg-rgb) / 0.26); transition: height 0.14s linear, background-color 0.3s; }
+.cap-wave i.on { background: var(--accent); box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent); }
+body:not(.mobile).has-track:is([data-look-seek="wave"], [data-look-seek="live"]) .minibar { height: 90px; padding-bottom: 14px; }
+body.minibar-large:not(.mobile).has-track:is([data-look-seek="wave"], [data-look-seek="live"]) .minibar { height: 100px; }
+body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .minibar .mini-progress::before,
+body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .minibar .mini-progress::after { opacity: 0; }
+body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .minibar .mini-progress input { left: 46px; right: 46px; width: auto; height: 26px; background: none; }
+body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .minibar .mini-progress input::-webkit-slider-runnable-track { height: 26px; }

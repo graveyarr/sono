@@ -24,6 +24,7 @@ import { releaseCard, renderReleases } from "./releaseview.js";
 import { recsSection } from "./recs.js";
 import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, recentOf, renameFolder, sidebarSignature, sortMenuItems, toggleFolder, toolsRow } from "./libtools.js";
 import { localTracks } from "./local.js";
+import { lookTrackChanged } from "./look.js";
 import { countDownloaded, download, removeDownload, setAutoList, songsToDownload } from "./downloads.js";
 import { renderSettings } from "./settings.js";
 import { artistLinks, choiceDialog, collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
@@ -1685,6 +1686,7 @@ const isListView = () => !!view && !FIXED_VIEWS.includes(view) && !isMetaView(vi
 /** Сменился трек (или очередь) — подсветить его в списках и в медиатеке, обновить «Далее» */
 export function refreshPlaying() {
   if (view === "now") renderUpNext();
+  lookTrackChanged();   // очередь на «Сейчас играет» (справа/снизу) и образцы в панели «Вид»
   // Карточка «Сейчас играет» на «Главной»: трек сменился — обложка, название и «Далее» меняются на глазах
   if (view === "home" && liveUi()) {
     if (state.current && nowCardEl?.isConnected) updateNowCard(true);
@@ -1723,11 +1725,7 @@ export function initViews() {
   navReleases.addEventListener("click", () => showView("releases"));
   navStats.addEventListener("click", () => showView("stats"));
   navWorkshop.addEventListener("click", () => showView("workshop"));
-  // «Вид» в верхней полосе — пока открывает «Настройки → Оформление» (своя панель «Вид» — следующим шагом)
-  document.getElementById("look-btn").addEventListener("click", () => {
-    showView("settings").then(() => requestAnimationFrame(() => [...document.querySelectorAll(".set-nav-btn")]
-      .find((b) => b.textContent.trim() === "Оформление")?.click()));
-  });
+  // «Вид» в верхней полосе — панель справа (look.js → initLook); на телефоне кнопки нет
   // Микрофон в капсуле: не на «Сейчас играет» — открыть её с текстом (а не просто переключить текст)
   document.querySelector(".minibar .mini-right")?.addEventListener("click", (e) => {
     if (!e.target.closest('[data-np="lyrics"]') || view === "now") return;
