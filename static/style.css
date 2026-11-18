@@ -8,8 +8,8 @@
   /* Полупрозрачная подложка панелей поверх фона («Очередь», «Текст», карточки списков и настроек) — R G B.
      Подложки поверх картинок (подписи на обложках, «Итоги года») всегда тёмные и от неё не зависят */
   --shade-rgb: 0 0 0;
-  --search-bg: rgba(18, 18, 18, 0.7);
-  --search-bg-hover: rgba(30, 30, 30, 0.75);
+  --search-bg: var(--glass);
+  --search-bg-hover: color-mix(in srgb, var(--glass) 70%, rgb(var(--fg-rgb) / 0.1));
   --menu-bg: rgba(38, 38, 38, 0.97);     /* меню «⋯» и выпадающие списки */
   --dialog-bg: rgba(34, 34, 34, 0.98);   /* окна-диалоги и карточки экскурсии */
   --muted: rgb(var(--fg-rgb) / 0.62);
@@ -17,20 +17,27 @@
   --line: rgb(var(--fg-rgb) / 0.1);
   --hover: rgb(var(--fg-rgb) / 0.08);
   --panel: rgba(30, 30, 30, 0.9);
-  --glass: rgba(10, 10, 10, 0.32);
+  /* Стекло панелей — тёмное, чуть окрашенное цветом обложки («Живая обложка») */
+  --glass: color-mix(in srgb, var(--tint) 42%, rgb(0 0 0 / 0.22));
+  --glass-hi: rgb(var(--fg-rgb) / 0.08);   /* выбранное и наведённое на стекле */
+  --edge: rgb(var(--fg-rgb) / 0.1);        /* тонкая кромка стекла */
   --error: #ff8a80;
 
   /* Эти два цвета подбирает player.js по обложке текущего трека */
   --tint: #161616;
   --accent: #fff;
 
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --sidebar: 264px;
-  --gap: 8px;                          /* расстояние между панелями */
+  /* Мелкий текст цвета обложки: на тёмном — сам акцент, в светлой теме — притемнённый (THEMES.md) */
+  --ink: var(--accent);
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);      /* одна «пружина» на всё: быстрое начало, мягкая остановка */
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);  /* с лёгким отскоком */
+  --sidebar: 272px;
+  --gap: 14px;                         /* расстояние между панелями */
   --pad: 48px;                         /* отступ содержимого от краёв основной панели (слева — место под «ручку») */
   --deck: clamp(260px, 44vh, 420px);   /* ширина колонки «Сейчас играет» = ширина обложки */
 
-  --radius: 14px;                      /* скругление панелей-«стёкол» */
+  --radius: 24px;                      /* скругление панелей-«стёкол» */
   --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 
   color-scheme: dark;
@@ -124,8 +131,10 @@ input { user-select: text; }
   transition: background-color 1.4s var(--ease);
 }
 
-/* Два слоя с обложкой: новый плавно проявляется поверх старого.
-   Картинка уже размыта заранее (крошечная копия в player.js → blurredCover), здесь только растягиваем */
+/* «Живая обложка»: два слоя с обложкой, новый плавно проявляется поверх старого.
+   Картинка уже размыта заранее (крошечная копия в player.js → blurredCover, она же — --art), здесь только
+   растягиваем. Поверх — три больших мягких пятна из разных кусков той же обложки, они медленно плывут.
+   Пятна двигаются только сдвигом и поворотом, без CSS-размытия — видеокарте это почти ничего не стоит */
 .bg-art {
   position: absolute; inset: -20%;
   background-size: cover;
@@ -135,11 +144,41 @@ input { user-select: text; }
   animation: drift 40s ease-in-out infinite alternate;
 }
 .bg-art.on { opacity: 0.6; }
+.bg-art i {
+  position: absolute;
+  width: 75vmax; height: 75vmax;
+  background: var(--art) center / 260% no-repeat;
+  -webkit-mask-image: radial-gradient(closest-side, #000 35%, transparent);
+          mask-image: radial-gradient(closest-side, #000 35%, transparent);
+  opacity: 0.9;
+  will-change: transform;
+}
+.bg-art i:nth-child(1) { left: 0; top: -5vmax; background-position: 30% 35%; animation: blob1 26s ease-in-out infinite alternate; }
+.bg-art i:nth-child(2) { right: -5vmax; top: 5vmax; background-position: 75% 25%; animation: blob2 32s ease-in-out infinite alternate; }
+.bg-art i:nth-child(3) { left: 25vmax; bottom: -20vmax; background-position: 50% 80%; animation: blob3 38s ease-in-out infinite alternate; }
 
 @keyframes drift {   /* медленное «дыхание» фона */
   from { transform: scale(1.05) rotate(0deg); }
   to   { transform: scale(1.25) rotate(6deg); }
 }
+@keyframes blob1 { to { transform: translate(18vmax, 10vmax) rotate(40deg) scale(1.15); } }
+@keyframes blob2 { to { transform: translate(-14vmax, 16vmax) rotate(-30deg) scale(0.9); } }
+@keyframes blob3 { to { transform: translate(-10vmax, -14vmax) rotate(25deg) scale(1.2); } }
+/* «Запасной цвет»: у тусклой обложки (мало цвета — серая, бежевая, выцветшая; player.js → .backdrop.dull)
+   фон без него выходил мутным, «хаки». Поверх — два мягких пятна цвета акцента, как в макете */
+.bg-glow {
+  position: absolute; inset: 0;
+  opacity: 0;
+  background:
+    radial-gradient(60% 70% at 15% 10%, var(--accent), transparent 70%),
+    radial-gradient(50% 60% at 90% 80%, color-mix(in srgb, var(--accent) 60%, #2a6cff), transparent 70%);
+  transition: opacity 1.6s var(--ease);
+  pointer-events: none;
+}
+.backdrop.dull .bg-glow { opacity: 0.55; }
+.backdrop.dull .bg-art.on { opacity: 0.4; }   /* выцветшая картинка — тише, цвет даёт свечение */
+/* Окно свёрнуто или спрятано (document.hidden → body.bg-paused) — фон стоит, видеокарта отдыхает */
+body.bg-paused .bg-art, body.bg-paused .bg-art i { animation-play-state: paused; }
 
 /* ---------- Фон «Сейчас играет» (nowbg.js, Настройки → Оформление → «Фон») ----------
    Плавающие пятна убраны (другу «прям бесили»). Режимы — класс body.nowbg-…:
@@ -189,11 +228,11 @@ body.nowbg-light .np-glow { opacity: calc(0.78 + var(--pulse, 0) * 0.18); }
 body.nowbg-light:not(.playing) .np-glow { opacity: 0.5; }
 @media (prefers-reduced-motion: reduce) { .bg-grain { animation: none; } }
 
+/* Вуаль поверх фона — как в макете «Живая обложка»: сверху светлее, к низу темнее (белый текст читается).
+   Прежняя — с тёмной «виньеткой» по краям — гасила и пятна, и запасной цвет, фон выходил мутным */
 .bg-shade {
   position: absolute; inset: 0;
-  background:
-    radial-gradient(120% 90% at 55% 45%, transparent 0%, rgba(0, 0, 0, 0.3) 55%, rgba(0, 0, 0, 0.75) 100%),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.5));
+  background: linear-gradient(180deg, rgba(8, 4, 16, 0.22), rgba(8, 4, 16, 0.55));
 }
 
 /* ---------- Кнопки ---------- */
@@ -260,7 +299,8 @@ body.eq-live .eq i, body.eq-live .t-eq i { animation: none; height: 4px; }
 .glass {
   border-radius: var(--radius);
   background: var(--glass);
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
+  transition: background-color 1.4s var(--ease);
 }
 
 /* ---------- Боковая панель «Медиатека» ---------- */
@@ -268,12 +308,12 @@ body.eq-live .eq i, body.eq-live .t-eq i { animation: none; height: 4px; }
   grid-row: 1; grid-column: 1;
   display: flex; flex-direction: column;
   min-width: 0; min-height: 0;
-  padding: 10px 8px;
+  padding: 14px 10px 10px;
   overflow: hidden;
   transition: opacity 0.3s, transform 0.45s var(--ease);
 }
 /* Содержимое не сжимается, пока панель уезжает, — просто скрывается за краем */
-.sidebar > * { min-width: calc(var(--sidebar-open, 264px) - 18px); }
+.sidebar > * { min-width: calc(var(--sidebar-open, 272px) - 22px); }
 
 /* Медиатека спрятана: колонка сжимается до нуля, панель гаснет и уезжает влево */
 body.sidebar-hidden { --sidebar: 0px; column-gap: 0px; }
@@ -299,28 +339,39 @@ body.sidebar-hidden .sidebar { opacity: 0; transform: translateX(-24px); pointer
 .sidebar-toggle:active { background: rgb(var(--fg-rgb) / 0.2); }
 body.sidebar-hidden .sidebar-toggle svg { transform: rotate(180deg); }
 
+/* Надпись «sono.» над меню (в программе она же была в полоске окна) */
+.side-word {
+  flex: none;
+  padding: 2px 12px 14px;
+  font: 800 26px/1 "Segoe UI Variable Display", "Segoe UI", sans-serif; letter-spacing: -1.2px;
+  color: var(--text);
+}
+.side-word span { color: var(--ink); }
+body.custom-titlebar:not(.mobile) .tb-logo { visibility: hidden; }
+
 .nav-item {
+  flex: none;
   display: flex; align-items: center; gap: 12px;
   width: 100%;
-  padding: 10px 12px;
-  border: 0; border-radius: 10px;
+  padding: 9px 12px;
+  border: 0; border-radius: 14px;
   background: none;
   color: var(--muted);
-  font-size: 15px; font-weight: 600;
+  font-size: 14px; font-weight: 600;
   text-align: left;
   cursor: pointer;
-  transition: color 0.2s, background-color 0.2s;
+  transition: color 0.3s, background-color 0.3s;
 }
 .nav-item:hover { color: var(--text); }
-.nav-item.active { color: var(--text); background: var(--hover); }
+.nav-item.active { color: var(--text); background: var(--glass-hi); }
 .nav-icon { display: grid; place-items: center; width: 22px; }
 .nav-icon svg { width: 20px; height: 20px; }
 
 .lib-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 6px 6px 12px;
-  font-size: 14px; font-weight: 700;
-  color: var(--muted);
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--faint);
 }
 
 .lib-list {
@@ -331,20 +382,20 @@ body.sidebar-hidden .sidebar-toggle svg { transform: rotate(180deg); }
 
 .lib-item {
   display: flex; align-items: center; gap: 12px;
-  padding: 6px 8px;
-  border-radius: 10px;
+  padding: 7px 10px;
+  border-radius: 14px;
   cursor: pointer;
   outline: none;
-  transition: background-color 0.15s, opacity 0.2s;
+  transition: background-color 0.25s, opacity 0.2s, translate 0.35s var(--ease);
 }
-.lib-item:hover, .lib-item:focus-visible { background: var(--hover); }
-.lib-item.active { background: rgb(var(--fg-rgb) / 0.12); }
-.lib-item .collection-cover { width: 46px; border-radius: 6px; }
+.lib-item:hover, .lib-item:focus-visible { background: rgb(var(--fg-rgb) / 0.05); translate: 3px 0; }
+.lib-item.active { background: var(--glass-hi); }
+.lib-item .collection-cover { width: 44px; border-radius: 10px; }
 .lib-text { flex: 1; min-width: 0; }
 .lib-name, .lib-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lib-name { font-size: 14.5px; transition: color 0.3s; }
+.lib-name { font-size: 14px; font-weight: 600; transition: color 0.3s; }
 .lib-sub { margin-top: 2px; font-size: 12.5px; color: var(--muted); }
-.lib-item.playing-from .lib-name { color: var(--accent); }
+.lib-item.playing-from .lib-name { color: var(--ink); }
 .lib-item.playing-from .eq { display: flex; }
 .lib-item.muted-item { opacity: 0.6; }
 .lib-item.muted-item:hover, .lib-item.muted-item.active { opacity: 1; }
@@ -386,8 +437,9 @@ body.sidebar-hidden .sidebar-toggle svg { transform: rotate(180deg); }
   min-width: 0; min-height: 0;
   overflow: hidden;   /* углы панели остаются скруглёнными при прокрутке */
 }
-/* На экране «Сейчас играет» панель почти прозрачная — главное там фон под обложку */
-body.on-now .main { background: rgb(var(--shade-rgb) / 0.12); }
+/* «Живая обложка»: у основной части нет своей панели — экраны лежат прямо на живом фоне
+   (стеклянные у них только карточки). Класс .glass у неё остаётся — для тем */
+body:not(.mobile) .main.glass { background: none; border-color: transparent; border-radius: 0; box-shadow: none; overflow: visible; }
 
 .views { position: relative; z-index: 1; flex: 1; min-height: 0; overflow-y: auto; }
 
@@ -410,24 +462,35 @@ body.on-now.playing .viz { opacity: 0.44; }   /* было 0.5 — по прос�
 }
 
 /* ---------- Поиск ---------- */
+/* Верхняя полоса: поиск слева, «Вид» справа — прямо на живом фоне, без своей панели */
 .top {
   position: relative; z-index: 10;
-  display: flex; justify-content: center;
-  padding: 14px 24px 10px;
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.3s;
+  display: flex; align-items: center; gap: 12px;
+  padding: 2px 0 10px var(--pad);
 }
-body:not(.on-now) .top { border-bottom-color: var(--line); }   /* отделяем поиск от списка */
+.look-btn {
+  flex: none; margin-left: auto;
+  display: flex; align-items: center; gap: 8px;
+  height: 44px; padding: 0 16px;
+  border-radius: 22px;
+  color: var(--muted);
+  font: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer;
+  transition: color 0.25s, background-color 0.25s, scale 0.18s var(--ease);
+}
+.look-btn svg { width: 20px; height: 20px; }
+.look-btn:hover { color: var(--text); background: color-mix(in srgb, var(--glass) 60%, rgb(var(--fg-rgb) / 0.1)); }
+.look-btn:active { scale: 0.94; }
+body.mobile .look-btn { display: none; }   /* на телефоне «Вид» — в настройках */
 
 /* «Назад» на панели слева от поиска (Настройки → Оформление → Кнопка «Назад», backbtn.js) —
    тогда стрелки в полоске окна нет. Поиск остаётся ровно по центру: поля слева и справа одинаковые. */
 .panel-back { display: none; }
 body.back-in-panel .tb-back { display: none; }
-body.back-in-panel:not(.mobile) .top { padding-left: 76px; padding-right: 76px; }
 body.back-in-panel:not(.mobile) .panel-back {
-  position: absolute; left: 24px; top: 20px;
+  flex: none;
   display: grid; place-items: center;
-  width: 40px; height: 40px; padding: 0;
+  width: 44px; height: 44px; padding: 0;
   border: 1px solid var(--line); border-radius: 50%;
   background: var(--search-bg); color: var(--text);
   cursor: pointer;
@@ -438,22 +501,23 @@ body.back-in-panel:not(.mobile) .panel-back {
 .panel-back:active:not(:disabled) { transform: scale(0.96); }
 .panel-back:disabled { opacity: 0.35; cursor: default; }
 
-.search { position: relative; width: min(560px, 100%); }
+.search { position: relative; flex: 1; max-width: 520px; transition: max-width 0.5s var(--ease); }
+.search:focus-within { max-width: 680px; }
 
 .search-bar {
-  display: flex; align-items: center; gap: 8px;
-  height: 52px;
-  padding: 0 7px 0 18px;
-  border-radius: 26px;
+  display: flex; align-items: center; gap: 10px;
+  height: 46px;
+  padding: 0 6px 0 16px;
+  border-radius: 23px;
   background: var(--search-bg);
-  border: 1px solid var(--line);
-  backdrop-filter: blur(20px);
-  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+  border: 1px solid var(--edge);
+  transition: border-color 0.25s, background-color 0.3s, box-shadow 0.4s;
 }
-.search-bar:hover { background: var(--search-bg-hover); border-color: rgb(var(--fg-rgb) / 0.2); }
+.search-bar:hover { background: var(--search-bg-hover); }
+/* В фокусе — светящееся кольцо цвета обложки */
 .search-bar:focus-within {
-  border-color: rgb(var(--fg-rgb) / 0.9);
-  box-shadow: 0 0 0 1px rgb(var(--fg-rgb) / 0.9);   /* белая обводка, как у Spotify */
+  border-color: transparent;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent), 0 10px 40px -10px var(--accent);
 }
 
 .search-icon { width: 22px; height: 22px; flex: none; color: var(--muted); transition: color 0.2s; }
@@ -463,7 +527,7 @@ body.back-in-panel:not(.mobile) .panel-back {
   flex: 1; min-width: 0;
   background: none; border: 0; outline: 0;
   color: var(--text);
-  font: inherit; font-size: 16px;
+  font: inherit; font-size: 15px;
 }
 #query::placeholder { color: var(--faint); }
 
@@ -1570,6 +1634,8 @@ body.playing [data-np="play"] .i-pause, .big-play.is-playing .i-pause { opacity:
     transparent 100%);
   transition: --hero 0.8s var(--ease);
 }
+/* Основная часть без своей панели — цветная шапка скругляется, как стекло (иначе — острый прямоугольник) */
+body:not(.mobile) .pl-hero { border-radius: var(--radius) var(--radius) 0 0; }
 
 .pl-header { display: flex; align-items: flex-end; gap: 24px; }
 .pl-header .collection-cover {
@@ -1918,6 +1984,126 @@ body.minibar-large .volume.inline input { width: clamp(100px, 10vw, 160px); }
   opacity: 1; transform: translate(-50%, 0) scale(1);
 }
 .volume.inline input { width: clamp(80px, 9vw, 130px); }
+
+/* ---------- Капсула-плеер («Живая обложка», ПК) ----------
+   Нижний плеер — плавающая стеклянная капсула по центру основной части. Класс тот же (.minibar), правила
+   выше остаются для телефона (body.mobile). Полоска перемотки — тонкий светящийся край по низу капсулы,
+   время — пилюля над капсулой у курсора (capsule.js). Обложка — круглая и крутится, пока играет */
+:root { --bar-bg: color-mix(in srgb, var(--tint) 62%, rgb(0 0 0 / 0.5)); }
+body:not(.mobile) .minibar {
+  position: fixed; z-index: 40;
+  left: calc(var(--sidebar) + var(--gap) * 2); right: var(--gap); bottom: 22px;
+  width: min(900px, calc(100vw - var(--sidebar) - var(--gap) * 3 - 40px));
+  margin: 0 auto;
+  height: 76px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center; gap: 16px;
+  padding: 0 14px 0 12px;
+  border-radius: 38px; border-width: 1px;
+  background: var(--bar-bg);
+  /* Только у капсулы — размытие того, что под ней: она висит над списком, и строки сквозь неё не читаются.
+     Капсула небольшая — видеокарте это недорого («Меньше эффектов» его убирает) */
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+          backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.5);
+  overflow: visible;
+  opacity: 0; translate: 0 30px; pointer-events: none;
+  transition: opacity 0.3s, translate 0.6s var(--ease), left 0.45s var(--ease), width 0.45s var(--ease), background-color 1.4s var(--ease);
+}
+body:not(.mobile).has-track:not(.on-now) .minibar { height: 76px; margin-top: 0; opacity: 1; translate: 0 0; pointer-events: auto; }
+body.sidebar-hidden:not(.mobile) .minibar { width: min(900px, calc(100vw - var(--gap) * 2 - 40px)); }
+/* Под капсулой — запас, чтобы низ списка можно было до неё докрутить */
+body:not(.mobile).has-track:not(.on-now) .views::after { content: ""; display: block; height: 104px; }
+
+body:not(.mobile) .minibar .mini-left { gap: 2px; padding: 0; border: 0; background: none; }
+body:not(.mobile) .minibar .mini-track { gap: 12px; padding: 4px 8px 4px 4px; border-radius: 32px; perspective: 500px; }
+body:not(.mobile) .minibar .mini-track img {
+  width: 52px; height: 52px; border-radius: 50%; box-shadow: none;
+  animation: disc-spin 16s linear infinite; animation-play-state: paused;
+}
+body.playing:not(.mobile) .minibar .mini-track img { animation-play-state: running; }
+@keyframes disc-spin { to { rotate: 360deg; } }
+body:not(.mobile) .minibar .mini-text { min-width: 0; max-width: none; }
+body:not(.mobile) .minibar .mini-title { font-size: 14px; font-weight: 700; }
+body:not(.mobile) .minibar .mini-artist { margin-top: 1px; font-size: 13px; }
+
+body:not(.mobile) .minibar .mini-center { position: static; gap: 0; }
+body:not(.mobile) .minibar .mini-center .buttons { gap: 14px; }
+body:not(.mobile) .minibar .icon-btn.small { width: 38px; height: 38px; }
+body:not(.mobile) .minibar .icon-btn.small svg { width: 20px; height: 20px; }
+body:not(.mobile) .minibar .small-play { width: 48px; height: 48px; }
+body:not(.mobile) .minibar .small-play svg { width: 22px; height: 22px; }
+body:not(.mobile) .minibar .mini-right { gap: 2px; }
+
+/* Край-полоска (как в макете «Живая обложка»): тонкий светящийся край по самому низу капсулы во всю ширину,
+   обрезан её скруглением — поэтому у краёв он загибается вместе с капсулой. Зона наведения — 18 px,
+   выше самой линии. При наведении линия толще (3 → 7 px), до курсора — светлая подсветка (--h).
+   Слои: дорожка — фон самого ползунка, подсветка — ::before, закрашенное со свечением — ::after
+   (--p и --h ставит capsule.js; перемотку по-прежнему делает player.js через этот ползунок) */
+body:not(.mobile) .minibar .mini-center { border-radius: inherit; }
+body:not(.mobile) .minibar .mini-progress {
+  --ln: 3px;
+  position: absolute; inset: 0; z-index: 1;
+  border-radius: inherit; overflow: hidden;
+  pointer-events: none;
+}
+body:not(.mobile) .minibar:is(.seeking, :has(.mini-progress input:hover:not(:disabled))) .mini-progress { --ln: 7px; }
+body:not(.mobile) .minibar .mini-progress span { display: none; }
+body:not(.mobile) .minibar .mini-progress::before,
+body:not(.mobile) .minibar .mini-progress::after {
+  content: ""; position: absolute; left: 0; bottom: 0; z-index: 1;
+  height: var(--ln);
+  pointer-events: none;
+  transition: height 0.3s var(--ease), opacity 0.2s;
+}
+body:not(.mobile) .minibar .mini-progress::before { width: var(--h, 0%); background: rgb(var(--fg-rgb) / 0.2); opacity: 0; }
+body:not(.mobile) .minibar.seeking .mini-progress::before { opacity: 1; }
+body:not(.mobile) .minibar .mini-progress::after {
+  z-index: 2;
+  width: var(--p, 0%);
+  background: linear-gradient(90deg, var(--accent), rgb(var(--fg-rgb)));
+  box-shadow: 0 0 12px var(--accent);
+}
+body:not(.mobile) .minibar .mini-progress input {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 0;
+  width: 100%; height: 18px;
+  pointer-events: auto;
+  background: linear-gradient(rgb(var(--fg-rgb) / 0.12), rgb(var(--fg-rgb) / 0.12)) bottom / 100% var(--ln) no-repeat;
+  transition: background-size 0.3s var(--ease);
+}
+body:not(.mobile) .minibar .mini-progress input::-webkit-slider-runnable-track { background: none; height: 18px; }
+body:not(.mobile) .minibar .mini-progress input::-webkit-slider-thumb { width: 0; height: 0; margin: 0; box-shadow: none; }
+/* Время у курсора — белая пилюля над капсулой (capsule.js ставит left и текст) */
+.seek-tip {
+  position: absolute; z-index: 3; bottom: calc(100% + 10px); left: 0;
+  translate: -50% 8px;
+  padding: 6px 11px;
+  border-radius: 12px;
+  background: #fff; color: #1a0a24;
+  font-size: 13px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums;
+  white-space: nowrap; pointer-events: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition: opacity 0.2s, translate 0.4s var(--spring);
+}
+.seek-tip span { font-weight: 600; color: rgba(26, 10, 36, 0.5); }
+.minibar.seeking .seek-tip { opacity: 1; translate: -50% 0; }
+body.mobile .seek-tip { display: none; }
+
+/* Большой нижний плеер (Настройки → Оформление) — капсула повыше, обложка крупнее */
+body.minibar-large:not(.mobile).has-track:not(.on-now) .minibar { height: 88px; }
+body.minibar-large:not(.mobile) .minibar { border-radius: 44px; }
+body.minibar-large:not(.mobile) .minibar .mini-track img { width: 64px; height: 64px; }
+body.minibar-large:not(.mobile).has-track:not(.on-now) .views::after { height: 116px; }
+
+/* Узкое окно: громкость — только значком, без таймера сна и эффектов */
+@media (max-width: 1250px) {
+  body:not(.mobile) .minibar { gap: 10px; }
+  body:not(.mobile) .minibar .mini-center .buttons { gap: 6px; }
+  body:not(.mobile) .minibar [data-np="sleep"], body:not(.mobile) .minibar [data-np="fx"],
+  body:not(.mobile) .minibar .mini-left .dislike { display: none; }
+  body:not(.mobile) .minibar .volume.inline input { width: 70px; }
+}
 
 /* ---------- Всплывающее меню «⋯» ---------- */
 .menu {
@@ -3005,7 +3191,9 @@ body.mobile .sidebar {
 body.mobile.lib-open .sidebar { display: flex; animation: view-in 0.3s var(--ease); }
 body.mobile .sidebar > * { min-width: 0; }
 body.mobile #nav-home, body.mobile #nav-flow, body.mobile #nav-now { display: none; }
-body.mobile .lib-head { font-size: 22px; padding: 4px 8px 10px; color: var(--text); }
+/* Новое меню ПК («Живая обложка», шаг 1) на телефон пока не переносим — телефон переделывается отдельно */
+body.mobile .side-word, body.mobile #nav-releases, body.mobile #nav-stats, body.mobile #nav-workshop { display: none; }
+body.mobile .lib-head { font-size: 22px; padding: 4px 8px 10px; color: var(--text); text-transform: none; letter-spacing: 0; }
 body.mobile .lib-item { padding: 8px; }
 body.mobile .lib-item .collection-cover { width: 56px; }
 body.mobile .lib-name { font-size: 15.5px; }

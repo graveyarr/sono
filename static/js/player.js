@@ -573,12 +573,15 @@ function applyCoverColors(img) {
   const accent = s < 12 ? "hsl(0 0% 92%)" : `hsl(${h.toFixed(0)} ${Math.max(s, 55).toFixed(0)}% 72%)`;
   root.setProperty("--cover-tint", tint);
   root.setProperty("--cover-accent", accent);
+  // Тусклая обложка — фону нужен «запасной цвет» (style.css → .bg-glow), иначе он мутный
+  document.querySelector(".backdrop")?.classList.toggle("dull", s < 38);
   if (coverMode === "off") return;
   if (coverMode !== "accent") root.setProperty("--tint", tint);
   if (coverMode !== "tint") root.setProperty("--accent", accent);
 }
 
 function resetCoverColors() {
+  document.querySelector(".backdrop")?.classList.remove("dull");
   document.documentElement.style.removeProperty("--tint");
   document.documentElement.style.removeProperty("--accent");
   document.documentElement.style.removeProperty("--cover-tint");
@@ -603,7 +606,7 @@ function blurredCover(img) {
     const c = document.createElement("canvas");
     c.width = c.height = 48;
     const x = c.getContext("2d");
-    x.filter = "blur(5px) saturate(1.6)";
+    x.filter = "blur(5px) saturate(2)";   // насыщеннее — как в макете «Живая обложка»
     x.drawImage(img, -8, -8, 64, 64);   // с запасом по краям — чтобы размытие не темнело к краю
     return c.toDataURL("image/jpeg", 0.9);
   } catch {
@@ -616,6 +619,7 @@ function setBackdrop(url) {
   const next = artLayers[artFront], prev = artLayers[artFront ^ 1];
   if (url) {
     next.style.backgroundImage = `url("${url}")`;
+    next.style.setProperty("--art", `url("${url}")`);   // пятна «живой обложки» (style.css → .bg-art i)
     next.classList.add("on");
   }
   prev.classList.remove("on");

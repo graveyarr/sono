@@ -38,6 +38,9 @@ const libList = document.getElementById("lib-list");
 const navHome = document.getElementById("nav-home");
 const navNow = document.getElementById("nav-now");
 const navFlow = document.getElementById("nav-flow");
+const navReleases = document.getElementById("nav-releases");
+const navStats = document.getElementById("nav-stats");
+const navWorkshop = document.getElementById("nav-workshop");
 const viewFlow = document.getElementById("view-flow");
 const viewStats = document.getElementById("view-stats");
 const viewWorkshop = document.getElementById("view-workshop");
@@ -683,7 +686,10 @@ export function renderSidebar({ keepFocus = false } = {}) {
   navHome.classList.toggle("active", view === "home");
   navNow.classList.toggle("active", view === "now");
   navFlow.classList.toggle("active", view === "flow");
-  navSettings.classList.toggle("active", view === "settings" || view === "workshop");   // мастерская открывается из настроек
+  navSettings.classList.toggle("active", view === "settings");
+  navReleases.classList.toggle("active", view === "releases");
+  navStats.classList.toggle("active", view === "stats");
+  navWorkshop.classList.toggle("active", view === "workshop");
   lastSidebarSig = sidebarSignature();
   const tools = libToolsOn();
   // Счётчик — песни, как и строки в списке (две загрузки одной песни — один трек)
@@ -1360,6 +1366,15 @@ export function initViews() {
   navNow.addEventListener("click", () => showView("now"));
   navFlow.addEventListener("click", () => showView("flow"));
   navSettings.addEventListener("click", () => showView("settings"));
+  navReleases.addEventListener("click", () => showView("releases"));
+  navStats.addEventListener("click", () => showView("stats"));
+  navWorkshop.addEventListener("click", () => showView("workshop"));
+  // «Вид» в верхней полосе — пока открывает «Настройки → Оформление» (своя панель «Вид» — следующим шагом)
+  document.getElementById("look-btn").addEventListener("click", () => {
+    showView("settings");
+    requestAnimationFrame(() => [...document.querySelectorAll(".set-nav-btn")]
+      .find((b) => b.textContent.trim() === "Оформление")?.click());
+  });
   // «+» в медиатеке: создать пустой плейлист или импортировать по ссылке
   const newBtn = document.getElementById("new-playlist");
   newBtn.addEventListener("click", () => openMenu(newBtn, [

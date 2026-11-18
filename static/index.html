@@ -35,8 +35,10 @@
   <!-- Фон: цвет обложки + размытая обложка + затемнение. Меняется сам при смене трека. -->
   <div class="backdrop" aria-hidden="true">
     <div class="bg-tint"></div>
-    <div class="bg-art"></div>
-    <div class="bg-art"></div>
+    <div class="bg-art"><i></i><i></i><i></i></div>
+    <div class="bg-art"><i></i><i></i><i></i></div>
+    <!-- Тусклая обложка (серая, бежевая) — поверх мягкие пятна её же цвета, поярче: «запасной цвет» -->
+    <div class="bg-glow"></div>
     <!-- Фон «Сейчас играет» в режиме «Градиент» (nowbg.js) и плёночное зерно -->
     <canvas class="now-bg" id="now-bg"></canvas>
     <div class="bg-grain"></div>
@@ -124,11 +126,18 @@
 
   <!-- Медиатека: «Сейчас играет», избранное, плейлисты -->
   <aside class="sidebar glass">
+    <div class="side-word" aria-hidden="true">sono<span>.</span></div>
     <button type="button" class="nav-item" id="nav-home">
       <span class="nav-icon">
         <svg data-i="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg>
       </span>
       Главная
+    </button>
+    <button type="button" class="nav-item" id="nav-now">
+      <span class="nav-icon">
+        <svg data-i="nowPlaying" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="10" width="3" height="10" rx="1"/><rect x="10.5" y="4" width="3" height="16" rx="1"/><rect x="17" y="13" width="3" height="7" rx="1"/></svg>
+      </span>
+      Сейчас играет
     </button>
     <button type="button" class="nav-item" id="nav-flow">
       <span class="nav-icon">
@@ -136,11 +145,23 @@
       </span>
       Flow
     </button>
-    <button type="button" class="nav-item" id="nav-now">
+    <button type="button" class="nav-item" id="nav-releases">
       <span class="nav-icon">
-        <svg data-i="nowPlaying" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="10" width="3" height="10" rx="1"/><rect x="10.5" y="4" width="3" height="16" rx="1"/><rect x="17" y="13" width="3" height="7" rx="1"/></svg>
+        <svg data-i="releases" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3.5l2.2 5.3 5.3 2.2-5.3 2.2L12 18.5l-2.2-5.3L4.5 11l5.3-2.2z"/><path d="M19 16.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z"/></svg>
       </span>
-      Сейчас играет
+      Новинки
+    </button>
+    <button type="button" class="nav-item" id="nav-stats">
+      <span class="nav-icon">
+        <svg data-i="stats" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20v-6M10 20V9M15 20v-9M20 20V4"/></svg>
+      </span>
+      Статистика
+    </button>
+    <button type="button" class="nav-item" id="nav-workshop">
+      <span class="nav-icon">
+        <svg data-i="workshop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15" cy="7.5" r="1"/></svg>
+      </span>
+      Мастерская тем
     </button>
 
     <div class="lib-head">
@@ -191,6 +212,11 @@
           <p class="panel-message" id="panel-message"></p>
         </div>
       </div>
+      <!-- «Вид»: тема, цвет, фон (пока — раздел «Оформление» в настройках; потом своя панель) -->
+      <button type="button" class="look-btn glass" id="look-btn" title="Вид: тема, цвета, фон">
+        <svg data-i="palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15" cy="7.5" r="1"/></svg>
+        <span>Вид</span>
+      </button>
     </header>
 
     <!-- Визуализация под музыку за экраном «Сейчас играет» (viz.js) -->
