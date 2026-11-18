@@ -523,6 +523,30 @@ export function confirmDialog({ title, text = "", okLabel = "Удалить", da
   });
 }
 
+/** Вопрос с несколькими ответами: buttons — [{ label, value, primary }]. null — закрыли (Esc, «Отмена») */
+export function choiceDialog({ title, text = "", buttons }) {
+  return openDialog((form, finish) => {
+    form.append(el("h2", "", title));
+    if (text) form.append(el("p", "", text));
+    const row = el("div", "dialog-buttons");
+    const cancel = el("button", "btn ghost", "Отмена");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => finish(null));
+    row.append(cancel);
+    let main = null;
+    for (const b of buttons) {
+      const btn = el("button", `btn ${b.primary ? "primary" : "ghost"}`, b.label);
+      btn.type = "button";
+      btn.addEventListener("click", () => finish(b.value));
+      row.append(btn);
+      if (b.primary) main = btn;
+    }
+    form.append(row);
+    form.addEventListener("submit", (e) => e.preventDefault());
+    return main;
+  });
+}
+
 // ---------- Уведомления ----------
 
 const toasts = el("div", "toasts");

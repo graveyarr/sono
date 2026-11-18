@@ -333,6 +333,31 @@ export function addDownloads(tracks) {
   changed("downloads");
 }
 
+// Авто-скачивание (просьба слушателя): у плейлиста или «Избранного» включено «Скачивать новые» —
+// каждый добавленный туда трек сразу скачивается (downloads.js watchAutoDownload).
+// Хранится у плейлиста (autoDownload: true), у «Избранного» — в настройках (autoDownloadLiked).
+// id — "liked" или id плейлиста
+
+/** Треки списка, куда смотрит авто-скачивание: "liked" → «Избранное», иначе плейлист */
+export const autoListTracks = (id) => (id === "liked" ? lib.liked : getPlaylist(id)?.tracks ?? null);
+
+export const isAutoDownload = (id) => (id === "liked" ? lib.settings.autoDownloadLiked === true : getPlaylist(id)?.autoDownload === true);
+
+/** Все списки с включённым авто-скачиванием: ["liked", id плейлиста, …] */
+export const autoDownloadLists = () => [
+  ...(isAutoDownload("liked") ? ["liked"] : []),
+  ...lib.playlists.filter((p) => p.autoDownload === true).map((p) => p.id),
+];
+
+export function setAutoDownload(id, on) {
+  if (id === "liked") return setSetting("autoDownloadLiked", on ? true : undefined);
+  const p = getPlaylist(id);
+  if (!p) return;
+  if (on) p.autoDownload = true;
+  else delete p.autoDownload;
+  changed("playlists");
+}
+
 export function removeDownloads(tracks) {
   const keys = new Set(tracks.map(keyOf));
   lib.downloads = lib.downloads.filter((t) => !keys.has(keyOf(t)));

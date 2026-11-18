@@ -13,7 +13,7 @@ import { icons } from "./icons.js";
 import { setNavigator, trackForPage } from "./nav.js";
 import { renderTrack } from "./trackpage.js";
 import { openImportDialog } from "./import.js";
-import { createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isDisliked, keyOf, lib, moveSongInPlaylist, pickedUpload, setSetting } from "./library.js";
+import { createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isAutoDownload, isDisliked, keyOf, lib, moveSongInPlaylist, pickedUpload, setSetting } from "./library.js";
 import { groupSongs, songCount, uniqueSongs } from "./samesong.js";
 import { isLyricsVisible, setLyricsVisible } from "./lyrics.js";
 import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueLater, queueNext, removeFromQueue, state, togglePlay } from "./player.js";
@@ -23,9 +23,9 @@ import { releaseCard, renderReleases } from "./releaseview.js";
 import { recsSection } from "./recs.js";
 import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, recentOf, renameFolder, sidebarSignature, sortMenuItems, toggleFolder, toolsRow } from "./libtools.js";
 import { localTracks } from "./local.js";
-import { countDownloaded, download, removeDownload } from "./downloads.js";
+import { countDownloaded, download, removeDownload, setAutoList, songsToDownload } from "./downloads.js";
 import { renderSettings } from "./settings.js";
-import { collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
+import { choiceDialog, collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
 
 const viewHome = document.getElementById("view-home");
 const viewNow = document.getElementById("view-now");
@@ -595,7 +595,15 @@ function libItem(key, info, sub) {
   li.classList.toggle("playing-from", playingFrom(key));
   li.tabIndex = 0;
   const text = el("div", "lib-text");
-  text.append(el("div", "lib-name", info.name), el("div", "lib-sub", sub));
+  const subLine = el("div", "lib-sub", sub);
+  const auto = autoListId(info);
+  if (auto && isAutoDownload(auto)) {   // «Скачивать новые» включено — стрелка перед подписью
+    const mark = el("span", "lib-auto");
+    mark.innerHTML = icons.download;
+    mark.title = "Новые треки скачиваются сами";
+    subLine.prepend(mark);
+  }
+  text.append(el("div", "lib-name", info.name), subLine);
   const eq = el("span", "eq");
   eq.innerHTML = "<i></i><i></i><i></i>";
   li.append(collectionCover(info.kind, info), text, eq);
@@ -608,6 +616,7 @@ function libItem(key, info, sub) {
       openPlaylistMenu({ x: e.clientX, y: e.clientY }, info.playlist, {
         onPlay: () => playCollection(info),
         onDeleted: () => { if (view === key) showView("home"); },
+        onAutoDownload: () => toggleAutoDownload(info),
       });
     });
   }
@@ -789,12 +798,61 @@ function syncDownloadControl(wrap, tracks) {
     : all ? "Скачано" : done ? `Скачано ${done} из ${tracks.length}` : "";
 }
 
+// ---------- «Скачивать новые» (авто-скачивание, downloads.js) ----------
+// Выключатель в шапке «Избранного» и своих плейлистов: всё, что сюда добавят, сразу скачивается
+
+const autoListId = (info) => (info.kind === "liked" ? "liked" : info.kind === "playlist" ? info.playlist.id : null);
+
+/** Включить/выключить «Скачивать новые» у списка (из шапки и из «⋯» плейлиста) */
+export async function toggleAutoDownload(info) {
+  const id = autoListId(info);
+  if (isAutoDownload(id)) {
+    setAutoList(id, false);
+    syncAutoControls();
+    toast(`«${info.name}»: новые треки больше не скачиваются сами`);
+    return;
+  }
+  const left = songsToDownload(info.tracks).length;
+  let catchUp = false;
+  if (left) {
+    const answer = await choiceDialog({
+      title: "Скачивать новые треки?",
+      text: `Всё, что вы добавите в «${info.name}», будет сразу скачиваться и играть без интернета. `
+        + (left === 1 ? "Один трек уже лежит здесь — скачать и его?"
+          : `Ещё ${plural(left, "трек", "трека", "треков")} уже лежат здесь — скачать и их?`),
+      buttons: [{ label: "Только новые", value: "new" }, { label: "Скачать все", value: "all", primary: true }],
+    });
+    if (!answer) return;
+    catchUp = answer === "all";
+  }
+  setAutoList(id, true, catchUp);
+  syncAutoControls();
+  toast(catchUp ? `Скачиваю «${info.name}» — новые треки тоже будут скачиваться сами`
+    : `«${info.name}»: новые треки будут скачиваться сами`);
+}
+
+const syncAutoControls = () => document.querySelectorAll(".pl-auto")
+  .forEach((btn) => btn.setAttribute("aria-pressed", String(isAutoDownload(btn.dataset.autoList))));
+
+function autoControl(info) {
+  const id = autoListId(info);
+  const btn = el("button", "pl-auto");
+  btn.type = "button";
+  btn.dataset.autoList = id;
+  btn.append(el("span", "pl-auto-knob"), el("span", "pl-auto-text", "Скачивать новые"));
+  btn.title = "Всё, что добавите сюда, будет сразу скачиваться и играть без интернета";
+  btn.setAttribute("aria-pressed", String(isAutoDownload(id)));
+  btn.addEventListener("click", () => toggleAutoDownload(info));
+  return btn;
+}
+
 /** Состояние скачиваний изменилось — обновить кнопки «Скачать» на экране */
 export function refreshDownloads() {
   document.querySelectorAll(".pl-download").forEach((wrap) => {
     const info = describe(wrap.dataset.collection);
     if (info) syncDownloadControl(wrap, info.tracks);
   });
+  syncAutoControls();
 }
 
 // ---------- Экран плейлиста ----------
@@ -854,6 +912,7 @@ function renderList(fresh) {
       actions.append(smart);
     }
     if (info.tracks.length) actions.append(downloadControl(info));
+    if (autoListId(info)) actions.append(autoControl(info));
     // Flow по плейлисту: его исполнители и похожие на них — остальная медиатека не влияет
     if (info.tracks.length) {
       const flowBtn = el("button", "flow-pill");
@@ -881,6 +940,7 @@ function renderList(fresh) {
     more.addEventListener("click", () => openPlaylistMenu(more, info.playlist, {
       onPlay: () => playCollection(info),
       onDeleted: () => showView("home"),
+      onAutoDownload: () => toggleAutoDownload(info),
     }));
     actions.append(more);
   }

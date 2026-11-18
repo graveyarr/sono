@@ -2,7 +2,7 @@
 
 import { openAddToPlaylist, toggleDislike, toggleLike } from "./actions.js";
 import { openTrack } from "./nav.js";
-import { initDownloads, onDownloadsChange } from "./downloads.js";
+import { initDownloads, onDownloadsChange, takeNoSpaceNotice } from "./downloads.js";
 import { initFlow } from "./flow.js";
 import { initPresence } from "./presence.js";
 import { initViz } from "./viz.js";
@@ -111,7 +111,13 @@ watchAppUpdate();   // скачалась новая версия Sono — пр�
 // Щелчок по названию трека на «Сейчас играет» — страница трека (альбом — ссылкой на ней)
 document.querySelector('#np-info [data-np="title"]').addEventListener("click", () => openTrack(state.current));
 // Скачивания: значки у треков и кнопки «Скачать» обновляются, пока сервер качает
-onDownloadsChange(() => { syncAllRows(); refreshDownloads(); });
+onDownloadsChange(() => {
+  syncAllRows();
+  refreshDownloads();
+  if (takeNoSpaceNotice()) {
+    toast("Не хватает места на диске — скачивание на паузе. Освободите место, и Sono продолжит сам", { error: true, duration: 8000 });
+  }
+});
 onLocalChange(() => refreshViews("local"));   // нашлись новые свои файлы — медиатека и открытый список
 initDownloads();
 

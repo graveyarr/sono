@@ -365,9 +365,12 @@ export function openAddToPlaylist(anchor, track) {
 }
 
 /** Меню плейлиста (в боковой панели и в шапке плейлиста) */
-export function openPlaylistMenu(anchor, playlist, { onPlay, onDeleted } = {}) {
+export function openPlaylistMenu(anchor, playlist, { onPlay, onDeleted, onAutoDownload } = {}) {
+  const auto = library.isAutoDownload(playlist.id);
   openMenu(anchor, [
     { label: "Слушать", icon: icons.play, disabled: !playlist.tracks.length, action: () => onPlay?.() },
+    ...(onAutoDownload ? [{ label: auto ? "Не скачивать новые треки" : "Скачивать новые треки",
+      icon: auto ? icons.downloaded : icons.download, action: onAutoDownload }] : []),
     { label: "Переименовать", icon: icons.edit, action: () => renamePlaylist(playlist) },
     { label: playlist.cover ? "Сменить обложку…" : "Своя обложка…", icon: icons.image, action: () => pickPlaylistCover(playlist) },
     ...(playlist.cover ? [{ label: "Убрать свою обложку", icon: icons.close, action: () => library.setPlaylistCover(playlist.id, null) }] : []),

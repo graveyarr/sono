@@ -955,7 +955,8 @@ def stream_soundcloud(track_id: str):
 # Качаем в фоне, по 2 трека сразу. Что именно человек скачал, помнит медиатека
 # (раздел downloads) — при запуске страница присылает этот список, и недокачанное докачивается.
 
-_dl_status: dict[str, str] = {}   # "источник:id" -> queued | downloading | error
+_dl_status: dict[str, str] = {}   # "источник:id" -> queued | downloading | error | nospace
+DL_MIN_FREE = 500 * 2**20         # меньше 500 МБ свободно на диске — не качаем («nospace»), диск не забиваем до конца
 _dl_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
 _dl_workers_started = False
 _dl_lock = threading.Lock()
@@ -965,6 +966,12 @@ def _download_worker():
     while True:
         source, track_id = _dl_queue.get()
         key = f"{source}:{track_id}"
+        try:
+            if shutil.disk_usage(CACHE_DIR).free < DL_MIN_FREE:
+                _dl_status[key] = "nospace"   # страница скажет «Не хватает места» и попробует позже
+                continue
+        except OSError:
+            pass
         _dl_status[key] = "downloading"
         try:
             if source == "youtube":
@@ -999,7 +1006,7 @@ def queue_downloads(tracks: list[tuple[str, str]]) -> None:
                 threading.Thread(target=_download_worker, daemon=True).start()
             _dl_workers_started = True
         for source, track_id in tracks:
-            if download_status(source, track_id) in ("missing", "error"):
+            if download_status(source, track_id) in ("missing", "error", "nospace"):
                 _dl_status[f"{source}:{track_id}"] = "queued"
                 _dl_queue.put((source, track_id))
 

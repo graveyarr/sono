@@ -28,7 +28,8 @@ const changed = () => dispatchEvent(new CustomEvent("sono:libtools"));
 /** Слепок того, от чего зависит боковая панель (чтобы перерисовывать её только при нужных настройках) */
 export function sidebarSignature() {
   const followed = getSetting("followed", []);
-  return [libToolsOn(), libSort(), JSON.stringify(getSetting("folders", [])), followed.length, followed[0]?.id ?? ""].join("|");
+  return [libToolsOn(), libSort(), JSON.stringify(getSetting("folders", [])), followed.length, followed[0]?.id ?? "",
+    getSetting("autoDownloadLiked", false)].join("|");   // «Скачивать новые» у «Избранного» — стрелка в медиатеке
 }
 
 // ---------- Недавние ----------

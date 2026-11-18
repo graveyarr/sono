@@ -7,6 +7,7 @@ import { CHANGELOG } from "./changelog.js";
 import { isMobile, openExternal } from "./device.js";
 import { icons } from "./icons.js";
 import { getSetting, setSetting } from "./library.js";
+import { showStories } from "./stories.js";
 import { el, openModal } from "./ui.js";
 
 const parts = (v) => String(v).split(".").map((x) => parseInt(x, 10) || 0);
@@ -29,6 +30,16 @@ export function showWhatsNew(entries = CHANGELOG.slice(0, 1)) {
   const one = entries.length === 1 ? entries[0] : null;
   head.append(el("div", "wn-kicker", one ? `Sono ${one.version} · ${one.date}` : `Вы обновились до ${entries[0].version}`),
     el("h2", "", one ? one.name || `Что нового в Sono ${one.version}` : "Что нового в Sono"));
+  // У большого выпуска есть сторис — их можно пересмотреть
+  const withStories = entries.find((e) => e.stories);
+  if (withStories) {
+    const again = el("button", "wn-stories");
+    again.type = "button";
+    again.innerHTML = icons.play;
+    again.append(`Сторис ${withStories.version}`);
+    again.addEventListener("click", () => { close(); setTimeout(() => showStories(withStories), 260); });
+    head.append(again);
+  }
   const list = el("div", "wn-list");
   for (const entry of entries) {
     if (!one) list.append(el("div", "wn-version", [entry.version, entry.name, entry.date].filter(Boolean).join(" · ")));
@@ -66,5 +77,8 @@ export async function maybeWhatsNew() {
   if (!getSetting("onboarded", false)) return;   // новый человек — ему показывают приветствие, не список изменений
   // Раньше версию не запоминали (до 0.6.3) — покажем только текущую
   const entries = CHANGELOG.filter((e) => compare(e.version, current) <= 0 && (!seen || compare(e.version, seen) > 0));
-  showWhatsNew((seen ? entries : entries.slice(0, 1)).slice(0, 3));
+  const shown = (seen ? entries : entries.slice(0, 1)).slice(0, 3);
+  // Большой выпуск (1.0) — сначала праздничные сторис, досмотрели — обычное окно
+  if (shown[0]?.stories) showStories(shown[0], () => showWhatsNew(shown));
+  else showWhatsNew(shown);
 }
