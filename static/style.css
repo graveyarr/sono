@@ -5528,3 +5528,151 @@ body.sq-open:not(.mobile) .sq-shade { opacity: 1; }
   .sr-best.sr-skel { min-height: 140px; }
 }
 .sr-top.single { grid-template-columns: minmax(0, 1fr); }
+
+/* ---------- «Живая обложка», шаг 8: «Настройки» — 4 раздела вместо 9 (ПК; setlive.js) ----------
+   Макет — design/ui-new/B-ekrany.html (#settings, #settings-look, #settings-lib, #settings-sys). Строки — прежние
+   (settings.js: .set-switch, .set-choice, .seg…), здесь они только перекрашены под карточки макета */
+.view-settings:has(> .cfg) { max-width: none; margin: 0; padding: 0; }   /* прежний экран был узкой серединой */
+.cfg { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 24px; align-items: start; padding: 24px var(--pad) 28px; font-size: 14px; line-height: 1.35; }
+/* Оглавление: поиск, 4 раздела, внизу — версия */
+.cfg-nav { position: sticky; top: 0; padding: 14px; border-radius: 28px; }
+.cfg-find { display: flex; align-items: center; gap: 9px; height: 40px; margin-bottom: 10px; padding: 0 14px; border-radius: 20px; background: rgb(127 127 127 / 0.12); color: var(--muted); cursor: text; }
+.cfg-find svg { width: 16px; height: 16px; flex: none; }
+.cfg-find input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 13.5px; color: var(--text); }
+.cfg-find input::placeholder { color: var(--faint); }
+.cfg-tab { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 0; border-radius: 18px; background: none; font: inherit; text-align: left; color: var(--muted); cursor: pointer; transition: background-color 0.25s, color 0.25s; }
+.cfg-tab:hover { background: rgb(var(--fg-rgb) / 0.06); color: var(--text); }
+.cfg-tab.on { background: var(--glass-hi); color: var(--text); }
+.cfg-tab-ic { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 13px; background: rgb(127 127 127 / 0.14); transition: background-color 0.3s, color 0.3s; }
+.cfg-tab-ic svg { width: 20px; height: 20px; }
+.cfg-tab.on .cfg-tab-ic { background: var(--ink); color: rgb(var(--shade-rgb)); }
+.cfg-tab > div { min-width: 0; }
+.cfg-tab b { display: block; font-size: 15px; font-weight: 700; line-height: 1.35; }
+.cfg-tab > div > span { display: block; font-size: 12.5px; line-height: 1.3; color: var(--faint); }
+.cfg-foot { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding: 12px 12px 4px; border-top: 1px solid var(--edge); font-size: 12.5px; color: var(--faint); }
+.cfg-foot-link { display: flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; color: var(--muted); text-align: left; cursor: pointer; }
+.cfg-foot-link:hover { color: var(--text); }
+.cfg-foot-link svg { width: 14px; height: 14px; flex: none; }
+/* Заголовок и колонки */
+.cfg-body { min-width: 0; container: cfgbody / inline-size; }
+.cfg-body .live-hd { margin: 2px 4px 16px; }
+.cfg-body .live-h1 { font-size: 40px; letter-spacing: -1.2px; }
+.cfg-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.cfg-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+@container cfgbody (max-width: 899px) {
+  .cfg-cols { display: flex; flex-direction: column; align-items: stretch; gap: 20px; }
+  .cfg-col { display: contents; }   /* одна колонка: сначала левая, потом правая — как в макете */
+}
+.cfg-pane-h { display: none; margin: 8px 4px 12px; font: 700 20px/1.2 var(--font-display); }
+.cfg.searching .cfg-pane-h { display: block; }
+.cfg.searching .cfg-pane + .cfg-pane { margin-top: 26px; }
+.cfg-hide { display: none !important; }
+.cfg-empty { display: flex; flex-direction: column; gap: 4px; padding: 30px 4px; color: var(--muted); }
+.cfg-empty[hidden] { display: none; }
+.cfg-empty b { font-size: 17px; color: var(--text); }
+/* Карточка */
+.cfg-card { padding: 18px 20px 8px; border-radius: 24px; }
+.cfg-card > h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font: 700 17px/1.2 var(--font-display); }
+.cfg-ic { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 10px; background: rgb(127 127 127 / 0.14); color: var(--ink); }
+.cfg-ic svg { width: 18px; height: 18px; }
+/* Строка: текст слева, управление справа; строки разделены чертой */
+.cfg-row, .cfg .set-switch { display: flex; align-items: center; gap: 16px; padding: 12px 0; }
+.cfg-card > * + :not(.set-result-line, .cfg-acts, .set-hint, ol, .cfg-adv) { border-top: 1px solid var(--edge); }
+.cfg-row-text { flex: 1; min-width: 0; }
+.cfg-row-text b, .cfg .set-switch-title { display: block; font-size: 14px; font-weight: 600; line-height: 1.3; }
+.cfg-row-text span, .cfg .set-switch-sub { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+.cfg .set-switch-text { gap: 0; }
+.cfg-row-text > .cfg-sub { margin-top: 2px; font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+.cfg-row.wrap { flex-wrap: wrap; }
+.cfg-row.wrap > .cfg-row-text { flex-basis: 100%; }
+.cfg-acts { padding-top: 0; }
+.cfg-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Выключатель — как в макете (44×26, включённый — цвет обложки) */
+.cfg .set-switch-knob { width: 44px; height: 26px; border-radius: 13px; background: rgb(127 127 127 / 0.3); transition: background-color 0.3s; }
+.cfg .set-switch-knob::after { width: 20px; height: 20px; box-shadow: 0 2px 6px rgb(0 0 0 / 0.3); transition: transform 0.4s var(--spring); }
+.cfg .set-switch input:checked + .set-switch-knob { background: var(--ink); }
+/* Переключатели-сегменты */
+.cfg :is(.set-choice .seg, .cfg-seg, .set-strategies, .zapret-paths) { display: inline-flex; flex: none; flex-wrap: wrap; gap: 0; padding: 3px; border-radius: 14px; background: rgb(127 127 127 / 0.14); }
+.cfg :is(.set-choice .seg, .cfg-seg, .set-strategies, .zapret-paths) .seg-btn { height: 30px; padding: 0 11px; border-radius: 11px; font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.cfg :is(.set-choice .seg, .cfg-seg, .set-strategies, .zapret-paths) .seg-btn.on { background: var(--glass-hi); color: var(--text); box-shadow: 0 3px 10px -5px rgb(var(--shade-rgb) / 0.5); }
+.cfg :is(.set-choice .seg, .cfg-seg) .seg-btn:disabled { opacity: 0.6; cursor: progress; }
+.cfg-row.wrap > .cfg-seg { flex: 0 1 auto; max-width: 100%; }   /* длинные «Способы» — переносом, не за край карточки */
+/* Кнопки — капсулы с кромкой; главная — сплошная */
+.cfg .btn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border: 1px solid var(--edge); border-radius: 17px; background: var(--glass-hi); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.cfg .btn:hover:not(:disabled) { transform: none; background: rgb(var(--fg-rgb) / 0.14); }
+.cfg .btn.primary { border-color: transparent; background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb)); }
+.cfg .btn.primary:hover:not(:disabled) { background: rgb(var(--fg-rgb)); box-shadow: 0 0 0 4px rgb(var(--fg-rgb) / 0.1); }
+.cfg .set-choice-btn { max-width: 200px; }
+.cfg :is(.btn, .cfg-dot)[hidden] { display: none; }
+.cfg-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: #3ddc97; box-shadow: 0 0 10px #3ddc97; }
+.cfg-dot.warn { background: #ffb547; box-shadow: 0 0 10px #ffb547; }
+/* Чипы пресетов эквалайзера и столбики */
+.cfg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cfg-chips button { height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: rgb(127 127 127 / 0.14); font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.cfg-chips button:hover { color: var(--text); }
+.cfg-chips button.on { background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb)); }
+.cfg-eq { display: flex; align-items: flex-end; gap: 3px; flex: none; height: 34px; padding: 0; border: 0; background: none; cursor: pointer; }
+.cfg-eq i { width: 6px; border-radius: 3px; background: linear-gradient(var(--ink), color-mix(in srgb, var(--ink) 30%, transparent)); transition: height 0.4s var(--ease); }
+/* Подсказки, итоги, прежние блоки внутри карточек */
+.cfg .set-hint { margin: 0; padding: 0 0 12px; font-size: 12.5px; line-height: 1.4; }
+.cfg .set-text { margin: 0 0 10px; font-size: 12.5px; line-height: 1.4; }
+.cfg .set-result-line { margin: 0; padding: 0 0 12px; font-size: 12.5px; }
+.cfg :is(.set-hotkeys, .set-autostart, .set-obs) > .set-switch { border-top: 0; }
+.cfg .hotkey-list { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); margin: 0 0 12px; }
+.cfg .hotkey { font-size: 12.5px; }
+.cfg .set-cache { padding: 12px 0 0; }
+.cfg .set-cache .set-switch { border-top: 0; }
+.cfg .cache-total { font-size: 14px; }
+.cfg .cache-row { font-size: 12.5px; }
+.cfg .set-obs-actions { padding: 0 0 12px; }
+.cfg .set-proxy { flex: 1 1 100%; }
+.cfg .set-proxy .dialog-input { height: 38px; }
+.cfg .set-results { margin: 0; padding: 4px 0 12px; border-top: 0; }
+.cfg .set-result { font-size: 12.5px; }
+.cfg .bookmarklet-steps { margin: 0; padding: 0 0 12px 20px; font-size: 12.5px; }
+.cfg .local-folders { margin: 0; padding: 10px 0; }
+.cfg .local-folders:empty { display: none; }
+.cfg .local-folders + .set-hint, .cfg .cfg-row + .set-hint { border-top: 0; }
+.cfg .set-actions { gap: 8px; padding: 0 0 12px; border-top: 0; }
+/* «Для опытных» в «Обходе блокировок»: раскрывается */
+.cfg-more { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 0; border: 0; background: none; font: inherit; font-size: 14px; font-weight: 600; color: var(--text); text-align: left; cursor: pointer; }
+.cfg-more span { flex: 1; }
+.cfg-more svg { width: 16px; height: 16px; color: var(--faint); transition: rotate 0.35s var(--ease); }
+.cfg-more.open svg { rotate: 90deg; }
+.cfg-adv { padding-bottom: 6px; }
+.cfg-adv > * + :not(.set-hint) { border-top: 1px solid var(--edge); }
+.cfg .zapret-card { margin: 0; padding: 12px 0 4px; border: 0; border-top: 1px solid var(--edge); border-radius: 0; background: none; }
+.cfg .zapret-card h2 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.cfg .zapret-card .set-text { color: var(--muted); }
+.cfg .zapret-facts { font-size: 12.5px; }
+/* «Вид»: те же разделы, что в панели справа, — стеклянными карточками */
+.cfg-pane[data-tab="look"] .lk-sec { padding: 18px 20px 16px; border-radius: 24px; background: var(--glass); backdrop-filter: blur(28px) saturate(1.4); border: 1px solid var(--edge); }
+/* Свои карточки «Вида» (Движение, Визуализация…) — как разделы панели: заголовок 15 px, строки без черт */
+.cfg-pane[data-tab="look"] .cfg-card { padding: 18px 20px 10px; }
+.cfg-pane[data-tab="look"] .cfg-card > h3 { margin: 0 0 4px; font: 700 15px/1.35 var(--font); }
+.cfg-pane[data-tab="look"] .cfg-card > .set-switch { padding: 9px 0; border-top: 0; }
+.cfg-pane[data-tab="look"] .lk-sw { grid-template-columns: repeat(7, minmax(0, 54px)); justify-content: space-between; }
+.cfg-pane[data-tab="look"] .set-viz-colors { padding: 12px 0; }
+.cfg-pane[data-tab="look"] .cfg-card > h3 + * { border-top: 0; }
+.cfg-themes .set-themes { padding: 4px 0 12px; }
+.cfg-themes .set-themes > .set-switch-text .set-switch-title { display: none; }
+.cfg-themes .theme-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.cfg-themes .set-actions { padding: 0; }
+/* Мастерская и редактор тем — две плитки */
+.cfg-more-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cfg-tile { position: relative; height: 120px; display: flex; flex-direction: column; justify-content: flex-end; padding: 18px 22px; border: 0; border-radius: 24px; overflow: hidden; background: rgb(var(--shade-rgb) / 0.4); font: inherit; text-align: left; color: #fff; cursor: pointer; transition: translate 0.5s var(--ease), box-shadow 0.5s var(--ease); }
+.cfg-tile::before { content: ""; position: absolute; inset: -40%; filter: blur(40px) saturate(1.8); opacity: 0.9; transition: transform 1.4s var(--ease); }
+.cfg-tile.ws::before { background: var(--cv, none) center / cover, #2a1a30; }
+.cfg-tile.ed::before { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 70%, #fff), color-mix(in srgb, var(--accent) 45%, #3a1a50)); }
+.cfg-tile::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgb(0 0 0 / 0.45), transparent); }
+.cfg-tile:hover { translate: 0 -5px; box-shadow: 0 24px 40px -20px rgb(0 0 0 / 0.6); }
+.cfg-tile:hover::before { transform: scale(1.18) rotate(8deg); }
+.cfg-tile > * { position: relative; z-index: 1; }
+.cfg-tile b { padding-bottom: 0.05em; font: 800 26px/1.15 var(--font-display); }
+.cfg-tile span { margin-top: 3px; color: rgb(255 255 255 / 0.82); }
+/* Узкое окно (как в макете 1100): оглавление уже, без пояснений */
+@media (max-width: 1250px) {
+  .cfg { grid-template-columns: 230px minmax(0, 1fr); }
+  .cfg-tab > div > span { display: none; }
+  .cfg-tab-ic { width: 34px; height: 34px; }
+}

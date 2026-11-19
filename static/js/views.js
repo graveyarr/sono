@@ -33,6 +33,7 @@ import { localTracks } from "./local.js";
 import { lookTrackChanged } from "./look.js";
 import { countDownloaded, download, removeDownload, setAutoList, songsToDownload } from "./downloads.js";
 import { renderSettings } from "./settings.js";
+import { renderSettingsLive } from "./setlive.js";
 import { agoText, artistLinks, choiceDialog, collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
 import { bigPill, colsClass, listColumns, liveHead, miniBtn, playPill, plCard, plLayout, statusLine } from "./plcard.js";
 import { showLibCheckReport } from "./libcheck.js";
@@ -180,7 +181,7 @@ function applyView(changed) {
   viewList.hidden = !isList;
   if (view === "home") renderHome(changed);
   if (view === "now") renderUpNext();
-  if (view === "settings" && changed) renderSettings();
+  if (view === "settings" && changed) (liveUi() ? renderSettingsLive : renderSettings)();   // на ПК — 4 раздела (setlive.js)
   // На ПК («Живая обложка») Flow, «Статистика» и «Новинки» — новые экраны (flowlive.js, statslive.js, nrlive.js)
   if (view === "flow") { if (liveUi()) renderFlowLive({ covers: flowCovers }); else renderFlowView(); }
   if (view === "stats") { if (liveUi()) renderStatsLive(viewStats); else renderStats(viewStats, wrappedButton()); }

@@ -59,6 +59,13 @@ export function localSection() {
   section.append(el("h2", "", "Мои файлы"),
     el("p", "set-text", "Музыка с компьютера — mp3, flac, m4a, ogg и другие. Добавьте папку (подпапки тоже просмотрятся): "
       + "треки появятся в медиатеке в разделе «Мои файлы» и будут играть без интернета."));
+  section.append(...localParts(section));
+  return section;
+}
+
+/** Папки, строка «Треков: N» и кнопки — для прежнего экрана и для нового на ПК (setlive.js).
+    owner — элемент, пока он на странице, список перерисовывается сам */
+export function localParts(owner) {
   const folders = el("div", "local-folders");
   const status = el("div", "set-hint");
   const buttons = el("div", "set-actions");
@@ -83,8 +90,7 @@ export function localSection() {
       : data.folders.length ? `Треков: ${data.tracks.length}` : "Папок пока нет.";
     again.hidden = !data.folders.length;
   };
-  onLocalChange(() => { if (section.isConnected) draw(); });
+  onLocalChange(() => { if (owner.isConnected) draw(); });
   draw();
-  section.append(folders, status, buttons);
-  return section;
+  return [folders, status, buttons];
 }

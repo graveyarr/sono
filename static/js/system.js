@@ -62,7 +62,7 @@ function usageLine(box, usage) {
   box.replaceChildren(el("div", "cache-total", `Всего: ${bytes(usage.total)}`), list);
 }
 
-function cacheBlock(choiceRow, mobile = false) {
+export function cacheBlock(choiceRow, mobile = false) {
   const wrap = el("div", "set-cache");
   wrap.append(el("p", "set-text", `Sono оставляет прослушанные треки ${mobile ? "в памяти телефона" : "на диске"} — `
     + "второй раз они включаются мгновенно и без интернета. Чтобы папка не росла без конца, самые давние удаляются сами."));
@@ -120,11 +120,14 @@ export function systemSection({ switchRow, choiceRow, mobile = false }) {
     section.append(el("h2", "", "Кэш"), cacheBlock(choiceRow, true));
     return section;
   }
-  section.append(el("h2", "", "Система"));
+  section.append(el("h2", "", "Система"), autostartBlock(switchRow), hotkeysBlock(switchRow));
+  section.append(el("h3", "set-sub-title", "Кэш на диске"), cacheBlock(choiceRow));
+  return section;
+}
 
-  // Запуск вместе с Windows — сразу в трей
+/** Запуск вместе с Windows — сразу в трей (и прежний экран, и новый на ПК — setlive.js) */
+export function autostartBlock(switchRow) {
   const autostart = el("div", "set-autostart");
-  section.append(autostart);
   const drawAutostart = (info) => {
     const sub = info.available
       ? "Sono запускается при входе в Windows и ждёт в трее (у часов) — окно не выскакивает. Открыть — щелчком по значку."
@@ -148,8 +151,11 @@ export function systemSection({ switchRow, choiceRow, mobile = false }) {
   };
   drawAutostart({ available: false, why: "проверяю…" });
   fetch("/api/autostart").then((r) => r.json()).then(drawAutostart).catch(() => drawAutostart({ available: false }));
+  return autostart;
+}
 
-  // Глобальные клавиши
+/** Глобальные клавиши: выключатель и список клавиш */
+export function hotkeysBlock(switchRow) {
   const keysBox = el("div", "set-hotkeys");
   const drawKeys = () => {
     const inApp = !!api();
@@ -179,8 +185,5 @@ export function systemSection({ switchRow, choiceRow, mobile = false }) {
     keysBox.replaceChildren(row, list);
   };
   drawKeys();
-  section.append(keysBox);
-
-  section.append(el("h3", "set-sub-title", "Кэш на диске"), cacheBlock(choiceRow));
-  return section;
+  return keysBox;
 }

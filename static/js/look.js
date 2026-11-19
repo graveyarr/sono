@@ -32,6 +32,16 @@ const sysLight = matchMedia("(prefers-color-scheme: light)");
 const look = () => ({ ...DEFAULTS, ...getSetting("look", {}) });
 let st = look();
 let panel = null, body = null, bgItems = [];
+// Где нарисованы разделы «Вида»: тело панели справа и раздел «Вид» в «Настройках» на ПК (setlive.js)
+const roots = new Set();
+/** Живые места с разделами (раздел настроек, который уже убрали со страницы, забываем) */
+function liveRoots() {
+  for (const r of roots) {
+    if (r.isConnected) r.lookShown = true;
+    else if (r !== body && r.lookShown) roots.delete(r);   // ещё не вставлен на страницу — не трогаем
+  }
+  return [...roots];
+}
 
 // ---------- Что меняет каждая настройка ----------
 
@@ -326,10 +336,62 @@ function build() {
   head.append(titles, close);
 
   body = el("div", "lk-body");
-  // Тема
+  body.append(...makeSections());
+
+  const foot = el("div", "lk-foot");
+  const reset = el("button", "", "Сбросить всё");
+  reset.type = "button";
+  reset.addEventListener("click", () => {
+    st = { ...DEFAULTS };
+    setSetting("look", {});
+    if (currentThemeId() === LIGHT) chooseTheme(null);
+    apply();
+    sync();
+  });
+  const go = el("button", "go");
+  go.type = "button";
+  go.innerHTML = `Темы целиком — мастерская ${icons.chevron}`;
+  go.addEventListener("click", openWorkshop);
+  foot.append(reset, go);
+  panel.append(head, body, foot);
+  document.body.append(panel);
+  attach(body, panel);   // перетащить картинку можно на всю панель
+}
+
+/** Разделы «Вида» в root: щелчки, перетаскивание картинки (на dropArea) и синхронизация с настройками */
+function attach(root, dropArea = root) {
+  roots.add(root);
+  root.addEventListener("click", onPick);
+  const drop = () => root.querySelector(".lk-drop");
+  dropArea.addEventListener("dragover", (e) => { e.preventDefault(); drop()?.classList.add("over"); });
+  dropArea.addEventListener("dragleave", (e) => { if (!dropArea.contains(e.relatedTarget)) drop()?.classList.remove("over"); });
+  dropArea.addEventListener("drop", (e) => { e.preventDefault(); drop()?.classList.remove("over"); addFile(e.dataTransfer.files[0]); });
+  if (!bgItems.length) loadBackgrounds();
+  else if (root.isConnected) drawLibrary();   // список уже есть (загрузили для настроек) — сразу в панель
+}
+
+/** «Настройки → Вид» на ПК (setlive.js): те же разделы, что в панели справа. root — раздел настроек
+    (разделы можно разложить внутри него как угодно). Возвращает массив разделов .lk-sec */
+export function lookSections(root) {
+  if (!liveUi()) return [];
+  const list = makeSections();
+  attach(root);
+  return list;
+}
+
+/** Раздел «Вид» в настройках показали — выделить выбранное (бегунок переключателя меряется по видимым кнопкам) */
+export function syncLookSections() {
+  drawLibrary();   // в нём и sync()
+  requestAnimationFrame(() => liveRoots().forEach((r) => r.querySelectorAll(".lk-seg").forEach(placeSeg)));
+}
+
+/** Разделы «Вида»: тема, цвет, фон и свой фон, «Сейчас играет», полоска времени, очередь.
+    Возвращает массив разделов (.lk-sec); куда их положить — решает вызывающий (панель или «Настройки») */
+function makeSections() {
+  const out = [];
   const themeNote = el("div", "lk-note");
   themeNote.dataset.themenote = "";
-  body.append(sec("Тема", seg("theme", [["dark", "Тёмная", icons.moon], ["light", "Светлая", icons.sun], ["system", "Как в системе", icons.monitor]]), themeNote));
+  out.push(sec("Тема", seg("theme", [["dark", "Тёмная", icons.moon], ["light", "Светлая", icons.sun], ["system", "Как в системе", icons.monitor]]), themeNote));
   // Цвет
   const sw = el("div", "lk-sw");
   sw.dataset.k = "color";
@@ -348,7 +410,7 @@ function build() {
   }));
   const colorNote = el("div", "lk-note");
   colorNote.dataset.colornote = "";
-  body.append(sec("Цвет", sw, colorNote));
+  out.push(sec("Цвет", sw, colorNote));
   // Фон + свой фон
   const own = el("div", "lk-own");
   own.dataset.own = "";
@@ -385,7 +447,7 @@ function build() {
   toggle.dataset.t = "ownColor";
   toggle.innerHTML = '<div><b>Цвет кнопок — из картинки</b><span>Иначе — из обложки или выбранный выше</span></div><span class="lk-tg"></span>';
   own.append(drop, lib, range("dim", "Приглушить картинку", 0, 85), range("blur", "Размытие", 0, 40), toggle);
-  body.append(sec("Фон", tiles("bg", [
+  out.push(sec("Фон", tiles("bg", [
     ["live", "Живая обложка", '<i class="blob move"></i>'],
     ["still", "Без движения", '<i class="blob"></i>'],
     ["own", "Свой фон", '<i class="own" data-ownpv></i>'],
@@ -396,48 +458,24 @@ function build() {
   more.type = "button";
   more.innerHTML = `Ещё виды — в мастерской тем ${icons.chevron}`;
   more.addEventListener("click", openWorkshop);
-  body.append(sec("«Сейчас играет»", tiles("now", [
+  out.push(sec("«Сейчас играет»", tiles("now", [
     ["normal", "Обычный", `<i class="cv" style="left:10px;top:13px;width:40px;height:40px"></i>${lines(58, 20)}`],
     ["vinyl", "Пластинка", '<i class="disc spin" style="left:calc(50% - 26px);top:7px;width:52px;height:52px"></i>'],
     ["big", "Большой", '<i class="cv" style="left:calc(50% - 21px);top:6px;width:42px;height:42px"></i><i class="ln hi" style="left:calc(50% - 18px);top:53px;width:36px"></i>'],
   ]), more));
   // Полоска времени
-  body.append(sec("Полоска времени", tiles("seek", [
+  out.push(sec("Полоска времени", tiles("seek", [
     ["edge", "Тонкий край", '<span class="cpill"><i class="edge"></i></span>'],
     ["wave", "Волна трека", bars(18)],
     ["live", "Живая", bars(18, true)],
   ])));
   // Очередь
-  body.append(sec("Очередь на «Сейчас играет»", tiles("queue", [
+  out.push(sec("Очередь на «Сейчас играет»", tiles("queue", [
     ["hidden", "Только кнопкой", `<i class="cv" style="left:12px;top:14px;width:36px;height:36px"></i>${lines(56, 18)}`],
     ["right", "Справа", `<i class="cv" style="left:8px;top:16px;width:30px;height:30px"></i><i class="ln hi" style="left:44px;top:22px;width:24%"></i><i class="ln" style="left:44px;top:32px;width:18%"></i>${[10, 24, 38].map((y) => `<i class="ln" style="right:8px;top:${y + 4}px;width:20%;height:10px;border-radius:3px"></i>`).join("")}`],
     ["bottom", "Снизу", `<i class="cv" style="left:12px;top:8px;width:28px;height:28px"></i><i class="ln hi" style="left:48px;top:14px;width:34%"></i><i class="ln" style="left:48px;top:24px;width:24%"></i>${[0, 1, 2, 3].map((k) => `<i class="ln" style="left:${12 + k * 22}%;top:44px;width:17%;height:12px;border-radius:3px"></i>`).join("")}`],
   ])));
-
-  const foot = el("div", "lk-foot");
-  const reset = el("button", "", "Сбросить всё");
-  reset.type = "button";
-  reset.addEventListener("click", () => {
-    st = { ...DEFAULTS };
-    setSetting("look", {});
-    if (currentThemeId() === LIGHT) chooseTheme(null);
-    apply();
-    sync();
-  });
-  const go = el("button", "go");
-  go.type = "button";
-  go.innerHTML = `Темы целиком — мастерская ${icons.chevron}`;
-  go.addEventListener("click", openWorkshop);
-  foot.append(reset, go);
-  panel.append(head, body, foot);
-  document.body.append(panel);
-
-  body.addEventListener("click", onPick);
-  // Перетащить картинку можно на всю панель
-  panel.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
-  panel.addEventListener("dragleave", (e) => { if (!panel.contains(e.relatedTarget)) drop.classList.remove("over"); });
-  panel.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); addFile(e.dataTransfer.files[0]); });
-  loadBackgrounds();
+  return out;
 }
 
 function onPick(e) {
@@ -465,24 +503,26 @@ function onPick(e) {
 }
 
 function drawLibrary() {
-  const lib = body?.querySelector("[data-lib]");
-  if (!lib) return;
-  lib.replaceChildren(...bgItems.map((it) => {
-    const b = el("button");
-    b.type = "button";
-    b.dataset.id = it.id;
-    b.style.setProperty("--img", `url("${it.src}")`);
-    b.title = it.own ? "Ваш фон" : "Пример";
-    if (it.gif) b.append(el("span", "", "GIF"));
-    if (it.own) {
-      const del = el("i", "lk-lib-del");
-      del.dataset.id = it.id;
-      del.title = "Убрать из списка";
-      del.innerHTML = icons.close;
-      b.append(del);
-    }
-    return b;
-  }));
+  for (const root of liveRoots()) {
+    const lib = root.querySelector("[data-lib]");
+    if (!lib) continue;
+    lib.replaceChildren(...bgItems.map((it) => {
+      const b = el("button");
+      b.type = "button";
+      b.dataset.id = it.id;
+      b.style.setProperty("--img", `url("${it.src}")`);
+      b.title = it.own ? "Ваш фон" : "Пример";
+      if (it.gif) b.append(el("span", "", "GIF"));
+      if (it.own) {
+        const del = el("i", "lk-lib-del");
+        del.dataset.id = it.id;
+        del.title = "Убрать из списка";
+        del.innerHTML = icons.close;
+        b.append(del);
+      }
+      return b;
+    }));
+  }
   sync();
 }
 
@@ -493,37 +533,38 @@ function placeSeg(s) {
   if (b) { i.style.width = `${b.offsetWidth}px`; i.style.translate = `${b.offsetLeft}px 0`; }
 }
 
-/** Вид панели — по настройкам */
+/** Вид панели (и раздела «Вид» в настройках) — по настройкам */
 function sync() {
-  if (!body) return;
   const values = { ...st, theme: themeMode() };
-  body.querySelectorAll("[data-k]").forEach((g) => {
-    g.querySelectorAll("[data-v]").forEach((b) => b.classList.toggle("on", b.dataset.v === String(values[g.dataset.k])));
-    if (g.classList.contains("lk-seg")) placeSeg(g);
-  });
-  body.querySelectorAll("[data-t]").forEach((r) => r.classList.toggle("on", !!st[r.dataset.t]));
-  body.querySelectorAll("[data-r]").forEach((r) => {
-    r.value = st[r.dataset.r];
-    r.style.setProperty("--p", `${((r.value - r.min) / (r.max - r.min)) * 100}%`);
-  });
-  body.querySelector("[data-out=dim]").textContent = `${st.dim}%`;
-  body.querySelector("[data-out=blur]").textContent = st.blur ? `${st.blur} px` : "нет";
-  body.querySelector("[data-own]").classList.toggle("show", st.bg === "own");
+  const other = themeMode() === "other" ? themeById(currentThemeId()) : null;
+  const name = COLORS.find((c) => c[1] === st.color)?.[0];
   // Свой фон ещё не выбран — в образце первый из списка (его и включит щелчок по плитке)
   const pvSrc = st.ownSrc || bgItems[0]?.src;
-  body.querySelector("[data-ownpv]")?.style.setProperty("--own", pvSrc ? `url("${pvSrc}")` : "none");
-  body.querySelectorAll("[data-lib] button").forEach((b) => b.classList.toggle("on", b.dataset.id === st.own));
-  const other = themeMode() === "other" ? themeById(currentThemeId()) : null;
-  const tn = body.querySelector("[data-themenote]");
-  tn.textContent = other ? `Сейчас включена тема «${other.name}». Нажмите «Тёмная» или «Светлая», чтобы вернуться к обычной.` : "";
-  tn.hidden = !other;
-  const name = COLORS.find((c) => c[1] === st.color)?.[0];
-  body.querySelector("[data-colornote]").textContent = st.color === "cover"
-    ? (st.bg === "own" && st.ownColor && st.ownAcc ? "Сейчас цвет берётся из вашей картинки." : "Под обложку — цвет меняется с каждой песней.")
-    : `${name ?? "Свой"} — один цвет для всех песен; фон тоже этого цвета.`;
-  // Образцы в панели — с обложкой того, что играет
+  // Образцы — с обложкой того, что играет
   const cv = state.current ? `url("${coverUrl(state.current)}")` : "none";
-  panel.style.setProperty("--cv", cv);
+  for (const root of liveRoots()) {
+    root.querySelectorAll("[data-k]").forEach((g) => {
+      g.querySelectorAll("[data-v]").forEach((b) => b.classList.toggle("on", b.dataset.v === String(values[g.dataset.k])));
+      if (g.classList.contains("lk-seg")) placeSeg(g);
+    });
+    root.querySelectorAll("[data-t]").forEach((r) => r.classList.toggle("on", !!st[r.dataset.t]));
+    root.querySelectorAll("[data-r]").forEach((r) => {
+      r.value = st[r.dataset.r];
+      r.style.setProperty("--p", `${((r.value - r.min) / (r.max - r.min)) * 100}%`);
+    });
+    root.querySelector("[data-out=dim]").textContent = `${st.dim}%`;
+    root.querySelector("[data-out=blur]").textContent = st.blur ? `${st.blur} px` : "нет";
+    root.querySelector("[data-own]").classList.toggle("show", st.bg === "own");
+    root.querySelector("[data-ownpv]")?.style.setProperty("--own", pvSrc ? `url("${pvSrc}")` : "none");
+    root.querySelectorAll("[data-lib] button").forEach((b) => b.classList.toggle("on", b.dataset.id === st.own));
+    const tn = root.querySelector("[data-themenote]");
+    tn.textContent = other ? `Сейчас включена тема «${other.name}». Нажмите «Тёмная» или «Светлая», чтобы вернуться к обычной.` : "";
+    tn.hidden = !other;
+    root.querySelector("[data-colornote]").textContent = st.color === "cover"
+      ? (st.bg === "own" && st.ownColor && st.ownAcc ? "Сейчас цвет берётся из вашей картинки." : "Под обложку — цвет меняется с каждой песней.")
+      : `${name ?? "Свой"} — один цвет для всех песен; фон тоже этого цвета.`;
+    root.style.setProperty("--cv", cv);
+  }
 }
 
 function openWorkshop() {
@@ -546,13 +587,16 @@ export function openLook(open = !document.body.classList.contains("look-open")) 
 
 export function initLook() {
   if (!liveUi()) return;
+  // Медиатека загружается уже после того, как модуль прочитал настройки (main.js: loadLibrary) — читаем заново,
+  // иначе после перезапуска «Вид» был обычным, а следующий выбор стирал прежние
+  st = look();
   document.getElementById("look-btn")?.addEventListener("click", () => openLook());
   addEventListener("keydown", (e) => {
     if (e.key === "Escape" && document.body.classList.contains("look-open") && !document.querySelector(".menu.open, .modal-backdrop")) openLook(false);
   });
   sysLight.addEventListener("change", applySystemTheme);
   onThemesChange(() => sync());
-  addEventListener("resize", () => { fitWave(); if (panel) body.querySelectorAll(".lk-seg").forEach(placeSeg); });
+  addEventListener("resize", () => { fitWave(); liveRoots().forEach((r) => r.querySelectorAll(".lk-seg").forEach(placeSeg)); });
   apply();
 }
 
@@ -560,5 +604,5 @@ export function initLook() {
 export function lookTrackChanged() {
   if (!liveUi()) return;
   renderNowQueue();
-  if (document.body.classList.contains("look-open")) sync();
+  if (document.body.classList.contains("look-open") || liveRoots().some((r) => r !== body)) sync();
 }

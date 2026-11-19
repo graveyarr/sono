@@ -92,6 +92,8 @@ export function showWelcome() {
     zap.addEventListener("click", () => {
       close();
       openView("settings");
+      // ПК: zapret — в «Сеть и система» → «Для опытных» (setlive.js раскроет и прокрутит сам)
+      document.dispatchEvent(new CustomEvent("sono:settings-go", { detail: "zapret" }));
       setTimeout(() => document.querySelector(".zapret-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
     });
     const actions = el("div", "welcome-actions");

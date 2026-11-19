@@ -28,6 +28,7 @@ function sync() {
     b.title = active() ? `Таймер сна: ${left}` : "Таймер сна";
     b.setAttribute("aria-label", b.title);
   });
+  document.dispatchEvent(new CustomEvent("sono:sleep"));   // «Настройки → Таймер сна» (setlive.js) покажут то же
 }
 
 /** Сбросить всё: и таймер, и затихание (громкость обратно) */
@@ -71,8 +72,11 @@ function tick() {
   sync();
 }
 
+let picked = 0;          // что выбрали последним: минуты или "track" (для «Настроек»)
+
 function start(minutes) {
   cancel(true);
+  picked = minutes;
   if (minutes === "track") {
     state.stopAfterTrack = finish;
     toast("Музыка выключится в конце трека");
@@ -99,6 +103,11 @@ export function sleepMenuItems() {
 
 /** Таймер сна включён — капсула показывает луну, пока он идёт */
 export const sleepActive = active;
+
+/** Для «Настроек» на ПК (setlive.js): включить (минуты или "track"), выключить, что сейчас стоит */
+export const startSleep = (minutes) => start(minutes);
+export const stopSleep = () => cancel();
+export const sleepNow = () => (!active() ? null : { picked: deadline ? picked : "track", left: deadline ? minutesLeft() : 0 });
 
 function openSleepMenu(anchor) {
   openMenu(anchor, sleepMenuItems());

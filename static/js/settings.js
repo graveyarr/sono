@@ -34,6 +34,29 @@ let testing = false;
 let proxyDraft = false;  // выбрали «Свой прокси», но адрес ещё не ввели (на сервере режим прежний)
 let netSaving = null;    // режим, который сейчас сохраняется (карточки на это время не нажимаются)
 
+// Новый экран настроек на ПК (setlive.js) перерисовывает после замера и zapret только карточку обхода, а не весь экран
+let netRedraw = null;
+export const setNetRedraw = (fn) => { netRedraw = fn; };
+const redrawNet = () => (netRedraw && box.querySelector(".cfg") ? netRedraw() : render());
+
+/** Обход блокировок для нового экрана (setlive.js): состояние и действия — те же, что у прежнего */
+export const net = {
+  get config() { return network; },
+  get card() { return netCard; },
+  get strategies() { return strategies; },
+  get testing() { return testing; },
+  get lastTest() { return lastTest; },
+  get proxyDraft() { return proxyDraft; },
+  set proxyDraft(v) { proxyDraft = v; },
+  get saving() { return netSaving; },
+  set saving(v) { netSaving = v; },
+  save: (change) => saveNetwork(change),
+  test: () => runTest(),
+  results: () => testResults(),
+  modes: () => MODES,
+  label: (name) => label(name),
+};
+
 const MODES = [
   { value: "bypass", title: "Встроенный обход", badge: "Рекомендуем",
     text: "Плеер сам прячет от провайдера, куда идёт соединение, — как zapret, но только для плеера. Без драйверов и прав администратора." },
@@ -232,7 +255,7 @@ function testResults() {
     use.addEventListener("click", async () => {
       await saveNetwork(best);
       toast("Включено лучшее по замеру");
-      render();
+      redrawNet();
     });
     wrap.append(use);
   }
@@ -241,7 +264,7 @@ function testResults() {
 
 async function runTest() {
   testing = true;
-  render();
+  redrawNet();
   try {
     const res = await fetch("/api/network/test", { method: "POST" });
     const data = await res.json();
@@ -250,7 +273,7 @@ async function runTest() {
     lastTest = { error: err.message };
   }
   testing = false;
-  render();
+  redrawNet();
 }
 
 // ---------- Раздел «Оформление»: визуализация и статус в Discord ----------
@@ -258,7 +281,7 @@ async function runTest() {
 let presenceInfo = null;   // { available, connected, error } — с сервера
 let obsInfo = null;        // { running, port, error } — плеер для стрима (OBS)
 
-function switchRow(title, text, on, onToggle) {
+export function switchRow(title, text, on, onToggle) {
   const row = el("label", "set-switch");
   const textBox = el("span", "set-switch-text");
   textBox.append(el("span", "set-switch-title", title), el("span", "set-switch-sub", text));
@@ -286,6 +309,41 @@ function workshopEntry() {
   return btn;
 }
 
+// Строки «Оформления» — по одной функции: их собирает и прежний экран (здесь), и новый на ПК (setlive.js)
+export const bigBarRow = (title = "Большой нижний плеер",
+  text = "Крупнее обложка, название и кнопки — удобнее, если плеер внизу нужен под рукой.") =>
+  switchRow(title, text, !!getSetting("minibarLarge", false), (on) => { setSetting("minibarLarge", on); setMinibarLarge(on); });
+export const backRow = () => choiceRow("Кнопка «Назад»", BACK_PLACES, backPlace, setBackPlace);
+// Медиатека как в Spotify: папки, фильтр «Плейлисты / Исполнители», поиск и сортировка (libtools.js)
+export const libToolsRow = () => switchRow("Папки и фильтры в медиатеке",
+  "Папки для плейлистов, подписки на исполнителей, поиск и сортировка над медиатекой. Выключите — будет простой список.",
+  getSetting("libTools", true) !== false, (on) => setSetting("libTools", on));
+export const lyricsRow = () => choiceRow("Текст песни", LYRICS_STYLES, lyricsStyle, setLyricsStyle);
+export const noAnimRow = () => switchRow("Без анимаций", isMobile
+  ? "Ничего не движется само — без плавных переходов, визуализации и живых фонов. "
+    + "Sono работает так же, только меньше нагружает телефон и бережёт батарею."
+  : "Для слабых компьютеров: ничего не движется само — без плавных переходов, визуализации и живых фонов. "
+    + "Sono работает так же, только меньше нагружает компьютер.",
+  motionOff(), (on) => { setSetting("reduceMotion", on); applyMotion(); refreshViz(); });
+export const calmRow = () => switchRow("Меньше движения",
+  "Только мягкие проявления: фон не плывёт, обложки и экраны не перелетают. Если анимации выключены в Windows — так всегда.",
+  getSetting("calmMotion", false) === true, (on) => { setSetting("calmMotion", on); applyMotion(); });
+export const bgBeatRow = () => switchRow("Фон под бас",
+  "Фон слегка вздрагивает на ударах баса, а снизу вспыхивает свет цвета обложки.",
+  getSetting("bgBeat", false) === true, (on) => { setSetting("bgBeat", on); applyMotion(); });
+export const clipsRow = () => switchRow("Клипы вместо обложки",
+  "Если у трека есть официальный клип на YouTube, на «Сейчас играет» вместо обложки идёт он — без звука, вместе с музыкой. "
+    + "Берёт больше интернета (примерно 2–4 МБ в минуту).",
+  clipsEnabled(), (on) => setClipsEnabled(on));
+export function discordRow() {
+  const p = presenceInfo;
+  const status = !p ? "" : !p.available ? "Пока не подключено: нужен id приложения Discord (см. README)."
+    : p.connected ? "Discord подключён." : `Discord не найден${p.error ? ` (${p.error})` : ""} — запустите его, плеер подключится сам.`;
+  return switchRow("Статус в Discord",
+    `Друзья видят, что вы слушаете: название, исполнитель, обложка. ${status}`,
+    presenceEnabled(), (on) => { setSetting("discord", on); updatePresence(0); });
+}
+
 function appearanceSection() {
   const section = el("section", "set-card");
   section.append(el("h2", "", "Оформление"));
@@ -293,54 +351,26 @@ function appearanceSection() {
   section.append(themesRow("theme"));
   section.append(themesRow("now"));
   // На телефоне нижний плеер — своя плашка над вкладками, а «Назад» — системная кнопка
-  if (!isMobile) {
-    section.append(switchRow("Большой нижний плеер",
-      "Крупнее обложка, название и кнопки — удобнее, если плеер внизу нужен под рукой.",
-      !!getSetting("minibarLarge", false), (on) => { setSetting("minibarLarge", on); setMinibarLarge(on); }));
-    section.append(choiceRow("Кнопка «Назад»", BACK_PLACES, backPlace, setBackPlace));
-  }
-  // Медиатека как в Spotify: папки, фильтр «Плейлисты / Исполнители», поиск и сортировка (libtools.js)
-  section.append(switchRow("Папки и фильтры в медиатеке",
-    "Папки для плейлистов, подписки на исполнителей, поиск и сортировка над медиатекой. Выключите — будет простой список.",
-    getSetting("libTools", true) !== false, (on) => setSetting("libTools", on)));
+  if (!isMobile) section.append(bigBarRow(), backRow());
+  section.append(libToolsRow());
   section.append(vizStyleRow());
   section.append(vizColorsRow());
   section.append(nowBackgroundRow());
-  section.append(choiceRow("Текст песни", LYRICS_STYLES, lyricsStyle, setLyricsStyle));
-  section.append(switchRow("Без анимаций", isMobile
-    ? "Ничего не движется само — без плавных переходов, визуализации и живых фонов. "
-      + "Sono работает так же, только меньше нагружает телефон и бережёт батарею."
-    : "Для слабых компьютеров: ничего не движется само — без плавных переходов, визуализации и живых фонов. "
-      + "Sono работает так же, только меньше нагружает компьютер.",
-    motionOff(), (on) => { setSetting("reduceMotion", on); applyMotion(); refreshViz(); }));
+  section.append(lyricsRow());
+  section.append(noAnimRow());
   // «Живая обложка» (ПК): движение мягче или фон под музыку (motion.js; телефон — отдельным шагом)
-  if (!isMobile) {
-    section.append(switchRow("Меньше движения",
-      "Только мягкие проявления: фон не плывёт, обложки и экраны не перелетают. Если анимации выключены в Windows — так всегда.",
-      getSetting("calmMotion", false) === true, (on) => { setSetting("calmMotion", on); applyMotion(); }));
-    section.append(switchRow("Фон под бас",
-      "Фон слегка вздрагивает на ударах баса, а снизу вспыхивает свет цвета обложки.",
-      getSetting("bgBeat", false) === true, (on) => { setSetting("bgBeat", on); applyMotion(); }));
-  }
-  section.append(switchRow("Клипы вместо обложки",
-    "Если у трека есть официальный клип на YouTube, на «Сейчас играет» вместо обложки идёт он — без звука, вместе с музыкой. "
-      + "Берёт больше интернета (примерно 2–4 МБ в минуту).",
-    clipsEnabled(), (on) => setClipsEnabled(on)));
+  if (!isMobile) section.append(calmRow(), bgBeatRow());
+  section.append(clipsRow());
 
   if (isMobile) return section;   // Discord — программа для компьютера
-  const p = presenceInfo;
-  const status = !p ? "" : !p.available ? "Пока не подключено: нужен id приложения Discord (см. README)."
-    : p.connected ? "Discord подключён." : `Discord не найден${p.error ? ` (${p.error})` : ""} — запустите его, плеер подключится сам.`;
-  section.append(switchRow("Статус в Discord",
-    `Друзья видят, что вы слушаете: название, исполнитель, обложка. ${status}`,
-    presenceEnabled(), (on) => { setSetting("discord", on); updatePresence(0); }));
+  section.append(discordRow());
   section.append(obsRow());
   return section;
 }
 
 /** Плеер для стрима: маленькая карточка «что играет в Sono» для OBS (overlay.py, static/obs.html).
     Адрес постоянный — его вписывают в OBS один раз. Ничего не играет — карточка показывает рекламу Sono */
-function obsRow() {
+export function obsRow() {
   const box = el("div", "set-obs");
   const addr = `http://127.0.0.1:${obsInfo?.port ?? 47800}/`;
   const status = el("span", "set-switch-sub");
@@ -495,7 +525,7 @@ async function askDeleteTheme(t) {
   }
 }
 
-function themesRow(part) {
+export function themesRow(part) {
   const info = THEME_PARTS[part];
   const row = el("div", "set-themes");
   const textBox = el("span", "set-switch-text");
@@ -562,7 +592,7 @@ function themesRow(part) {
 }
 
 /** Строка выбора из нескольких вариантов (кнопки-сегменты) с подсказкой под названием */
-function choiceRow(title, options, current, choose) {
+export function choiceRow(title, options, current, choose) {
   const row = el("div", "set-switch set-choice");
   const text = el("span", "set-switch-text");
   const sub = el("span", "set-switch-sub");
@@ -587,7 +617,7 @@ function choiceRow(title, options, current, choose) {
 }
 
 /** Фон «Сейчас играет»: Свет (по умолчанию) / Тихий / Градиент */
-function nowBackgroundRow() {
+export function nowBackgroundRow() {
   const row = el("div", "set-switch set-choice");
   const text = el("span", "set-switch-text");
   const sub = el("span", "set-switch-sub");
@@ -613,7 +643,7 @@ function nowBackgroundRow() {
 
 /** Вид визуализации: плитки «Нет», «Как в теме» (если тема задала свой вид) и пять видов (viz.js VIZ_STYLES).
     «Нет» — прежний выключатель settings.visualizer = false; вид — settings.vizStyle */
-function vizStyleRow() {
+export function vizStyleRow() {
   const row = el("div", "set-viz-colors set-viz-style");
   const sub = el("span", "set-switch-sub");
   const textBox = el("span", "set-switch-text");
@@ -658,7 +688,7 @@ function vizStyleRow() {
 }
 
 /** Цвета визуализации: кружки-образцы наборов + «Свои» (два цвета, перелив от первого ко второму) */
-function vizColorsRow() {
+export function vizColorsRow() {
   const row = el("div", "set-viz-colors");
   const textBox = el("span", "set-switch-text");
   textBox.append(el("span", "set-switch-title", "Цвета визуализации"),
@@ -712,7 +742,7 @@ function vizColorsRow() {
 }
 
 /** Строка «♡ добавляет в: [Избранное ▾]» — выбор плейлиста для сердечка */
-function likeTargetRow() {
+export function likeTargetRow() {
   const row = el("div", "set-switch set-choice");
   const textBox = el("span", "set-switch-text");
   textBox.append(el("span", "set-switch-title", "Куда добавляет сердечко ♡"),
@@ -739,16 +769,13 @@ function likeTargetRow() {
   return row;
 }
 
-function playbackSection() {
-  const section = el("section", "set-card");
-  // Порядок: сначала про звук, потом — что делают кнопки и что играет дальше
-  section.append(el("h2", "", "Воспроизведение"));
-  section.append(switchRow("Выравнивать громкость",
-    "На YouTube одни треки тихие, другие громкие. Мягко подтягивает тихое и придерживает громкое — не нужно трогать ползунок.",
-    normalizeEnabled(), (on) => setNormalize(on)));
+export const normalizeRow = () => switchRow("Выравнивать громкость",
+  "На YouTube одни треки тихие, другие громкие. Мягко подтягивает тихое и придерживает громкое — не нужно трогать ползунок.",
+  normalizeEnabled(), (on) => setNormalize(on));
 
-  // Наложение треков: Выкл / 3 / 6 / 10 / 12 секунд
-  const fadeRow = el("div", "set-switch set-choice");
+/** Наложение треков: Выкл / 3 / 6 / 10 / 12 секунд */
+export function fadeRow() {
+  const row = el("div", "set-switch set-choice");
   const text = el("span", "set-switch-text");
   text.append(el("span", "set-switch-title", "Наложение треков"),
     el("span", "set-switch-sub", "Конец трека звучит вместе с началом следующего — без тишины между ними, как на радио. В конце очереди трек просто мягко затихает."));
@@ -762,24 +789,36 @@ function playbackSection() {
     });
     seg.append(b);
   }
-  fadeRow.append(text, seg);
-  section.append(fadeRow, likeTargetRow());
-  if (!isMobile) section.append(switchRow("Закрывать в трей",
-    "Крестик прячет окно, а музыка играет дальше; значок Sono — у часов Windows (правой кнопкой — пауза, следующий, выход).",
-    getSetting("closeToTray", true) !== false, (on) => {
-      setSetting("closeToTray", on);
-      document.dispatchEvent(new CustomEvent("sono:close-to-tray"));
-    }));
-  section.append(switchRow("Flow, когда очередь закончилась",
-    "Плейлист или трек доиграл — дальше бесконечный Flow в том же духе: похожая музыка по исполнителям из этой очереди.",
-    autoFlowEnabled(), (on) => setSetting("autoFlow", on)));
+  row.append(text, seg);
+  return row;
+}
+
+export const trayRow = () => switchRow("Закрывать в трей",
+  "Крестик прячет окно, а музыка играет дальше; значок Sono — у часов Windows (правой кнопкой — пауза, следующий, выход).",
+  getSetting("closeToTray", true) !== false, (on) => {
+    setSetting("closeToTray", on);
+    document.dispatchEvent(new CustomEvent("sono:close-to-tray"));
+  });
+
+export const autoFlowRow = () => switchRow("Flow, когда очередь закончилась",
+  "Плейлист или трек доиграл — дальше бесконечный Flow в том же духе: похожая музыка по исполнителям из этой очереди.",
+  autoFlowEnabled(), (on) => setSetting("autoFlow", on));
+
+function playbackSection() {
+  const section = el("section", "set-card");
+  // Порядок: сначала про звук, потом — что делают кнопки и что играет дальше
+  section.append(el("h2", "", "Воспроизведение"));
+  section.append(normalizeRow());
+  section.append(fadeRow(), likeTargetRow());
+  if (!isMobile) section.append(trayRow());
+  section.append(autoFlowRow());
   return section;
 }
 
 // ---------- Раздел «Обновления»: yt-dlp ----------
 // yt-dlp сам скачивает свежую версию при запуске (updater.py) — здесь видно, что с ним
 
-function updateText(u) {
+export function updateText(u) {
   if (!u) return "";
   if (u.state === "ready") return `Скачана новая версия ${u.pending} — включится, когда вы перезапустите Sono.`;
   if (u.state === "downloading") return `Скачиваю версию ${u.latest}…`;
@@ -817,7 +856,7 @@ function updateSection() {
 }
 
 /** Кнопки «Что нового / Приветствие / Экскурсия» — пройти знакомство ещё раз */
-function introButtons() {
+export function introButtons() {
   const again = el("div", "set-actions");
   const welcome = el("button", "btn ghost", "Показать приветствие");
   welcome.type = "button";
@@ -835,10 +874,12 @@ function introButtons() {
   tips.addEventListener("click", () => { resetTips(); toast("Подсказки появятся снова, когда вы встретите функции"); });
   again.append(news, welcome, tour, tips);
   const box = el("div");
-  box.append(switchRow("Подсказки", "Короткие пояснения к функциям, когда встречаете их впервые",
-    tipsOn(), (on) => setTipsOn(on)), again);
+  box.append(tipsRow(), again);
   return box;
 }
+
+export const tipsRow = () => switchRow("Подсказки", "Короткие пояснения к функциям, когда встречаете их впервые",
+  tipsOn(), (on) => setTipsOn(on));
 
 /** Телефон: вместо «Обновлений» (yt-dlp и программа там обновляются только новой сборкой) — версия и знакомство */
 function aboutSection() {
@@ -852,7 +893,7 @@ function aboutSection() {
 // ---------- Обновление самой программы (appupdate.py) ----------
 // Sono сам смотрит на GitHub, нет ли новой версии, и скачивает установщик. Обновиться — одна кнопка.
 
-function appUpdateText(u) {
+export function appUpdateText(u) {
   if (!u?.enabled) return u?.current === "0"
     ? "Автообновление работает в установленной программе; версию из исходников обновляйте через git pull."
     : "Автообновление выключено.";
@@ -867,7 +908,7 @@ function appUpdateText(u) {
   return "Проверяется при запуске и раз в 6 часов. Скачивается — только если вы согласитесь.";
 }
 
-const appUpdateStatus = () => fetch("/api/app-update").then((r) => r.json()).catch(() => null);
+export const appUpdateStatus = () => fetch("/api/app-update").then((r) => r.json()).catch(() => null);
 
 /** Человек согласился: скачать (если ещё нет) и установить. Сервер качает в фоне, а затем сам запускает
     установщик — программа закроется и откроется уже новой. onStatus(u) — следить за ходом */
@@ -884,7 +925,7 @@ export async function installAppUpdate(onStatus) {
   poll();
 }
 
-function appUpdateLine() {
+export function appUpdateLine() {
   const line = el("div", "set-result-line");
   const check = el("button", "btn ghost", "Проверить сейчас");
   check.type = "button";
@@ -994,7 +1035,7 @@ function pollZapret() {
       clearInterval(zapTimer);
       if (zap.progress?.switchedOff) {
         network = { ...network, mode: "off" };
-        render();
+        redrawNet();
         return;
       }
       if (state === "done") findZapret(zap.found?.[zap.index]?.path ?? "");   // обновить «служба стоит, работает»
@@ -1055,7 +1096,7 @@ function zapretResults(p) {
   return wrap;
 }
 
-function zapretCard() {
+export function zapretCard() {
   const section = el("section", "set-card zapret-card");
   section.append(el("h2", "", "zapret"),
     el("p", "set-text", "Если zapret уже скачан, но не настроен (или YouTube и SoundCloud с ним всё равно тормозят), "
@@ -1177,12 +1218,8 @@ function revealButton(path) {
 // Windows передаёт ссылку в Sono (desktop.py), и трек включается или встаёт следующим (links.js)
 const BOOKMARKLET = "javascript:void(location.href='sono://add?url='+encodeURIComponent(location.href))";
 
-function browserSection() {
-  const section = el("section", "set-card");
-  section.append(el("h2", "", "Из браузера"),
-    el("p", "set-text", "Нашли трек на YouTube или SoundCloud в браузере? Нажмите кнопку «+ Sono» на панели закладок — " +
-      "трек включится в Sono, а если что-то уже играет, встанет следующим. Ссылку на трек можно и просто вставить в поиск Sono."));
-  const row = el("div", "set-actions");
+/** «+ Sono» и «Скопировать код закладки» — и прежний экран, и новый (setlive.js) */
+export function bookmarkletButtons() {
   const link = el("a", "bookmarklet", "+ Sono");
   link.href = BOOKMARKLET;
   link.title = "Перетащите эту кнопку на панель закладок браузера";
@@ -1200,26 +1237,35 @@ function browserSection() {
       toast("Не получилось скопировать", { error: true });
     }
   });
-  row.append(link, copy);
+  return [link, copy];
+}
+
+export function bookmarkletSteps() {
   const steps = el("ol", "bookmarklet-steps");
   for (const text of [
     "Включите в браузере панель закладок (Ctrl+Shift+B).",
     "Перетащите на неё кнопку «+ Sono» — или создайте закладку и вставьте скопированный код вместо адреса.",
     "На странице трека нажмите закладку. В первый раз браузер спросит, открыть ли Sono, — разрешите (можно поставить «Всегда»).",
   ]) steps.append(el("li", "", text));
-  section.append(row, steps);
+  return steps;
+}
+
+function browserSection() {
+  const section = el("section", "set-card");
+  section.append(el("h2", "", "Из браузера"),
+    el("p", "set-text", "Нашли трек на YouTube или SoundCloud в браузере? Нажмите кнопку «+ Sono» на панели закладок — " +
+      "трек включится в Sono, а если что-то уже играет, встанет следующим. Ссылку на трек можно и просто вставить в поиск Sono."));
+  const row = el("div", "set-actions");
+  row.append(...bookmarkletButtons());
+  section.append(row, bookmarkletSteps());
   return section;
 }
 
-function librarySection() {
-  const section = el("section", "set-card");
-  section.append(el("h2", "", "Медиатека"),
-    el("p", "set-text", "Резервная копия плейлистов, избранного и истории — одним файлом. С ним можно перенести всё на другой компьютер или телефон или восстановить после переустановки."));
-
-  const row = el("div", "set-actions");
-  const exportBtn = el("button", "btn primary", isMobile ? "Отправить копию…" : "Сохранить копию");
+/** Кнопки резервной копии: «Сохранить копию» (в «Загрузки», result — строка «Сохранено…») и «Восстановить из файла…».
+    Возвращает [сохранить, восстановить, скрытый выбор файла] */
+export function backupButtons(result, { saveLabel, restoreLabel } = {}) {
+  const exportBtn = el("button", "btn primary", saveLabel ?? (isMobile ? "Отправить копию…" : "Сохранить копию"));
   exportBtn.type = "button";
-  const result = el("div", "set-result-line");
   exportBtn.addEventListener("click", async () => {
     const data = await (await fetch("/api/library/export", { method: "POST" })).json();
     // Телефон: копию — в «Поделиться» (Telegram, Диск, «Файлы»), из папки приложения её не достать
@@ -1227,7 +1273,7 @@ function librarySection() {
     result.replaceChildren(el("span", "", `Сохранено в «Загрузки»: ${data.name}`), revealButton(data.path));
   });
 
-  const importBtn = el("button", "btn ghost", "Восстановить из файла…");
+  const importBtn = el("button", "btn ghost", restoreLabel ?? "Восстановить из файла…");
   importBtn.type = "button";
   const picker = el("input");
   picker.type = "file";
@@ -1249,7 +1295,17 @@ function librarySection() {
     toast(`Добавлено: плейлистов ${a.playlists}, в избранное ${a.liked}, в историю ${a.history}`);
     setTimeout(() => location.reload(), 1200);   // перечитать медиатеку целиком
   });
-  row.append(exportBtn, importBtn, picker);
+  return [exportBtn, importBtn, picker];
+}
+
+function librarySection() {
+  const section = el("section", "set-card");
+  section.append(el("h2", "", "Медиатека"),
+    el("p", "set-text", "Резервная копия плейлистов, избранного и истории — одним файлом. С ним можно перенести всё на другой компьютер или телефон или восстановить после переустановки."));
+
+  const row = el("div", "set-actions");
+  const result = el("div", "set-result-line");
+  row.append(...backupButtons(result));
   section.append(row, result,
     el("p", "set-hint", "Восстановление ничего не удаляет: новое добавляется к тому, что уже есть. Поделиться отдельным плейлистом — «⋯» у плейлиста → «Поделиться»."));
 
@@ -1364,23 +1420,33 @@ function render() {
   };
   scroller.addEventListener("scroll", navSpy, { passive: true });
   navSpy();
+  lookForZapret();
+}
+
+/** Обход, Discord и OBS — с сервера (один раз). false — сервер не ответил (на экране уже сказано) */
+export async function loadSettingsData() {
+  if (network) return true;
+  box.replaceChildren(el("p", "set-text", "Загружаю настройки…"));
+  try {
+    const data = await (await fetch("/api/network")).json();
+    network = data.config;
+    netCard = data.card ?? null;
+    strategies = Object.fromEntries(data.strategies);   // пары [способ, подпись] — в нужном порядке
+    presenceInfo = await (await fetch("/api/presence")).json().catch(() => null);
+    obsInfo = await (await fetch("/api/obs/server")).json().catch(() => null);
+  } catch {
+    box.replaceChildren(el("p", "import-error", "Не получилось загрузить настройки"));
+    return false;
+  }
+  return true;
+}
+
+/** zapret ищется на компьютере один раз, когда открыли настройки */
+export function lookForZapret() {
   if (!isMobile && zap.found === null && !zap.searching) findZapret();
 }
 
 export async function renderSettings() {
-  if (!network) {
-    box.replaceChildren(el("p", "set-text", "Загружаю настройки…"));
-    try {
-      const data = await (await fetch("/api/network")).json();
-      network = data.config;
-      netCard = data.card ?? null;
-      strategies = Object.fromEntries(data.strategies);   // пары [способ, подпись] — в нужном порядке
-      presenceInfo = await (await fetch("/api/presence")).json().catch(() => null);
-      obsInfo = await (await fetch("/api/obs/server")).json().catch(() => null);
-    } catch {
-      box.replaceChildren(el("p", "import-error", "Не получилось загрузить настройки"));
-      return;
-    }
-  }
+  if (!(await loadSettingsData())) return;
   render();
 }

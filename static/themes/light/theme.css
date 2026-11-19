@@ -115,3 +115,9 @@ button.play { background: #1c1c1c; color: #fff; }
 .sq-chip:hover, .sq-chip.sel { background: #fff; }
 .sr-best-play { background: rgb(var(--fg-rgb)); color: #fff; }
 .sr-live .pl-more-row .home-card:hover { background: rgba(255, 255, 255, 0.85); }
+
+/* «Живая обложка», шаг 8: «Настройки» — выбранный раздел и сегмент белые, как в макете */
+.cfg-tab.on { background: rgba(255, 255, 255, 0.8); }
+.cfg :is(.set-choice .seg, .cfg-seg, .set-strategies, .zapret-paths) .seg-btn.on { background: #fff; }
+.cfg .btn:not(.primary) { background: rgba(255, 255, 255, 0.72); border-color: rgba(255, 255, 255, 0.9); }
+.cfg .btn:not(.primary):hover:not(:disabled) { background: #fff; }
