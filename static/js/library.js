@@ -43,6 +43,15 @@ export const onChange = (fn) => listeners.add(fn);
 const errorListeners = new Set();
 export const onSaveError = (fn) => errorListeners.add(fn);
 
+// Медиатека не загрузилась с сервера — в памяти пусто. Если сохранить такое, пустые разделы
+// перезапишут настоящие (так однажды пропала история). Поэтому, пока загрузка не удалась,
+// ничего не отправляем, а только сообщаем (onSaveBlocked), что изменения не сохранятся.
+let loaded = false;
+/** true — медиатека загружена, изменения сохраняются */
+export const libraryLoaded = () => loaded;
+const blockedListeners = new Set();
+export const onSaveBlocked = (fn) => blockedListeners.add(fn);
+
 // ---------- Сохранение ----------
 // Частые изменения (например, громкость) склеиваем: отправляем через 300 мс тишины.
 // Отправки одного раздела идут строго по очереди, чтобы старая не обогнала новую.
@@ -57,6 +66,10 @@ const KEEPALIVE_LIMIT = 60000;
 let keepaliveBudget = 0;
 
 function send(section, closing = false) {
+  if (!loaded) {
+    blockedListeners.forEach((fn) => fn(section));
+    return;
+  }
   const body = JSON.stringify(lib[section]);
   let keepalive = false;
   if (closing) {
@@ -91,14 +104,26 @@ export function flush() {
   }
 }
 
-/** Загрузить медиатеку. Возвращает текст, если её пришлось чинить (файл был повреждён), иначе null */
+/** Загрузить медиатеку. Возвращает текст, если её пришлось чинить (файл был повреждён), иначе null.
+    Сервер мог ещё не проснуться — пробуем три раза; не вышло — ошибка, и сохранение остаётся выключенным */
 export async function loadLibrary() {
-  const res = await fetch("/api/library");
-  if (!res.ok) throw new Error(`сервер ответил ${res.status}`);
-  const { notice = null, ...data } = await res.json();
-  Object.assign(lib, data);
-  migrateFromLocalStorage();
-  return notice;
+  let lastError = null;
+  for (const pause of [0, 500, 1500]) {
+    if (pause) await new Promise((done) => setTimeout(done, pause));
+    try {
+      const res = await fetch("/api/library", { cache: "no-store" });
+      if (!res.ok) throw new Error(`сервер ответил ${res.status}`);
+      const { notice = null, ...data } = await res.json();
+      if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("сервер прислал не медиатеку");
+      Object.assign(lib, data);
+      loaded = true;
+      migrateFromLocalStorage();
+      return notice;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
 // Раньше история и настройки жили в localStorage браузера — переносим один раз

@@ -27,7 +27,7 @@ import { initIncoming } from "./links.js";
 import { maybeWhatsNew } from "./whatsnew.js";
 import { loadLocal, onLocalChange } from "./local.js";
 import { announceNewReleases } from "./releases.js";
-import { flush, getSetting, lib, loadLibrary, onChange, onSaveError, setSetting } from "./library.js";
+import { flush, getSetting, lib, libraryLoaded, loadLibrary, onChange, onSaveBlocked, onSaveError, setSetting } from "./library.js";
 import { initTips } from "./tips.js";
 import { markRecent } from "./libtools.js";
 import { initLyrics } from "./lyrics.js";
@@ -40,10 +40,11 @@ import { initViews, refreshDownloads, refreshPlaying, refreshViews, syncPlayButt
 import { whenWindowApi } from "./winapi.js";
 
 let libraryNotice = null;   // файл медиатеки был повреждён и Sono его починил — скажем после запуска
+let libraryError = null;    // медиатека не загрузилась — сохранение выключено (library.js), объясним после запуска
 try {
   libraryNotice = await loadLibrary();
 } catch (err) {
-  toast("Не удалось загрузить медиатеку: " + err.message, { error: true });
+  libraryError = err;
 }
 
 applyMotion();   // «Без анимаций» — до всего остального, чтобы ничего не успело дёрнуться
@@ -72,8 +73,35 @@ initCompact();    // мини-плеер поверх окон (тоже тол�
 restoreSession();   // что играло в прошлый раз — на паузе и уже подгружается (после всех init: они слушают смену трека)
 initIncoming();     // трек, присланный из браузера кнопкой «+ Sono» (после restoreSession — чтобы он его не перебил)
 // Новый человек (медиатека пуста, приветствия ещё не было) — ему все подсказки; обновившемуся — только про новое
-initTips(!getSetting("onboarded", false) && !lib.history.length && !lib.liked.length && !lib.playlists.length);
-if (libraryNotice) {
+// (Медиатека не загрузилась — пустая только с виду: человек не новый)
+initTips(libraryLoaded() && !getSetting("onboarded", false) && !lib.history.length && !lib.liked.length && !lib.playlists.length);
+if (libraryError) {
+  // Пустую медиатеку нельзя сохранять — она затрёт настоящую. Говорим прямо и предлагаем повторить
+  const { box, close } = openModal({ className: "library-notice" });
+  const retry = el("button", "btn primary", "Попробовать ещё раз");
+  retry.type = "button";
+  retry.addEventListener("click", () => location.reload());
+  const later = el("button", "btn", "Закрыть");
+  later.type = "button";
+  later.addEventListener("click", close);
+  const buttons = el("div", "dialog-buttons");
+  buttons.append(later, retry);
+  box.append(
+    el("h2", "", "Медиатека не загрузилась"),
+    el("p", "", `Sono не смог её прочитать (${libraryError.message}). Ваши избранное, плейлисты, история и статистика целы, `
+      + "но пока медиатека не загружена, изменения не сохраняются — чтобы ничего не стереть. "
+      + "Попробуйте ещё раз; если не поможет — перезапустите Sono."),
+    buttons,
+  );
+  retry.focus();
+  // Закрыли окно и что-то поменяли (лайк, плейлист) — напомним, что это не сохранится
+  let lastWarn = 0;
+  onSaveBlocked(() => {
+    if (document.querySelector(".library-notice") || Date.now() - lastWarn < 120000) return;
+    lastWarn = Date.now();
+    toast("Медиатека не загружена — изменения не сохраняются", { error: true, action: { label: "Повторить", run: () => location.reload() } });
+  });
+} else if (libraryNotice) {
   // Человек не новый — у него просто испортился файл: вместо приветствия объясняем, что случилось
   setSetting("onboarded", true);
   const { box, close } = openModal({ className: "library-notice" });
@@ -84,8 +112,11 @@ if (libraryNotice) {
   buttons.append(ok);
   box.append(el("h2", "", "Медиатека была повреждена"), el("p", "", libraryNotice), buttons);
 }
-maybeWelcome();   // первый запуск — приветствие и экскурсия
-setTimeout(maybeWhatsNew, 1200);
+// Первый запуск — приветствие и экскурсия; обновились — «Что нового». Без медиатеки не знаем ни того ни другого
+if (libraryLoaded()) {
+  maybeWelcome();
+  setTimeout(maybeWhatsNew, 1200);
+}
 
 // ---------- Значок в трее (tray.py) ----------
 // Меню значка и глобальные клавиши (Ctrl+Alt+…, system.js) просят страницу: пауза, следующий, предыдущий,
