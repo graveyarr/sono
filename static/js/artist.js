@@ -496,7 +496,17 @@ export function releaseDate(al) {
 }
 
 /** Сохранённая копия альбома в медиатеке (плейлист с пометкой album) */
-const savedCopy = (al) => lib.playlists.find((p) => p.album === al.id) ?? null;
+export const savedCopy = (al) => lib.playlists.find((p) => String(p.album) === String(al.id)) ?? null;
+
+/** «В медиатеку»: копия альбома плейлистом, с обложкой альбома (своих альбомов в медиатеке у Sono нет) */
+export function saveAlbumCopy(al) {
+  const p = createPlaylist(al.title, al.tracks);
+  p.album = al.id;
+  const url = al.coverLarge || al.cover;
+  if (url) coverData(url).then((data) => setPlaylistCover(p.id, data)).catch(() => {});   // обложка альбома — своей обложкой плейлиста
+  toast(`«${al.title}» — в медиатеке`);
+  return p;
+}
 
 function renderAlbumLive(box, al, context, stillHere) {
   const tracks = al.tracks;
@@ -523,11 +533,7 @@ function renderAlbumLive(box, al, context, stillHere) {
   const save = bigPill("В медиатеку", icons.heart, () => {
     const have = savedCopy(al);
     if (have) return openView(`playlist:${have.id}`);
-    const p = createPlaylist(al.title, tracks);
-    p.album = al.id;
-    const url = al.coverLarge || al.cover;
-    if (url) coverData(url).then((data) => setPlaylistCover(p.id, data)).catch(() => {});   // обложка альбома — своей обложкой плейлиста
-    toast(`«${al.title}» — в медиатеке`);
+    saveAlbumCopy(al);
     drawSave();
   });
   const drawSave = () => {

@@ -5,10 +5,12 @@
 // слушаемых исполнителей (статистика + «Избранное»): у них пометка «Из ваших любимых» (fav: true).
 // На «Главной» — ряд карточек, кнопка «Все» — экран «Новинки» (releaseview.js); при запуске о вышедшем
 // с прошлого раза — уведомление «Новый релиз у …» (settings.seenReleases — о каких уже сказали).
+// Значок у «Новинок» в медиатеке (ПК): сколько вышло за неделю и ещё не послушано (settings.heardReleases —
+// что уже включали: альбом с его страницы или трек SoundCloud); изменилось — событие «sono:releases».
 
-import { followedArtists, getSetting, lib, setSetting } from "./library.js";
+import { followedArtists, getSetting, keyOf, lib, setSetting } from "./library.js";
 import { openView, splitArtists } from "./nav.js";
-import { play } from "./player.js";
+import { onTrackChange, play, state } from "./player.js";
 import { artistKey, topArtists } from "./stats.js";
 import { displayTrack, toast } from "./ui.js";
 
@@ -88,7 +90,12 @@ function start() {
   mine.base = ids.length ? post("/api/new-releases", { ids }).catch(failed) : Promise.resolve([]);
   const more = ids.some((id) => /^\d+$/.test(id)) || favorites.length
     ? post("/api/new-releases/more", { ids, favorites }).catch(failed) : Promise.resolve([]);
-  mine.full = Promise.all([mine.base, more]).then(([a, b]) => { mine.done = true; return merge(a, b); });
+  mine.full = Promise.all([mine.base, more]).then(([a, b]) => {
+    mine.done = true;
+    const list = merge(a, b);
+    if (job === mine) { known = list; releasesChanged(); }
+    return list;
+  });
   job = mine;
   return mine;
 }
@@ -103,6 +110,37 @@ export function watchReleases(cb) {
   if (!j.done) j.base.then((list) => { if (!j.done) cb(merge(list), false); });
   j.full.then((list) => cb(list, true));
 }
+
+// ---------- Значок «не послушано» ----------
+
+let known = [];   // последний полный список новинок
+const releasesChanged = () => document.dispatchEvent(new CustomEvent("sono:releases"));
+export const weekAgo = () => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+const heardSet = () => new Set(getSetting("heardReleases", []));
+export const isHeard = (r) => heardSet().has(r.id);
+
+/** Сколько новинок этой недели ещё не включали (для значка у «Новинок») */
+export function unheardCount() {
+  const heard = heardSet(), since = weekAgo();
+  return known.filter((r) => (r.date || "") >= since && !heard.has(r.id)).length;
+}
+
+function markHeard(r) {
+  const heard = getSetting("heardReleases", []);
+  if (heard.includes(r.id)) return;
+  setSetting("heardReleases", [...heard, r.id].slice(-300));
+  releasesChanged();
+}
+
+// Заиграл альбом-новинка (с его страницы, «Слушать», ▶) или трек SoundCloud из новинок — значит, послушали
+onTrackChange(() => {
+  const t = state.current, ctx = state.context;
+  if (!t || !known.length) return;
+  const key = keyOf(t);
+  for (const r of known) {
+    if ((ctx?.type === "album" && String(ctx.id) === String(r.id)) || (r.track && keyOf(r.track) === key)) markHeard(r);
+  }
+});
 
 /** Ждём ли ещё ответа SoundCloud и есть ли у нас подписки/любимые вообще */
 export const releasesAsked = () => followedArtists().length > 0 || !!start().favorites;

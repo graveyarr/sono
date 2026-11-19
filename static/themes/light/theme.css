@@ -97,3 +97,13 @@ button.play { background: #1c1c1c; color: #fff; }
 .live-seg .seg-btn.on { background: #fff; }
 .ar-badge { background: color-mix(in srgb, var(--accent) 18%, #fff); }
 .tp-lyr { background: rgb(255 255 255 / 0.45); }
+
+/* «Живая обложка», шаг 6: Flow, «Новинки», «Статистика» */
+.nav-badge { color: #fff; }
+.fw-mode.on { box-shadow: 0 0 0 3px rgb(var(--fg-rgb)), 0 18px 40px -20px rgb(var(--shade-rgb) / 0.6); }
+:is(.nr-live, .fw-starter) .pill { background: rgba(255, 255, 255, 0.55); border-color: rgba(255, 255, 255, 0.9); }
+:is(.nr-live, .fw-starter) .pill:hover { background: rgba(255, 255, 255, 0.9); }
+:is(.nr-live, .fw-starter) .pill.solid, :is(.nr-live, .fw-starter) .pill.solid:hover { background: rgb(var(--fg-rgb)); border-color: transparent; }
+:is(.fw-live, .nr-live) .pl-more-row .home-card:hover, .nr-grid .home-card:hover { background: rgba(255, 255, 255, 0.85); }
+.fw-chip:not(.on), .nr-live .nr-follow { background: rgba(255, 255, 255, 0.72); border-color: rgba(255, 255, 255, 0.9); }
+.sx-live .tp-row:hover { background: rgba(255, 255, 255, 0.5); }

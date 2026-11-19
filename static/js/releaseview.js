@@ -11,9 +11,17 @@ import { el, plural } from "./ui.js";
 const TYPE_NAMES = { album: "Альбом", single: "Сингл", ep: "EP", compilation: "Сборник", track: "Трек" };
 const dayText = (date) => (date ? new Date(date).toLocaleDateString("ru", { day: "numeric", month: "long" }) : "");
 const CONTEXT = { type: "releases", id: "sc", name: "Новинки" };
+const SHORT_MONTHS = ["янв.", "февр.", "марта", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."];
+/** «6 нояб.» (в этом году) / «6 нояб. 2025» */
+export function shortDay(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+  if (!m) return "";
+  return `${+m[3]} ${SHORT_MONTHS[+m[2] - 1]}${+m[1] === new Date().getFullYear() ? "" : ` ${m[1]}`}`;
+}
+export { TYPE_NAMES as RELEASE_TYPES, dayText as releaseDay };
 
 /** Включить новинку: трек SoundCloud — сразу (дальше — остальные треки из списка), релиз — с первого трека */
-async function playRelease(r, list) {
+export async function playRelease(r, list) {
   if (r.track) {
     const tracks = list.filter((x) => x.track).map((x) => x.track);
     return play(r.track, tracks, tracks.indexOf(r.track), CONTEXT);
@@ -25,8 +33,9 @@ async function playRelease(r, list) {
 }
 
 /** Карточка: обложка (значок SoundCloud, пометка «Из ваших любимых»), название, «исполнитель · 12 ноября».
- *  list — соседние карточки (очередь для треков SoundCloud); markFav: false — когда в ряду все «из любимых» */
-export function releaseCard(r, list, { markFav = true } = {}) {
+ *  list — соседние карточки (очередь для треков SoundCloud); markFav: false — когда в ряду все «из любимых»;
+ *  live — экран «Новинки» на ПК: в углу словом «SoundCloud» / «Сингл», дата коротко («6 нояб.») */
+export function releaseCard(r, list, { markFav = true, live = false } = {}) {
   const card = el("button", "home-card release-card");
   card.type = "button";
   const art = picture(r.cover, "home-card-art", r.title);
@@ -36,14 +45,15 @@ export function releaseCard(r, list, { markFav = true } = {}) {
   playBtn.addEventListener("click", (e) => { e.stopPropagation(); playRelease(r, list); });
   art.append(playBtn);
   const fromSc = r.source === "soundcloud";
-  if (fromSc) {
+  if (live) art.append(el("span", "nr-badge", fromSc ? "SoundCloud" : TYPE_NAMES[r.type] ?? "Альбом"));
+  else if (fromSc) {
     const badge = el("span", "release-src");
     badge.innerHTML = sourceIcons.soundcloud;
     art.append(badge);
   }
   if (r.fav && markFav) art.append(el("span", "release-fav", "Из ваших любимых"));
   card.append(art, el("span", "home-card-title", r.title),
-    el("span", "home-card-artist", [r.artist, dayText(r.date)].filter(Boolean).join(" · ")));
+    el("span", "home-card-artist", [r.artist, live ? shortDay(r.date) : dayText(r.date)].filter(Boolean).join(" · ")));
   card.title = [`${r.artist} — ${r.title}`, TYPE_NAMES[r.type] ?? "Альбом", fromSc && "с SoundCloud",
     r.fav && "из ваших любимых"].filter(Boolean).join(" · ");
   if (r.track) card.addEventListener("click", () => playRelease(r, list));   // трек SoundCloud — сразу играет

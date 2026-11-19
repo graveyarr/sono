@@ -15,13 +15,14 @@ import { artistByName } from "./meta.js";
 import { isPlaying, onPlayState, onTrackChange, playNext, state, togglePlay } from "./player.js";
 import { coverUrl, displayTrack, el, imgUrl, plural, toast } from "./ui.js";
 import { musicLevels } from "./viz.js";
+import { liveUi } from "./motion.js";
 
 const box = document.getElementById("view-flow");
 const canvas = document.getElementById("flow-bg");
 const coverEl = document.getElementById("cover");   // обложка на «Сейчас играет» — из неё и делаем фон
 const MODE_ICONS = { liked: icons.heart, mix: icons.shuffle, discover: icons.compass };
 // Новому человеку (вкуса ещё нет) — выбрать нескольких исполнителей, с них Flow и начнётся
-const STARTER = ["Кино", "Земфира", "Сплин", "Король и Шут", "Скриптонит", "Miyagi & Andy Panda", "Макс Корж", "Баста",
+export const STARTER = ["Кино", "Земфира", "Сплин", "Король и Шут", "Скриптонит", "Miyagi & Andy Panda", "Макс Корж", "Баста",
   "Монеточка", "Pharaoh", "MACAN", "Zivert", "Три дня дождя", "Noize MC", "The Weeknd", "Dua Lipa", "Billie Eilish",
   "Imagine Dragons", "Arctic Monkeys", "Linkin Park", "Lana Del Rey", "Travis Scott", "Daft Punk", "Queen"];
 
@@ -100,7 +101,7 @@ function build() {
 }
 
 /** Аватар исполнителя в кружок; не нашёлся в базе — onMissing (обычно убрать карточку) */
-function loadAvatar(name, pic, onMissing) {
+export function loadAvatar(name, pic, onMissing) {
   const show = (found) => {
     if (!found) return onMissing?.();
     if (!found.picture) return;
@@ -462,6 +463,8 @@ function useCurrentCover() {
 }
 
 export function initFlowView() {
+  // На ПК («Живая обложка») у Flow свой экран (flowlive.js), а живой фон — общий: холст и шейдер не нужны
+  if (liveUi()) return;
   initGL();
   useCurrentCover();
   coverEl.addEventListener("load", useCurrentCover);   // сменилась обложка — новая краска

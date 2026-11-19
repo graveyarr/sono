@@ -38,7 +38,7 @@ function dayText(iso, short = false) {
 }
 
 /** Переключатель-«капсула» (Популярные | Вы слушали…): [[подпись, значение]], текущее, щелчок */
-function segment(options, current, onPick) {
+export function segment(options, current, onPick) {
   const seg = el("div", "seg live-seg");
   for (const [label, value] of options) {
     const b = el("button", `seg-btn${value === current ? " on" : ""}`, label);
@@ -55,7 +55,7 @@ function segment(options, current, onPick) {
 }
 
 /** Заголовок раздела: «Популярные треки» [переключатель] … [ссылка справа] */
-function headRow(title, ...rest) {
+export function headRow(title, ...rest) {
   const head = el("div", "meta-h-row live-h");
   head.append(el("h2", "meta-h", title), ...rest.filter(Boolean));
   return head;

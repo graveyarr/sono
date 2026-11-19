@@ -5,12 +5,15 @@
 //   years: { "2026": { from, total, artists: {ключ: {name, id, sec, plays}}, tracks: {«источник:id»: {t, sec, plays}},
 //            months: [12 × сек], hours: [24 × сек], days: {«ММДД»: сек} } } } — по годам, для «Итогов года» (wrapped.js).
 // Показывается на экране «Ваша статистика» (из «Главной») и строкой на странице исполнителя.
+// С нового вида ещё: у года — ctx {откуда: сек} (Flow, «Избранное», плейлист…), у трека года — f (когда услышан впервые);
+// daily {«ГГГГ-ММ-ДД»: { a: {ключ: [сек, прослушиваний]}, t: {«источник:id»: [сек, прослушиваний]}, c: {откуда: сек} }}
+// за последние 32 дня (dailyFrom — с какого момента пишем) — для «Недели» и «Месяца» на экране статистики (statslive.js).
 
-import { keyOf, lib, slim, statsChanged } from "./library.js";
+import { getSetting, keyOf, lib, slim, statsChanged } from "./library.js";
 import { artistByName } from "./meta.js";
 import { openArtist, openView, splitArtists } from "./nav.js";
 import { onTrackChange, state } from "./player.js";
-import { uniqueSongs } from "./samesong.js";
+import { groupSongs, uniqueSongs } from "./samesong.js";
 import { displayTrack, el, imgUrl, plural } from "./ui.js";
 
 const audio = document.getElementById("player");
@@ -46,6 +49,7 @@ export function yearData(year, create = false) {
   y.days = obj(y.days);
   y.months = arr(y.months, 12);
   y.hours = arr(y.hours, 24);
+  y.ctx = obj(y.ctx);
   return y;
 }
 
@@ -82,9 +86,17 @@ function credit(seconds) {
   const day = String(date.getMonth() + 1).padStart(2, "0") + String(date.getDate()).padStart(2, "0");
   y.days[day] = (y.days[day] || 0) + seconds;
   const tk = keyOf(t);
-  const tr = y.tracks[tk] ?? (y.tracks[tk] = { t: slim(t), sec: 0, plays: 0 });
+  const tr = y.tracks[tk] ?? (y.tracks[tk] = { t: slim(t), sec: 0, plays: 0, f: now });
   tr.sec += seconds;
   if (countPlay) tr.plays += 1;
+  // Откуда слушали (Flow, «Избранное», плейлист…) и что за день — для экрана статистики
+  const from = sourceKey(state.context);
+  y.ctx[from] = (y.ctx[from] || 0) + seconds;
+  const d = dayBucket(date);
+  d.c[from] = (d.c[from] || 0) + seconds;
+  const dt = d.t[tk] ?? (d.t[tk] = [0, 0]);
+  dt[0] += seconds;
+  if (countPlay) dt[1] += 1;
 
   for (const { name, id } of splitArtists(t, displayTrack(t).artist)) {
     const key = artistKey(name);
@@ -98,8 +110,42 @@ function credit(seconds) {
     ya.sec += seconds;
     if (id && !ya.id) ya.id = id;
     if (countPlay) ya.plays += 1;
+    const da = d.a[key] ?? (d.a[key] = [0, 0]);
+    da[0] += seconds;
+    if (countPlay) da[1] += 1;
   }
   statsChanged();
+}
+
+/** Откуда играет трек — для плитки «чаще всего»: flow:mix (основной Flow и его режим), flow (Flow по исполнителю,
+ *  плейлисту, треку), liked, pl:<id>, album, artist, search… */
+function sourceKey(ctx) {
+  if (!ctx?.type) return "other";
+  if (ctx.type === "flow") return ctx.id === "main" ? `flow:${getSetting("flowMode", "mix")}` : "flow";
+  if (ctx.type === "playlist") return `pl:${ctx.id}`;
+  return String(ctx.type).replace(/[^a-z]/g, "") || "other";
+}
+
+/** Ключ дня «2026-11-19» (по местному времени) */
+export const dayKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const KEEP_DAYS = 32;   // столько дней храним подробно (неделя и месяц)
+
+function dayBucket(date) {
+  const s = data();
+  if (!s.daily || typeof s.daily !== "object" || Array.isArray(s.daily)) s.daily = {};
+  s.dailyFrom ??= date.getTime();
+  const k = dayKey(date);
+  const d = s.daily[k] ?? (s.daily[k] = { a: {}, t: {}, c: {} });
+  for (const f of ["a", "t", "c"]) if (!d[f] || typeof d[f] !== "object") d[f] = {};
+  return d;
+}
+
+/** Дни старше месяца — убираем (раздел не растёт) */
+function trimDaily() {
+  const s = data();
+  if (!s.daily) return;
+  const oldest = dayKey(new Date(Date.now() - KEEP_DAYS * 86400000));
+  for (const k of Object.keys(s.daily)) if (k < oldest) delete s.daily[k];
 }
 
 function onTime() {
@@ -143,6 +189,7 @@ export function initStats() {
     lastPos = null;
     trim();
     trimYear();
+    trimDaily();
   });
 }
 
@@ -222,7 +269,7 @@ export function statsCard() {
 
 const pictures = new Map();   // имя → адрес фото (или null)
 
-function avatar(a, box) {
+export function avatar(a, box) {
   const fill = (url) => {
     if (!url) return;
     const img = el("img");
@@ -270,4 +317,186 @@ export function renderStats(box, extra = null) {
   hero.style.setProperty("--hero", "hsl(250 45% 30%)");
   hero.append(head);
   box.replaceChildren(hero, body);
+}
+
+// ---------- За период: неделя, месяц, год, всё время (экран статистики на ПК — statslive.js) ----------
+
+const MONTHS_NOM = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+const MONTHS_IN = ["январе", "феврале", "марте", "апреле", "мае", "июне", "июле", "августе", "сентябре", "октябре", "ноябре", "декабре"];
+const MONTHS_TO = ["январю", "февралю", "марту", "апрелю", "маю", "июню", "июлю", "августу", "сентябрю", "октябрю", "ноябрю", "декабрю"];
+const MONTHS_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const WEEKDAYS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const dayLong = (d) => d.toLocaleDateString("ru", { day: "numeric", month: "long" });
+const capital = (text) => text[0].toUpperCase() + text.slice(1);
+/** Сколько музыки было в этот день (years[год].days есть с самого начала статистики) */
+const secOfDay = (d) => yearData(d.getFullYear())?.days[String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0")] || 0;
+
+/** Источники для плитки «чаще всего»: Flow (и его режимы), «Избранное», плейлист… */
+const SOURCE_NAMES = { liked: "Избранное", album: "Альбомы", artist: "Исполнители", search: "Поиск", releases: "Новинки",
+  recs: "Рекомендуемые", history: "История", downloads: "Скачанное", local: "Мои файлы", track: "Страницы треков" };
+const FLOW_MODE_NAMES = { liked: "Любимое", mix: "Микс", discover: "Открытия" };
+
+function topSource(ctx) {
+  const total = Object.values(ctx).reduce((a, b) => a + b, 0);
+  if (total < 60) return null;
+  const groups = new Map();   // подпись → { sec, modes }
+  for (const [k, sec] of Object.entries(ctx)) {
+    let name = null, mode = null;
+    if (k === "flow" || k.startsWith("flow:")) { name = "Flow"; mode = FLOW_MODE_NAMES[k.slice(5)] ?? null; }
+    else if (k.startsWith("pl:")) name = lib.playlists.find((p) => String(p.id) === k.slice(3))?.name ?? null;
+    else name = SOURCE_NAMES[k] ?? null;
+    if (!name) continue;
+    const g = groups.get(name) ?? { name, sec: 0, modes: {} };
+    g.sec += sec;
+    if (mode) g.modes[mode] = (g.modes[mode] || 0) + sec;
+    groups.set(name, g);
+  }
+  const best = [...groups.values()].sort((a, b) => b.sec - a.sec)[0];
+  if (!best) return null;
+  const mode = Object.entries(best.modes).sort((a, b) => b[1] - a[1])[0];
+  return { name: best.name, share: best.sec / total, mode: mode?.[0] ?? null, modeShare: mode ? mode[1] / total : 0 };
+}
+
+/** Одна песня с разных загрузок — одна строка (счёт складывается) */
+function mergeSongs(items) {
+  return groupSongs(items.map((x) => x.t)).map((g) => {
+    const parts = g.indices.map((i) => items[i]);
+    const top = parts.reduce((a, b) => (b.plays > a.plays ? b : a));
+    return { t: top.t, keys: parts.map((p) => keyOf(p.t)), plays: parts.reduce((a, b) => a + b.plays, 0),
+      sec: parts.reduce((a, b) => a + b.sec, 0), f: Math.min(...parts.map((p) => p.f ?? Infinity)) };
+  });
+}
+
+/** Ключи треков, слышанных в годы до этого */
+function keysBefore(year) {
+  const keys = new Set();
+  for (const [y, v] of Object.entries(lib.stats?.years ?? {})) if (+y < year) Object.keys(v?.tracks ?? {}).forEach((k) => keys.add(k));
+  return keys;
+}
+
+/** Статистика за период: week | month | year | all.
+ *  { title, timeLabel, sec, prev, prevLabel, artists, tracks: [{ t, plays, sec }], artistCount, trackCount,
+ *    newArtists, newTracks (null — не посчитать), source, bars: [{ label, title, sec }], barsTitle, detailFrom } */
+export function periodStats(period, now = new Date()) {
+  const s = data();
+  const Y = now.getFullYear(), M = now.getMonth();
+  const today = startOfDay(now);
+  const out = { period, prev: null, prevLabel: "", newArtists: null, newTracks: null, detailFrom: null, bars: [] };
+  let start = null, artistsRaw = [], tracksRaw = [];
+  const ctx = {};
+
+  // Подробности за неделю и месяц — из daily (пишется с dailyFrom; раньше их не было)
+  const fromDaily = (from) => {
+    const a = new Map(), t = new Map();
+    for (let d = from; d <= today; d = addDays(d, 1)) {
+      const day = s.daily?.[dayKey(d)];
+      if (!day) continue;
+      const yr = yearData(d.getFullYear());
+      for (const [k, v] of Object.entries(day.a ?? {})) {
+        const x = a.get(k) ?? { name: s.artists[k]?.name ?? k, id: s.artists[k]?.id ?? null, sec: 0, plays: 0 };
+        x.sec += +v?.[0] || 0;
+        x.plays += +v?.[1] || 0;
+        a.set(k, x);
+      }
+      for (const [k, v] of Object.entries(day.t ?? {})) {
+        const known = yr?.tracks[k];
+        if (!known?.t) continue;
+        const x = t.get(k) ?? { t: known.t, sec: 0, plays: 0, f: known.f };
+        x.sec += +v?.[0] || 0;
+        x.plays += +v?.[1] || 0;
+        t.set(k, x);
+      }
+      for (const [k, sec] of Object.entries(day.c ?? {})) ctx[k] = (ctx[k] || 0) + (+sec || 0);
+    }
+    artistsRaw = [...a.values()];
+    tracksRaw = [...t.values()];
+    if (!s.dailyFrom || s.dailyFrom > from.getTime()) out.detailFrom = s.dailyFrom || now.getTime();
+  };
+
+  if (period === "week") {
+    start = addDays(today, -6);
+    out.title = "7 дней";
+    out.timeLabel = "музыки за 7 дней";
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(start, i);
+      out.bars.push({ label: WEEKDAYS[d.getDay()], title: dayLong(d), sec: secOfDay(d) });
+    }
+    out.sec = out.bars.reduce((a, b) => a + b.sec, 0);
+    let prev = 0;
+    for (let i = 1; i <= 7; i++) prev += secOfDay(addDays(start, -i));
+    out.prev = prev;
+    out.prevLabel = "к прошлой неделе";
+    out.barsTitle = "по дням";
+    fromDaily(start);
+  } else if (period === "month") {
+    start = new Date(Y, M, 1);
+    out.title = capital(MONTHS_NOM[M]);
+    out.timeLabel = `музыки в ${MONTHS_IN[M]}`;
+    out.sec = yearData(Y)?.months[M] ?? 0;
+    const pm = M ? M - 1 : 11;
+    out.prev = yearData(M ? Y : Y - 1)?.months[pm] ?? 0;
+    out.prevLabel = `к ${MONTHS_TO[pm]}`;
+    for (let day = 1; day <= now.getDate(); day++) {
+      const d = new Date(Y, M, day);
+      out.bars.push({ label: String(day), title: dayLong(d), sec: secOfDay(d) });
+    }
+    out.barsTitle = MONTHS_NOM[M];
+    fromDaily(start);
+  } else if (period === "year") {
+    start = new Date(Y, 0, 1);
+    const y = yearData(Y);
+    out.title = String(Y);
+    out.timeLabel = `музыки в ${Y} году`;
+    out.sec = y?.total ?? 0;
+    const py = yearData(Y - 1);
+    if (py) { out.prev = py.total; out.prevLabel = `к ${Y - 1} году`; }
+    for (let m = 0; m <= M; m++) out.bars.push({ label: MONTHS_SHORT[m], title: `${capital(MONTHS_NOM[m])} ${Y}`, sec: y?.months[m] ?? 0 });
+    out.barsTitle = "по месяцам";
+    artistsRaw = Object.values(y?.artists ?? {}).map((a) => ({ ...a }));
+    tracksRaw = Object.values(y?.tracks ?? {}).filter((r) => r?.t).map((r) => ({ t: r.t, sec: r.sec || 0, plays: r.plays || 0, f: r.f }));
+    Object.assign(ctx, y?.ctx ?? {});
+  } else {
+    out.title = "Всё время";
+    out.timeLabel = s.since ? `музыки с ${formatDate(s.since)}` : "музыки";
+    out.sec = s.total || 0;
+    const years = Object.keys(s.years ?? {}).filter((yr) => /^\d{4}$/.test(yr)).sort();
+    for (const yr of years) out.bars.push({ label: yr, title: `${yr} год`, sec: yearData(+yr)?.total ?? 0 });
+    out.barsTitle = "по годам";
+    artistsRaw = Object.values(s.artists).map((a) => ({ ...a }));
+    const all = new Map();
+    for (const yr of years) {
+      const y = yearData(+yr);
+      for (const [k, r] of Object.entries(y?.tracks ?? {})) {
+        if (!r?.t) continue;
+        const x = all.get(k) ?? { t: r.t, sec: 0, plays: 0 };
+        x.sec += r.sec || 0;
+        x.plays += r.plays || 0;
+        all.set(k, x);
+      }
+      for (const [k, sec] of Object.entries(y?.ctx ?? {})) ctx[k] = (ctx[k] || 0) + (+sec || 0);
+    }
+    tracksRaw = [...all.values()];
+  }
+
+  out.artists = artistsRaw.filter((a) => a.sec >= 30).sort((a, b) => b.sec - a.sec);
+  out.tracks = mergeSongs(tracksRaw.filter((x) => x.plays > 0)).sort((a, b) => b.plays - a.plays || b.sec - a.sec);
+  out.artistCount = out.artists.length;
+  out.trackCount = out.tracks.length;
+  // «Впервые» и «новых» — только если статистика шла и до начала периода (иначе новое — всё подряд)
+  if (start && s.since && s.since < start.getTime()) {
+    const from = start.getTime();
+    out.newArtists = out.artists.filter((a) => (s.artists[artistKey(a.name)]?.first ?? 0) >= from).length;
+    const before = keysBefore(start.getFullYear());
+    const fresh = (x) => !x.keys.some((k) => before.has(k));
+    // В неделе и месяце трек новый, если в этом году его впервые услышали в этот период (f — с нового вида)
+    out.newTracks = out.tracks.filter((x) => fresh(x) && (period === "year" || (Number.isFinite(x.f) && x.f >= from))).length;
+  }
+  // Сравнивать не с чем: в прошлом периоде статистики ещё не было (иначе «▲ 2 ч к октябрю» при пустом октябре)
+  const prevStart = period === "week" ? addDays(start, -7) : period === "month" ? new Date(M ? Y : Y - 1, M ? M - 1 : 11, 1)
+    : period === "year" ? new Date(Y - 1, 0, 1) : null;
+  if (!prevStart || !s.since || s.since > prevStart.getTime() + 86400000) out.prev = null;
+  out.source = topSource(ctx);
+  return out;
 }

@@ -5,6 +5,9 @@ import { addManyToPlaylist, addToPlaylistItems, createPlaylist, openPlaylistMenu
 import { renderAlbum, renderArtist } from "./artist.js";
 import { FLOW_MODES, cachedMixes, flowMode, hasTaste, setFlowMode, smartShuffle, startFlow, tasteMixes, warmFlow } from "./flow.js";
 import { renderFlowView } from "./flowview.js";
+import { renderFlowLive, syncFlowLive } from "./flowlive.js";
+import { renderStatsLive } from "./statslive.js";
+import { renderReleasesLive } from "./nrlive.js";
 import { renderStats, statsCard } from "./stats.js";
 import { renderWorkshop } from "./workshop.js";
 import { wrappedButton, wrappedCard } from "./wrapped.js";
@@ -21,7 +24,7 @@ import { isLyricsVisible, setLyricsVisible, showLyricLine } from "./lyrics.js";
 import { anim, fadeUp, liveUi, rise, riseWords, sheen, swapImage, withTransition } from "./motion.js";
 import { clearQueue, isPlaying, moveInQueue, play, playFromQueue, prefetch, queueLater, queueNext, removeFromQueue, state, syncLikeButtons, togglePlay } from "./player.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
-import { watchReleases } from "./releases.js";
+import { unheardCount, watchReleases } from "./releases.js";
 import { releaseCard, renderReleases } from "./releaseview.js";
 import { recsSection } from "./recs.js";
 import { createFolder, deleteFolder, folders, libFilter, libSort, libToolsOn, recentOf, renameFolder, sidebarSignature, sortMenuItems, toggleFolder, toolsRow } from "./libtools.js";
@@ -174,8 +177,9 @@ function applyView(changed) {
   if (view === "home") renderHome(changed);
   if (view === "now") renderUpNext();
   if (view === "settings" && changed) renderSettings();
-  if (view === "flow") renderFlowView();
-  if (view === "stats") renderStats(viewStats, wrappedButton());
+  // На ПК («Живая обложка») Flow, «Статистика» и «Новинки» — новые экраны (flowlive.js, statslive.js, nrlive.js)
+  if (view === "flow") { if (liveUi()) renderFlowLive({ covers: flowCovers }); else renderFlowView(); }
+  if (view === "stats") { if (liveUi()) renderStatsLive(viewStats); else renderStats(viewStats, wrappedButton()); }
   if (view === "workshop" && changed) renderWorkshop(viewWorkshop);
   if (isMetaView(view)) { if (changed) renderMeta(); }
   else if (isList) renderList(changed);
@@ -209,7 +213,7 @@ function renderMeta() {
   const token = ++metaToken;
   const key = view;
   const stillHere = () => token === metaToken && view === key;
-  if (key === "releases") return renderReleases(viewList, stillHere);   // экран «Новинки» (releaseview.js)
+  if (key === "releases") return (liveUi() ? renderReleasesLive : renderReleases)(viewList, stillHere);   // экран «Новинки» (nrlive.js / releaseview.js)
   const [kind, id] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
   // На ПК («Живая обложка») исполнитель и трек — новые страницы (artistlive.js, tplive.js), на телефоне — прежние
   const live = liveUi();
@@ -604,6 +608,7 @@ function flowCovers() {
 }
 
 function syncFlowCards() {
+  if (view === "flow" && liveUi()) syncFlowLive();   // те же обложки — у карточек режимов на экране Flow
   if (!flowRowEl) return;
   const covers = flowCovers();
   flowRowEl.querySelectorAll(".fl-card").forEach((card, i) => {
@@ -1034,12 +1039,25 @@ function folderItem(folder, count) {
 
 const libText = (s) => String(s || "").toLowerCase().replace(/ё/g, "е");
 
+/** Значок у «Новинок» (ПК): сколько вышло за неделю и ещё не послушано; послушали всё — значка нет */
+function syncReleasesBadge() {
+  if (!liveUi()) return;
+  const n = unheardCount();
+  let badge = navReleases.querySelector(".nav-badge");
+  if (!n) return badge?.remove();
+  if (!badge) navReleases.append(badge = el("em", "nav-badge"));
+  badge.textContent = n > 9 ? "9+" : String(n);
+  navReleases.title = `Новинки · ${plural(n, "новый релиз", "новых релиза", "новых релизов")} за неделю`;
+}
+document.addEventListener("sono:releases", syncReleasesBadge);
+
 export function renderSidebar({ keepFocus = false } = {}) {
   navHome.classList.toggle("active", view === "home");
   navNow.classList.toggle("active", view === "now");
   navFlow.classList.toggle("active", view === "flow");
   navSettings.classList.toggle("active", view === "settings");
   navReleases.classList.toggle("active", view === "releases");
+  syncReleasesBadge();
   navStats.classList.toggle("active", view === "stats");
   navWorkshop.classList.toggle("active", view === "workshop");
   lastSidebarSig = sidebarSignature();
