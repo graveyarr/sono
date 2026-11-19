@@ -107,3 +107,11 @@ button.play { background: #1c1c1c; color: #fff; }
 :is(.fw-live, .nr-live) .pl-more-row .home-card:hover, .nr-grid .home-card:hover { background: rgba(255, 255, 255, 0.85); }
 .fw-chip:not(.on), .nr-live .nr-follow { background: rgba(255, 255, 255, 0.72); border-color: rgba(255, 255, 255, 0.9); }
 .sx-live .tp-row:hover { background: rgba(255, 255, 255, 0.5); }
+
+/* «Живая обложка», шаг 7: поиск — выпадающий список молочный, под ним экран чуть светлее, кнопка ▶ тёмная */
+.sq-drop { background: rgba(252, 250, 253, 0.92); }
+.sq-shade { background: rgb(var(--shade-rgb) / 0.12); }
+.sq-row:hover { background: rgba(255, 255, 255, 0.5); }
+.sq-chip:hover, .sq-chip.sel { background: #fff; }
+.sr-best-play { background: rgb(var(--fg-rgb)); color: #fff; }
+.sr-live .pl-more-row .home-card:hover { background: rgba(255, 255, 255, 0.85); }

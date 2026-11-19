@@ -226,8 +226,9 @@ const TOUR_MOBILE = [
 export function startTour() {
   openView("home");
   // Шаги, чьей части окна сейчас нет (скрыта медиатека; ничего не играет — нет плашки плеера), пропускаем
+  // На ПК кнопки «Где искать» в поле нет — YouTube/SoundCloud выбираются на экране результатов («Искать на»)
   const steps = (isMobile ? TOUR_MOBILE : TOUR).filter((s) => !(document.body.classList.contains("sidebar-hidden") && s.sel.startsWith("#lib"))
-    && !(s.sel === "#minibar-open" && !document.body.classList.contains("has-track")));
+    && !(s.sel === "#minibar-open" && !document.body.classList.contains("has-track")) && !(s.sel === "#source-btn" && !isMobile));
   const layer = el("div", "tour");
   const hole = el("div", "tour-hole");
   const card = el("div", "tour-card");

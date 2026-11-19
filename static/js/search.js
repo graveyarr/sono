@@ -1,14 +1,16 @@
-// Строка поиска и выпадающая панель под ней (история поиска / результаты).
+// Строка поиска и выпадающая панель под ней (история поиска / результаты) — телефон.
+// На ПК («Живая обложка») поиск свой: выпадающая история и экран результатов — searchlive.js.
 
 import { openTrackMenu, toggleLike } from "./actions.js";
 import { sourceIcons } from "./icons.js";
-import { tasteOf } from "./flow.js";
-import { clearHistory, getSetting, isDisliked, keyOf, lib, removeSongFromHistory, setSetting } from "./library.js";
+import { clearHistory, getSetting, keyOf, lib, removeSongFromHistory, setSetting } from "./library.js";
 import { uniqueSongs } from "./samesong.js";
 import { describeLink, looksLikeLink } from "./links.js";
 import { openImportDialog } from "./import.js";
 import { artistByName } from "./meta.js";
 import { openView } from "./nav.js";
+import { liveUi } from "./motion.js";
+import { byTaste, focusSearchLive, initSearchLive } from "./searchlive.js";
 import { play, prefetch, state } from "./player.js";
 import { SOURCE_NAMES, displayTrack, el, imgUrl, isOverlay, markCurrentRows, plural, trackRow } from "./ui.js";
 
@@ -205,7 +207,7 @@ function showSearchError(text) {
 
 /** История изменилась (включили трек, убрали из истории) — перерисовать, если она на экране */
 export function refreshHistory() {
-  if (panelMode === "history") showHistory();
+  if (panelMode === "history" && !liveUi()) showHistory();
 }
 
 function setActiveRow(i, scroll = true) {
@@ -314,26 +316,16 @@ function scheduleSearch() {
   typeTimer = setTimeout(() => runSearch(q), TYPE_PAUSE);
 }
 
-/** Сначала — исполнители из вашего вкуса (избранное, история, статистика); остальное — как нашёл сайт.
-    Сильно не перемешиваем: трек «по вкусу» поднимается на несколько мест, а не обязательно в самый верх */
-function byTaste(list) {
-  return list
-    .map((track, i) => {
-      const w = tasteOf(track);
-      const boost = isDisliked(track) ? -20 : w > 0 ? 2 + Math.min(4, Math.log2(1 + w)) : w < 0 ? -4 : 0;
-      if (w > 0) track = { ...track, taste: true };
-      return { track, score: boost - i };
-    })
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.track);
-}
+// byTaste — общий с ПК (searchlive.js): исполнители из вашего вкуса поднимаются на несколько мест
 
 export function focusSearch() {
+  if (liveUi()) return focusSearchLive();
   queryInput.focus();
   queryInput.select();
 }
 
 export function initSearch() {
+  if (liveUi()) return initSearchLive();   // ПК: новый поиск (searchlive.js)
   source = SOURCE_NAMES[getSetting("source")] ? getSetting("source") : "youtube";
   renderSource();
   showHistory();

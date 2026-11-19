@@ -8,6 +8,7 @@ import { renderFlowView } from "./flowview.js";
 import { renderFlowLive, syncFlowLive } from "./flowlive.js";
 import { renderStatsLive } from "./statslive.js";
 import { renderReleasesLive } from "./nrlive.js";
+import { renderSearchView } from "./searchlive.js";
 import { renderStats, statsCard } from "./stats.js";
 import { renderWorkshop } from "./workshop.js";
 import { wrappedButton, wrappedCard } from "./wrapped.js";
@@ -54,6 +55,7 @@ const navWorkshop = document.getElementById("nav-workshop");
 const viewFlow = document.getElementById("view-flow");
 const viewStats = document.getElementById("view-stats");
 const viewWorkshop = document.getElementById("view-workshop");
+const viewSearch = document.getElementById("view-search");   // результаты поиска (ПК, searchlive.js)
 
 // Какой экран открыт: "home" | "now" | "liked" | "disliked" | "playlist:<id>" | "artist:<id>" | "album:<id>"
 let view = "";
@@ -145,12 +147,13 @@ export function prefetchFirst(tracks, key) {
 
 // ---------- Переключение экранов ----------
 
-const FIXED_VIEWS = ["home", "flow", "now", "settings", "stats", "workshop"];   // экраны со своей секцией (остальные — списки)
+const FIXED_VIEWS = ["home", "flow", "now", "settings", "stats", "workshop", "search"];   // экраны со своей секцией (остальные — списки)
 
 /** Открыть экран. Возвращает обещание «экран уже на месте»: на ПК смена идёт через переход
     (View Transitions, motion.js) — новый экран появляется не сразу, а в следующем кадре */
 export function showView(key, { back = false } = {}) {
   if (!FIXED_VIEWS.includes(key) && !isMetaView(key) && !describe(key)) key = "home";
+  if (key === "search" && !liveUi()) key = "home";   // на телефоне поиск — прежняя панель (search.js)
   const changed = key !== view;
   const first = !view;
   if (changed && view && !back) {
@@ -173,6 +176,7 @@ function applyView(changed) {
   viewFlow.hidden = view !== "flow";
   viewStats.hidden = view !== "stats";
   viewWorkshop.hidden = view !== "workshop";
+  viewSearch.hidden = view !== "search";
   viewList.hidden = !isList;
   if (view === "home") renderHome(changed);
   if (view === "now") renderUpNext();
@@ -181,11 +185,12 @@ function applyView(changed) {
   if (view === "flow") { if (liveUi()) renderFlowLive({ covers: flowCovers }); else renderFlowView(); }
   if (view === "stats") { if (liveUi()) renderStatsLive(viewStats); else renderStats(viewStats, wrappedButton()); }
   if (view === "workshop" && changed) renderWorkshop(viewWorkshop);
+  if (view === "search" && changed) renderSearchView(viewSearch);
   if (isMetaView(view)) { if (changed) renderMeta(); }
   else if (isList) renderList(changed);
   document.body.classList.toggle("on-flow", view === "flow");
   if (changed) {
-    const shown = { home: viewHome, now: viewNow, settings: viewSettings, flow: viewFlow, stats: viewStats, workshop: viewWorkshop }[view] ?? viewList;
+    const shown = { home: viewHome, now: viewNow, settings: viewSettings, flow: viewFlow, stats: viewStats, workshop: viewWorkshop, search: viewSearch }[view] ?? viewList;
     shown.classList.remove("entering");
     if (!liveUi()) {   // на ПК вход рисует переход (enterView)
       void shown.offsetWidth;
@@ -194,6 +199,7 @@ function applyView(changed) {
     scroller.scrollTop = 0;
   }
   document.body.classList.toggle("on-now", view === "now");
+  document.body.classList.toggle("on-search", view === "search");   // поле поиска шире и с кольцом (как в макете)
   renderSidebar();
   document.dispatchEvent(new CustomEvent("sono:view", { detail: view }));   // полоска заголовка обновит «Назад»
 }

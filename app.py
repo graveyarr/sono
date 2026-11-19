@@ -1871,6 +1871,111 @@ def api_search_lyrics():
     return jsonify(tracks=tracks)
 
 
+# ---------- Поиск «всего сразу» (ПК, новый вид: страница результатов) ----------
+# Треки ищутся как раньше (/api/search, YouTube и SoundCloud), а «Лучший результат», исполнители, альбомы и
+# плейлисты — одним запросом к поиску Яндекс Музыки (type=all). nocorrect: без него Яндекс «исправляет»
+# незнакомые ему имена («twikipedia» → «wikipedia», лучшим результатом был совсем другой исполнитель).
+# Сомнительное не показываем: исполнитель — только если имя похоже на запрос, альбом и плейлист — если в
+# названии (с исполнителем) есть все слова запроса. Нет в Яндексе — исполнитель с тем же именем на SoundCloud.
+
+def _q_words(text: str) -> list[str]:
+    return [w for w in artists._norm(text).split() if w]
+
+
+def _name_fits(name: str, query: str) -> bool:
+    """Имя исполнителя похоже на запрос: одно содержит другое (слитно) или латиницей («monetochka» = «Монеточка»)."""
+    a, q = artists._norm(name).replace(" ", ""), artists._norm(query).replace(" ", "")
+    if len(a) < 2 or len(q) < 2:
+        return False
+    if a == q or (len(a) >= 3 and a in q) or (len(q) >= 3 and q in a):
+        return True
+    return any(len(v) >= 3 and (v == q or v in q or (len(q) >= 4 and q in v)) for v in importer.latin(name))
+
+
+def _words_fit(text: str, query: str) -> bool:
+    """В тексте (название + исполнитель) есть все слова запроса."""
+    have, want = set(_q_words(text)), _q_words(query)
+    return bool(want) and all(w in have for w in want)
+
+
+def _ya_playlist(p: dict) -> dict | None:
+    owner = p.get("owner") or {}
+    if not owner.get("login") or p.get("kind") is None:
+        return None
+    cover = p.get("cover") or {}
+    uri = cover.get("uri") or (cover.get("itemsUri") or [None])[0] or p.get("ogImage")
+    return {"name": p.get("title") or "Плейлист", "cover": artists._img(uri, "400x400"), "count": p.get("trackCount"),
+            "owner": owner.get("name") or owner.get("login"),
+            "url": f"https://music.yandex.ru/users/{owner['login']}/playlists/{p['kind']}"}
+
+
+def search_all(query: str) -> dict:
+    found = artists._get(f"{artists.YANDEX}/search", {"text": query, "type": "all", "page": 0, "nocorrect": "true"})
+    res = found.get("result") if isinstance(found, dict) else None
+    res = res if isinstance(res, dict) else {}
+    items = lambda kind: [x for x in ((res.get(kind) or {}).get("results") or []) if isinstance(x, dict)]
+    who = lambda x: ", ".join(a.get("name", "") for a in x.get("artists") or [])
+
+    people = [artists._artist_card(a) for a in items("artists")[:12] if a.get("id")]
+    people = [a for a in people if _name_fits(a["name"], query)]
+    albums = [artists._release(a) for a in items("albums")[:20]
+              if a.get("id") and _words_fit(f"{a.get('title')} {who(a)}", query)]
+    lists = [p for p in (_ya_playlist(x) for x in items("playlists")[:20] if _words_fit(x.get("title") or "", query)) if p]
+
+    best = None
+    b = res.get("best") or {}
+    kind, item = b.get("type"), b.get("result") or {}
+    if kind == "artist" and item.get("id") and _name_fits(item.get("name") or "", query):
+        best = {"kind": "artist", **artists._artist_card(item)}
+    elif kind == "album" and item.get("id") and _words_fit(f"{item.get('title')} {who(item)}", query):
+        best = {"kind": "album", **artists._release(item)}
+    elif kind == "track" and item.get("id") and _words_fit(f"{item.get('title')} {item.get('version') or ''} {who(item)}", query):
+        best = {"kind": "track", "track": artists._track(item)}
+    elif kind == "playlist" and _words_fit(item.get("title") or "", query):
+        p = _ya_playlist(item)
+        best = p and {"kind": "playlist", **p}
+    # Исполнитель с ровно таким именем важнее трека с этими словами («кино» — группа, а не песня «Кино»)
+    exact = next((a for a in people if artists._same_name(a["name"], query)), None)
+    if exact and (not best or best["kind"] != "artist"):
+        best = {"kind": "artist", **exact}
+
+    # В Яндексе такого исполнителя нет — может, он есть на SoundCloud (там много нишевых)
+    if not (best and best["kind"] == "artist") and len(_q_words(query)) <= 4:
+        try:
+            users = _sc_cached("/search/users", q=query, limit=10).get("collection") or []
+            same = [u for u in users if u.get("id") and any(_same_look(n, query) for n in (u.get("username"), u.get("permalink")) if n)]
+            same.sort(key=lambda u: (bool(u.get("verified")), u.get("followers_count") or 0), reverse=True)
+            if same:
+                sc = {**_sc_card(same[0]), "source": "soundcloud"}
+                people.insert(0, sc)
+                if not best:
+                    best = {"kind": "artist", **sc}
+        except Exception as e:
+            print(f"[search-all] SoundCloud: {e}")
+    if best and best["kind"] == "artist":
+        people = [best] + [a for a in people if str(a["id"]) != str(best["id"])]
+    return {"best": best, "artists": people[:12], "albums": albums[:12], "playlists": lists[:12]}
+
+
+@app.get("/api/search/all")
+def api_search_all():
+    query = request.args.get("q", "").strip()[:200]
+    if not query:
+        return jsonify(best=None, artists=[], albums=[], playlists=[])
+    key = ("all", query.lower())
+    cached = _search_cache.get(key)
+    if cached and time.time() - cached[0] < 600:
+        return jsonify(cached[1])
+    try:
+        data = search_all(query)
+    except Exception as e:
+        # Яндекс не ответил — страница покажет треки с YouTube/SoundCloud без «Лучшего результата»
+        print(f"[search-all] {e}")
+        return jsonify(best=None, artists=[], albums=[], playlists=[], error=friendly_error(e))
+    _search_cache[key] = (time.time(), data)
+    return jsonify(data)
+
+
 # ---------- Трек по ссылке ----------
 # Ссылку на YouTube или SoundCloud можно вставить в поиск, а кнопка «+ Sono» в браузере (закладка,
 # адрес sono://add?url=…) присылает её из открытой вкладки.
