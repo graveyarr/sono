@@ -4669,3 +4669,236 @@ body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .minibar 
 body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .minibar .mini-progress::after { opacity: 0; }
 body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .minibar .mini-progress input { left: 46px; right: 46px; width: auto; height: 26px; background: none; }
 body:not(.mobile):is([data-look-seek="wave"], [data-look-seek="live"]) .minibar .mini-progress input::-webkit-slider-runnable-track { height: 26px; }
+
+/* ---------- «Живая обложка», шаг 4: плейлист, «Избранное», альбом (ПК; views.js liveList, artist.js, plcard.js) ----------
+   Макет — design/ui-new/B-ekrany.html (#playlist, #album): слева стеклянная карточка, справа список с колонками */
+.pl-live {
+  display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 24px; align-items: start;
+  padding: 24px var(--pad) 28px;
+  line-height: 1.35;   /* как в макете (у остальной программы — normal) */
+}
+.pl-main { min-width: 0; }
+.pl-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.pl-card {
+  position: sticky; top: 0;
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 26px; border-radius: 30px;
+}
+.pl-card .pl-cover {
+  width: 100%; border-radius: 22px;
+  box-shadow: 0 34px 60px -26px rgb(var(--shade-rgb) / 0.7);
+}
+.pl-text { min-width: 0; }
+.pl-card .pl-kind { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--ink); }
+.pl-card .pl-name {
+  margin: 2px 0 0; padding-bottom: 0.08em;
+  font: 800 40px/1.15 var(--font-display); letter-spacing: -1.2px;
+  -webkit-line-clamp: 3;
+}
+.pl-card .pl-name.editable:hover { text-decoration-thickness: 2px; text-underline-offset: 5px; }
+.pl-card .pl-meta { margin-top: 4px; font-size: 14px; color: var(--muted); }
+.pl-card .pl-meta b { color: var(--text); font-weight: 700; }
+.pl-card .pl-meta .meta-artist-link { padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
+.pl-card .pl-meta .meta-artist-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.pl-card .pl-meta img.pl-who-img { display: inline-block; width: 24px; height: 24px; margin-right: 6px; vertical-align: -7px; border-radius: 50%; object-fit: cover; }
+.pl-card .pl-desc { margin: 0; font-size: 14px; color: var(--muted); }
+.pl-acts { display: flex; flex-wrap: wrap; gap: 10px; }
+/* Пилюли («Играть», «Вперемешку», «В медиатеку») — как в макете: белая главная, стеклянные остальные */
+.pill {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 18px;
+  border: 1px solid var(--edge); border-radius: 22px;
+  background: var(--glass-hi); color: var(--text);
+  font: inherit; font-weight: 700; white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s, scale 0.3s var(--spring);
+}
+.pill:hover { background: rgb(var(--fg-rgb) / 0.14); }
+.pill:active { scale: 0.96; }
+.pill:disabled { opacity: 0.45; cursor: default; }
+.pill svg { width: 20px; height: 20px; flex: none; }
+.pill.big { height: 52px; padding: 0 24px; border-radius: 26px; font-size: 15px; }
+.pill.solid { background: rgb(var(--fg-rgb)); border-color: transparent; color: rgb(var(--shade-rgb)); }
+.pill.solid:hover { background: rgb(var(--fg-rgb)); box-shadow: 0 0 0 5px rgb(var(--fg-rgb) / 0.1); }
+.pill.on { color: var(--ink); }
+.pl-acts .pill.big { flex: 1; }
+.pl-play span { display: inline-flex; }
+.pl-play .i-pause, .pl-play .l-pause, .pl-play.is-playing .i-play, .pl-play.is-playing .l-play { display: none; }
+.pl-play.is-playing .i-pause, .pl-play.is-playing .l-pause { display: inline-flex; }
+/* Кнопки с подписью под значком */
+.pl-minis { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 6px; }
+.pl-mini {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-width: 0; padding: 10px 2px 8px;
+  border: 0; border-radius: 16px; background: none;
+  color: var(--muted); font: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: background-color 0.2s, color 0.2s;
+}
+.pl-mini svg { width: 20px; height: 20px; flex: none; }
+.pl-mini-l { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.pl-mini:hover { background: var(--glass-hi); color: var(--text); }
+.pl-mini.on { color: var(--ink); }
+.pl-mini.busy svg { animation: dl-pulse 1.2s ease-in-out infinite; }
+.pl-card .pl-auto { align-self: flex-start; margin: -6px 0 -4px; }
+/* Строка проверки медиатеки */
+.pl-status {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 0 0; border: 0; border-top: 1px solid var(--edge); background: none;
+  font: inherit; font-size: 12.5px; color: var(--faint); text-align: left;
+}
+.pl-status i { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--faint); }
+.pl-status.ok i { background: #3ddc97; box-shadow: 0 0 8px #3ddc97; }
+.pl-status.bad i { background: #ffae42; box-shadow: 0 0 8px #ffae42; }
+button.pl-status { cursor: pointer; }
+button.pl-status:hover { color: var(--text); }
+
+/* Над списком: поиск, сортировка, «Добавить треки» */
+.pl-live .list-tools { gap: 10px; margin: 0 0 12px; }
+.pl-live .list-tools .sp { flex: 1; }
+.pl-live .list-search {
+  width: 280px; height: 40px; padding: 0 14px; gap: 9px;
+  border-radius: 20px; border: 1px solid var(--edge); background: var(--glass);
+}
+.pl-live .list-search input::placeholder { color: var(--faint); }
+.pl-live .list-sort, .pl-live .pl-add, .pl-live .select-bar .btn {
+  height: 40px; padding: 0 14px; gap: 7px;
+  border: 1px solid var(--edge); border-radius: 20px; background: var(--glass-hi);
+  color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap;
+  display: inline-flex; align-items: center; cursor: pointer;
+}
+.pl-live .list-sort:hover, .pl-live .pl-add:hover, .pl-live .select-bar .btn:hover { color: var(--text); background: rgb(var(--fg-rgb) / 0.14); }
+.pl-live .list-sort svg, .pl-live .pl-add svg, .pl-live .select-bar .btn svg { width: 16px; height: 16px; }
+
+/* Список: колонки # · обложка и название · Альбом · Добавлен · Прослуш. · ♡ · длительность · ⋯ */
+.tracklist-card.tl-live { --cols: 40px minmax(0, 1.5fr) minmax(0, 1fr) 96px 84px 40px 52px 36px; padding: 8px; border-radius: 24px; background: var(--glass); border-color: var(--edge); }
+.tracklist-card.tl-live.no-album { --cols: 40px minmax(0, 1fr) 96px 84px 40px 52px 36px; }
+.tracklist-card.tl-live.no-added { --cols: 40px minmax(0, 1.5fr) minmax(0, 1fr) 84px 40px 52px 36px; }
+.tracklist-card.tl-live.no-album.no-added { --cols: 40px minmax(0, 1fr) 84px 40px 52px 36px; }
+.tracklist-card.tl-live.removable { --cols: 40px minmax(0, 1fr) 84px 40px 52px 36px 36px; }
+.tl-live .tl-head, .tl-live .track.numbered {
+  display: grid; grid-template-columns: var(--cols); align-items: center; gap: 10px;
+  padding: 0 8px;
+}
+.tl-live .tl-head {
+  height: 36px; margin-bottom: 4px;
+  border-bottom: 1px solid var(--edge);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--faint);
+}
+.tl-live .tl-head > span { width: auto; padding: 0; text-align: left; font-size: inherit; color: inherit; }
+:is(.tl-live, .pl-recs-list.glass) .t-artists { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-live .tl-head .t-num { text-align: center; }
+.tl-live .tl-head .t-plays { text-align: right; font-size: inherit; }
+.tl-live .tl-head .t-plays::after { content: none; }
+.tl-live .tl-head .t-dur { display: flex; justify-content: flex-end; }
+.tl-live .tl-head .t-dur svg { width: 15px; height: 15px; }
+.tl-live .track.numbered { height: 58px; border-radius: 14px; }
+.tl-live .track.numbered > * { width: auto; }
+.tl-live .track:hover { background: rgb(var(--fg-rgb) / 0.06); }
+.tl-live .track.current, .tl-live .track.current:hover { background: var(--glass-hi); }
+.tl-live .track.selected { background: color-mix(in srgb, var(--accent) 22%, rgb(var(--fg-rgb) / 0.05)); }
+.tl-live .t-num { width: auto; color: var(--faint); font-weight: 600; }
+.tl-live .track.current .t-index { color: var(--ink); }
+:is(.tl-live, .pl-recs-list.glass) .t-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+:is(.tl-live, .pl-recs-list.glass) .thumb { width: 42px; height: 42px; border-radius: 9px; }
+.tl-live.noart .thumb { display: none; }
+:is(.tl-live, .pl-recs-list.glass) .t-meta { min-width: 0; }
+:is(.tl-live, .pl-recs-list.glass) .t-title { display: flex; align-items: center; gap: 7px; font-size: 14.5px; font-weight: 600; }
+.tl-live .t-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:is(.tl-live, .pl-recs-list.glass) .track.current .t-title { color: var(--ink); }
+:is(.tl-live, .pl-recs-list.glass) .t-sub { display: flex; align-items: center; gap: 6px; margin-top: 1px; font-size: 13px; }
+:is(.tl-live, .pl-recs-list.glass) .t-src { display: inline-flex; flex: none; color: var(--faint); }
+:is(.tl-live, .pl-recs-list.glass) .t-src svg { width: 15px; height: 14px; }
+.tl-live .t-dl { margin-right: 0; flex: none; }
+/* «2» — песня с YouTube и SoundCloud одной строкой; щелчок — выбрать, какая играет */
+.t-uploads.t-twin {
+  flex: none; display: inline-grid; place-items: center;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--glass-hi); color: var(--muted);
+  font-size: 10.5px; font-weight: 800; text-decoration: none;
+}
+.t-uploads.t-twin:hover { background: rgb(var(--fg-rgb) / 0.18); color: var(--text); }
+.tl-live .t-album, .tl-live .t-added { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-live .t-album { font-size: 13.5px; color: var(--muted); }
+.tl-live .t-album.link { cursor: pointer; }
+.tl-live .t-album.link:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.tl-live .t-added { font-size: 13px; color: var(--faint); }
+.tl-live .t-plays { padding: 0; font-size: 13px; color: var(--muted); text-align: right; }
+.tl-live .t-dur { font-size: 13.5px; color: var(--muted); }
+.tl-live .track .icon-btn { width: 34px; height: 34px; border-radius: 50%; justify-self: center; color: var(--faint); }
+.tl-live .track .icon-btn:hover { background: var(--glass-hi); color: var(--text); }
+.tl-live .track.liked .t-like { color: var(--ink); }
+
+/* «Рекомендуемые»: заголовок строкой, справа «Обновить»; строки — та же таблица: причина, длительность, «+ Добавить» */
+.pl-live .pl-recs { margin-top: 34px; }
+.pl-live .pl-recs-head { align-items: baseline; margin: 0 0 14px 4px; }
+.pl-live .pl-recs-titles { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.pl-live .pl-recs-head .meta-h { margin: 0; font: 700 22px/1.2 var(--font-display); white-space: nowrap; }
+.pl-live .pl-recs-sub { margin: 0; font-size: 13px; font-weight: 600; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-live .pl-recs-again { font-size: 13.5px; font-weight: 600; color: var(--muted); }
+.pl-live .pl-recs-list { padding: 8px; border-radius: 24px; }
+.pl-live .pl-recs-list:empty { display: none; }
+.pl-live .pl-recs-list .track {
+  display: grid; grid-template-columns: 40px minmax(0, 1.5fr) minmax(0, 1fr) 52px 120px; align-items: center; gap: 10px;
+  height: 58px; padding: 0 8px; border-radius: 14px;
+}
+.pl-live .pl-recs-list .track:hover { background: rgb(var(--fg-rgb) / 0.06); }
+.pl-live .pl-recs-list .track.current { background: var(--glass-hi); }
+.pl-recs-list .r-n { display: grid; place-items: center; color: var(--faint); }
+.pl-recs-list .r-n > * { grid-area: 1 / 1; }
+.pl-recs-list .r-n svg { width: 16px; height: 16px; display: block; }
+.pl-recs-list .r-n .r-play { visibility: hidden; color: var(--text); }
+.pl-recs-list .track:hover .r-n .r-note { visibility: hidden; }
+.pl-recs-list .track:hover .r-n .r-play { visibility: visible; }
+.pl-recs-list .r-why { min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-recs-list .t-dur { width: auto; font-size: 13.5px; color: var(--muted); text-align: right; }
+.pl-live .pl-recs-list .pl-recs-add {
+  justify-self: end; width: auto; height: 34px; padding: 0 14px; gap: 6px; opacity: 1;
+  border: 1px solid var(--edge); border-radius: 17px; background: var(--glass-hi);
+  color: var(--text); font: inherit; font-size: 13px; font-weight: 700;
+  display: inline-flex; align-items: center; cursor: pointer;
+}
+.pl-live .pl-recs-list .pl-recs-add svg { width: 16px; height: 16px; }
+.pl-live .pl-recs-list .pl-recs-add:hover { background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb)); }
+.pl-live .pl-recs-note { margin: 4px 4px 0; font-size: 13.5px; color: var(--muted); }
+
+/* Альбом: «Ещё у …» — один ряд карточек */
+.pl-live .meta-section { margin-top: 34px; }
+.pl-live .meta-h-row { margin: 0 0 14px 4px; align-items: baseline; }
+.pl-live .meta-h-row .meta-h { margin: 0; font: 700 22px/1.2 var(--font-display); }
+.pl-live .meta-section:has(.pl-more-row) { container: plmore / inline-size; }
+.pl-more-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 6px 18px; }
+/* Один ряд: лишние карточки прячем по ширине (колонок = (ширина + 18) / 194) */
+@container plmore (max-width: 563.98px) { .pl-more-row > :nth-child(n+3) { display: none; } }
+@container plmore (max-width: 757.98px) { .pl-more-row > :nth-child(n+4) { display: none; } }
+@container plmore (max-width: 951.98px) { .pl-more-row > :nth-child(n+5) { display: none; } }
+@container plmore (max-width: 1145.98px) { .pl-more-row > :nth-child(n+6) { display: none; } }
+@container plmore (max-width: 1339.98px) { .pl-more-row > :nth-child(n+7) { display: none; } }
+@container plmore (max-width: 1533.98px) { .pl-more-row > :nth-child(n+8) { display: none; } }
+/* Карточки как в макете: прозрачные, при наведении — стекло и подъём */
+.pl-live .pl-more-row .home-card { padding: 10px; border-radius: 22px; border-color: transparent; background: none; box-shadow: none; animation: none; transition: translate 0.5s var(--ease), background-color 0.3s, box-shadow 0.5s var(--ease); }
+.pl-live .pl-more-row .home-card:hover { translate: 0 -6px; background: rgb(var(--fg-rgb) / 0.12); box-shadow: 0 22px 40px -20px color-mix(in srgb, var(--accent) 55%, transparent); }
+.pl-more-row .home-card-art { border-radius: 16px; }
+
+/* Окно уже: карточка — сверху, обложка слева от текста */
+@media (max-width: 1500px) {
+  .pl-live { grid-template-columns: minmax(0, 1fr); }
+  .pl-card { position: static; display: grid; grid-template-columns: 210px minmax(0, 1fr); column-gap: 26px; align-items: center; }
+  .pl-side { gap: 12px; }
+  .pl-card .pl-name { font-size: 44px; -webkit-line-clamp: 2; }
+  .pl-acts .pill.big { flex: none; }
+  .pl-minis { display: flex; flex-wrap: wrap; }
+  .pl-mini { flex-direction: row; padding: 8px 12px; }
+}
+@media (max-width: 1250px) {
+  .pl-card { grid-template-columns: 160px minmax(0, 1fr); }
+  .pl-card .pl-name { font-size: 34px; }
+  .pl-card .pl-desc, .pl-card .pl-status { display: none; }
+  .tracklist-card.tl-live, .tracklist-card.tl-live.no-album, .tracklist-card.tl-live.no-added, .tracklist-card.tl-live.no-album.no-added { --cols: 34px minmax(0, 1fr) 40px 48px 34px; }
+  .tracklist-card.tl-live.removable { --cols: 34px minmax(0, 1fr) 40px 48px 34px 34px; }
+  .tl-live :is(.t-album, .t-added, .t-plays) { display: none; }
+  .pl-live .pl-recs-list .track { grid-template-columns: 34px minmax(0, 1fr) 48px 110px; }
+  .pl-live .pl-recs-list .r-why { display: none; }
+  .pl-live .list-search { width: 220px; }
+}
+.pl-live .pl-empty { margin: 0; }

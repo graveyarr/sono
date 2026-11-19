@@ -7,9 +7,12 @@ import { openTrackMenu, toggleLike } from "./actions.js";
 import { startFlow } from "./flow.js";
 import { icons, sourceIcons } from "./icons.js";
 import { openView, takeHighlight } from "./nav.js";
-import { isPlaying, play, prefetch, state, togglePlay } from "./player.js";
-import { compactNumber, countText, el, formatTotal, iconButton, imageHsl, imgUrl, markCurrentRows, nameHue, plural, toast, trackRow } from "./ui.js";
-import { isFollowing, keyOf, toggleFollow } from "./library.js";
+import { isPlaying, play, prefetch, queueLater, queueNext, state, togglePlay } from "./player.js";
+import { compactNumber, countText, el, formatTotal, iconButton, imageHsl, imgUrl, markCurrentRows, nameHue, openMenu, plural, toast, trackRow } from "./ui.js";
+import { createPlaylist, isFollowing, keyOf, lib, setPlaylistCover, toggleFollow } from "./library.js";
+import { liveUi } from "./motion.js";
+import { bigPill, colsClass, liveHead, miniBtn, playPill, plCard, plLayout, statusLine } from "./plcard.js";
+import { sharePlaylist } from "./share.js";
 import { fillPlays, loadPlays, playsOf } from "./plays.js";
 import { artistStatsLine } from "./stats.js";
 
@@ -443,6 +446,7 @@ export async function renderAlbum(box, id, stillHere) {
   }
   if (!stillHere()) return;
   const context = { type: "album", id: al.id, name: al.title };
+  if (liveUi()) return renderAlbumLive(box, al, context, stillHere);   // ПК — карточка слева, список справа
 
   const hero = el("div", "pl-hero");
   const header = el("header", "pl-header");
@@ -479,4 +483,147 @@ export async function renderAlbum(box, id, stillHere) {
     row.classList.add("flash");
     requestAnimationFrame(() => row.scrollIntoView({ block: "center", behavior: "smooth" }));
   }
+}
+
+// ---------- Альбом на ПК («Живая обложка», макет B-ekrany.html#album) ----------
+// Слева — карточка: обложка, «Альбом · 23 октября 2026», название, исполнитель, «Играть» / «В медиатеку»,
+// кнопки с подписями, откуда альбом. Справа — треки без обложек и «Ещё у исполнителя» одним рядом
+
+const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+function releaseDate(al) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(al.date || "");
+  return m ? `${+m[3]} ${MONTHS[+m[2] - 1]} ${m[1]}` : al.year || "";
+}
+
+/** Сохранённая копия альбома в медиатеке (плейлист с пометкой album) */
+const savedCopy = (al) => lib.playlists.find((p) => p.album === al.id) ?? null;
+
+function renderAlbumLive(box, al, context, stillHere) {
+  const tracks = al.tracks;
+  const kind = [TYPE_NAMES[al.type] ?? "Альбом", releaseDate(al)].filter(Boolean).join(" · ");
+  const name = el("h1", "pl-name", al.title);
+  const meta = document.createDocumentFragment();
+  const who = el("span", "pl-who");
+  const artistLink = el("button", "meta-artist-link", al.artist.name || "");
+  artistLink.type = "button";
+  if (al.artist.id) {
+    artistLink.dataset.warm = `artist:${al.artist.id}`;
+    artistLink.addEventListener("click", () => openView(`artist:${al.artist.id}`));
+  }
+  who.append(artistLink);
+  meta.append(who);
+  const facts = [tracks.length ? plural(tracks.length, "трек", "трека", "треков") : "", tracks.length ? formatTotal(tracks) : ""].filter(Boolean);
+  if (facts.length) meta.append(` · ${facts.join(" · ")}`);
+
+  const playBtn = playPill(contextKey(context), () => (playingFrom(context) ? togglePlay() : play(tracks[0], tracks.slice(), 0, context)));
+  playBtn.disabled = !tracks.length;
+  playBtn.classList.toggle("is-playing", playingFrom(context) && isPlaying());
+  playBtn.addEventListener("mouseenter", () => prefetch(tracks[0]));
+  // «В медиатеку»: копия альбома — плейлистом (своих альбомов в медиатеке у Sono нет); уже есть — открыть её
+  const save = bigPill("В медиатеку", icons.heart, () => {
+    const have = savedCopy(al);
+    if (have) return openView(`playlist:${have.id}`);
+    const p = createPlaylist(al.title, tracks);
+    p.album = al.id;
+    const url = al.coverLarge || al.cover;
+    if (url) coverData(url).then((data) => setPlaylistCover(p.id, data)).catch(() => {});   // обложка альбома — своей обложкой плейлиста
+    toast(`«${al.title}» — в медиатеке`);
+    drawSave();
+  });
+  const drawSave = () => {
+    const have = !!savedCopy(al);
+    save.innerHTML = `${have ? icons.heartFilled : icons.heart}<span>${have ? "В медиатеке" : "В медиатеку"}</span>`;
+    save.classList.toggle("on", have);
+    save.title = have ? "Открыть копию в медиатеке" : "Сохранить альбом плейлистом в медиатеку";
+  };
+  drawSave();
+  save.disabled = !tracks.length;
+
+  const shuffle = miniBtn("Вперемешку", icons.shuffle, () => {
+    const i = Math.floor(Math.random() * tracks.length);
+    play(tracks[i], [tracks[i], ...tracks.filter((_, n) => n !== i).sort(() => Math.random() - 0.5)], 0, context);
+  });
+  shuffle.disabled = tracks.length < 2;
+  const flow = miniBtn("Flow", icons.flow, () => startFlow({ playlist: { id: `album:${al.id}`, name: al.title, tracks } }));
+  flow.title = `Бесконечный поток в духе «${al.title}»`;
+  const share = miniBtn("Поделиться", icons.share, () => sharePlaylist({ name: `${al.title} — ${al.artist.name || ""}`.replace(/ — $/, ""), tracks }));
+  const more = miniBtn("Ещё", icons.more, (anchor) => openMenu(anchor, [
+    { label: "Играть следующими", icon: icons.playNext, disabled: !tracks.length, action: () => { tracks.slice().reverse().forEach((t) => queueNext(t)); toast(`«${al.title}» — играет следующим`); } },
+    { label: "В очередь", icon: icons.queue, disabled: !tracks.length, action: () => { queueLater(tracks); toast(`«${al.title}» — в очереди`); } },
+    ...(al.artist.id ? [{ label: "Исполнитель", icon: icons.user ?? icons.compass, action: () => openView(`artist:${al.artist.id}`) }] : []),
+  ]));
+  if (!tracks.length) [shuffle, flow, share].forEach((b) => { b.disabled = true; });
+
+  const from = al.source === "soundcloud" ? "Альбом с SoundCloud" : String(al.id).startsWith("dz") ? "Из каталога Deezer" : "Из Яндекс Музыки";
+  const extraFacts = [al.likes ? `${countText(al.likes, "лайк", "лайка", "лайков")}` : "", al.label ? `© ${al.label}` : ""].filter(Boolean);
+  const status = statusLine([from, ...extraFacts].join(" · "), "ok");
+  status.title = [from, ...extraFacts].join(" · ");
+
+  const card = plCard({ cover: picture(al.coverLarge, "collection-cover album-cover", al.title), kind, name, meta,
+    acts: [playBtn, save], minis: [shuffle, flow, share, more], status });
+
+  // Треки: без обложек (у альбома она одна), колонки — как у плейлиста, без «Альбом» и «Добавлен»
+  const cols = { album: false, added: false };
+  const list = el("ol", "tracklist");
+  tracks.forEach((track, i) => {
+    const row = trackRow(track, {
+      index: i, numbered: true, cols,
+      onPlay: () => play(track, tracks.slice(), i, context),
+      onLike: toggleLike,
+      onMenu: (anchor) => openTrackMenu(anchor, track, {}),
+    });
+    row.addEventListener("mouseenter", () => prefetch(track));
+    list.append(row);
+  });
+  const tl = el("div", `tracklist-card glass noart ${colsClass(cols)}`);
+  tl.append(liveHead(cols), list);
+  const moreBox = el("div");
+  box.replaceChildren(plLayout(card, tracks.length ? tl : el("p", "pl-empty", "В этом релизе нет треков."), moreBox));
+
+  // «Ещё у исполнителя»: его другие релизы одним рядом (страница исполнителя часто уже в памяти — наведение)
+  if (al.artist.id) {
+    load(`/api/artist/${al.artist.id}`).then((a) => {
+      if (!stillHere() || !moreBox.isConnected) return;
+      if (a.picture) {   // маленькое фото исполнителя перед именем
+        const img = el("img", "pl-who-img");
+        img.alt = "";
+        img.src = imgUrl(a.picture);
+        img.onerror = () => img.remove();
+        who.prepend(img);
+      }
+      const others = (a.releases || []).filter((r) => String(r.id) !== String(al.id)).slice(0, 8);
+      if (!others.length) return;
+      const head = el("div", "meta-h-row");
+      const all = el("button", "meta-more", "Все релизы");
+      all.type = "button";
+      all.addEventListener("click", () => openView(`artist:${al.artist.id}`));
+      head.append(el("h2", "meta-h", `Ещё у ${a.name || al.artist.name}`), all);
+      const row = el("div", "pl-more-row");
+      row.append(...others.map((r) => releaseCard(r, a.source !== "soundcloud")));
+      const sec = el("section", "meta-section");
+      sec.append(head, row);
+      moreBox.replaceChildren(sec);
+    }).catch(() => {});
+  }
+
+  markCurrentRows(state.current ? keyOf(state.current) : null);
+  prefetchTop(tracks, stillHere);
+  loadPlays(tracks.slice(0, 40), { resolve: true, alive: stillHere, onUpdate: () => { if (stillHere()) fillPlays(list, tracks); } });
+  const want = takeHighlight();
+  const row = want && box.querySelector(`.track[data-key="${CSS.escape(want)}"]`);
+  if (row) {
+    row.classList.add("flash");
+    requestAnimationFrame(() => row.scrollIntoView({ block: "center", behavior: "smooth" }));
+  }
+}
+
+/** Картинка по адресу → маленькая JPEG data: (как «Своя обложка» плейлиста) */
+async function coverData(url) {
+  const img = new Image();
+  img.src = imgUrl(url);
+  await img.decode();
+  const c = document.createElement("canvas");
+  c.width = c.height = 300;
+  c.getContext("2d").drawImage(img, 0, 0, 300, 300);
+  return c.toDataURL("image/jpeg", 0.85);
 }

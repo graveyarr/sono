@@ -28,7 +28,11 @@ export const slim = (t) => ({
   ...(t.artistRefs ? { artistRefs: t.artistRefs } : {}),
   ...(t.metaId ? { metaId: t.metaId } : {}),
   ...(t.pubArtist ? { pubArtist: t.pubArtist } : {}),
+  // Когда трек добавили в этот список (колонка «Добавлен»); у треков до ноября 2026 — нет
+  ...(t.added ? { added: t.added } : {}),
 });
+/** Трек, который сейчас кладут в «Избранное» или плейлист, — с отметкой времени */
+const stamped = (t) => ({ ...slim(t), added: Date.now() });
 
 // ---------- События ----------
 
@@ -156,10 +160,10 @@ export function toggleLike(track) {
   }
   const target = likeTarget();
   if (target) {
-    target.tracks.push(slim(track));
+    target.tracks.push(stamped(track));
     changed("playlists");
   } else {
-    lib.liked = [slim(track), ...lib.liked];
+    lib.liked = [stamped(track), ...lib.liked];
     changed("liked");
   }
   if (isDisliked(track)) {   // лайк и дизлайк сразу не бывают
@@ -217,7 +221,7 @@ export const getPlaylist = (id) => lib.playlists.find((p) => p.id === id) ?? nul
 /** Переезд из другого сервиса: много треков в «Избранное» сразу — сверху, в том же порядке, без повторов.
  *  Возвращает, сколько добавилось */
 export function addLikedMany(tracks) {
-  const fresh = [...new Map(tracks.filter((t) => !has(lib.liked, t)).map((t) => [keyOf(t), slim(t)])).values()];
+  const fresh = [...new Map(tracks.filter((t) => !has(lib.liked, t)).map((t) => [keyOf(t), stamped(t)])).values()];
   if (!fresh.length) return 0;
   lib.liked = [...fresh, ...lib.liked];
   changed("liked");
@@ -265,7 +269,7 @@ export function deletePlaylist(id) {
 export function addToPlaylist(id, track) {
   const p = getPlaylist(id);
   if (!p || has(p.tracks, track)) return false;
-  p.tracks.push(slim(track));
+  p.tracks.push(stamped(track));
   changed("playlists");
   return true;
 }

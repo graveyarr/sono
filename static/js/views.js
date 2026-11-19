@@ -27,7 +27,10 @@ import { localTracks } from "./local.js";
 import { lookTrackChanged } from "./look.js";
 import { countDownloaded, download, removeDownload, setAutoList, songsToDownload } from "./downloads.js";
 import { renderSettings } from "./settings.js";
-import { artistLinks, choiceDialog, collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
+import { agoText, artistLinks, choiceDialog, collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTotal, iconButton, imageHsl, imgUrl, isBroken, markCurrentRows, nameHue, onBrokenTracks, openMenu, plural, toast, trackRow } from "./ui.js";
+import { bigPill, colsClass, listColumns, liveHead, miniBtn, playPill, plCard, plLayout, statusLine } from "./plcard.js";
+import { showLibCheckReport } from "./libcheck.js";
+import { sharePlaylist } from "./share.js";
 
 const viewHome = document.getElementById("view-home");
 const viewNow = document.getElementById("view-now");
@@ -1121,27 +1124,38 @@ function downloadControl(info) {
   const wrap = el("div", "pl-download");
   wrap.dataset.collection = view;
   const btn = iconButton(icons.download, "Скачать", "pl-dl-btn");
-  btn.addEventListener("click", async () => {
-    const { done } = countDownloaded(info.tracks);
-    if (done < info.tracks.length) {
-      download(info.tracks);
-      toast(`Скачиваю «${info.name}» — треки будут играть без интернета`);
-      return;
-    }
-    const ok = await confirmDialog({ title: `Удалить загрузки «${info.name}»?`,
-      text: "Треки останутся на месте, просто снова будут играть из интернета.", okLabel: "Удалить" });
-    if (!ok) return;
-    const failed = await removeDownload(info.tracks);
-    toast(failed ? `Удалено, кроме ${plural(failed, "трека", "треков", "треков")}, который сейчас играет` : "Загрузки удалены");
-  });
+  btn.addEventListener("click", () => onDownloadClick(info));
   wrap.append(btn, el("span", "pl-dl-status"));
   syncDownloadControl(wrap, info.tracks);
   return wrap;
 }
 
+/** «Скачать»: не всё скачано — скачать; всё — предложить удалить загрузки */
+async function onDownloadClick(info) {
+  const { done } = countDownloaded(info.tracks);
+  if (done < info.tracks.length) {
+    download(info.tracks);
+    toast(`Скачиваю «${info.name}» — треки будут играть без интернета`);
+    return;
+  }
+  const ok = await confirmDialog({ title: `Удалить загрузки «${info.name}»?`,
+    text: "Треки останутся на месте, просто снова будут играть из интернета.", okLabel: "Удалить" });
+  if (!ok) return;
+  const failed = await removeDownload(info.tracks);
+  toast(failed ? `Удалено, кроме ${plural(failed, "трека", "треков", "треков")}, который сейчас играет` : "Загрузки удалены");
+}
+
 function syncDownloadControl(wrap, tracks) {
   const { done, active } = countDownloaded(tracks);
   const all = tracks.length > 0 && done === tracks.length;
+  if (wrap.classList.contains("pl-mini")) {   // кнопка с подписью в карточке (ПК): «Скачать» / «3 из 7» / «Скачано»
+    wrap.innerHTML = `${all ? icons.downloaded : icons.download}<span class="pl-mini-l"></span>`;
+    wrap.querySelector(".pl-mini-l").textContent = active ? `${done} из ${tracks.length}` : all ? "Скачано" : done ? `${done} из ${tracks.length}` : "Скачать";
+    wrap.classList.toggle("on", all);
+    wrap.classList.toggle("busy", active > 0);
+    wrap.title = active ? `Скачиваю… ${done} из ${tracks.length}` : all ? "Скачано — удалить загрузки" : "Скачать — чтобы играло без интернета";
+    return;
+  }
   const btn = wrap.querySelector(".pl-dl-btn");
   btn.innerHTML = all ? icons.downloaded : icons.download;
   btn.classList.toggle("on", all);
@@ -1305,6 +1319,8 @@ function renderList(fresh) {
   const list = el("ol", "tracklist");
   const empty = el("p", "pl-empty", "Ничего не нашлось");
   empty.hidden = true;
+  const live = liveUi();   // ПК, «Живая обложка»: карточка слева, список с колонками справа (plcard.js)
+  const cols = live ? listColumns(songList) : null;
   let tools, drawSelectBar, clearSelection;
   let shownSongs = [];   // песни в том порядке, в каком стоят строки (для перетаскивания)
   // Первое открытие длинного списка: сразу — первые строки (их и видно), остальные — следом, не задерживая показ
@@ -1326,6 +1342,7 @@ function renderList(fresh) {
         onRemove: info.kind === "disliked" ? toggleDislike : null,
         uploads: group.members,
         onUploads: (chip) => openUploadsMenu(chip, group.members, track),
+        cols,
       });
       row.classList.toggle("selected", st.selected.has(keyOf(track)));
       row.addEventListener("mouseenter", () => prefetch(track));   // пока ведут курсор — готовим трек
@@ -1360,26 +1377,137 @@ function renderList(fresh) {
   // Прослушивания на YouTube/SoundCloud — подгружаем в фоне и вписываем в колонку
   if (info.tracks.length) loadPlays(info.tracks.slice(0, 300)).then(() => { if (list.isConnected) fillPlays(list, info.tracks); });
 
-  // Верх — цветная «шапка» с обложкой и кнопками, ниже — карточка со списком треков
-  const hero = el("div", "pl-hero");
-  hero.append(header, actions);
-  setHeroColor(hero, info);
-
-  const body = el("div", "pl-body");
-  if (info.tracks.length) {
-    const card = el("div", "tracklist-card");
-    card.append(listHead(info), list, empty);
-    body.append(tools, card);
-    // Свой плейлист — под ним «Рекомендуемые» в его духе (recs.js)
-    if (info.playlist) body.append(recsSection(info.playlist));
+  if (live) {
+    viewList.replaceChildren(liveList(info, { songs, songList, coverBox, name, tools, list, empty, cols }));
   } else {
-    body.append(el("p", "pl-empty", info.empty));
+    // Верх — цветная «шапка» с обложкой и кнопками, ниже — карточка со списком треков
+    const hero = el("div", "pl-hero");
+    hero.append(header, actions);
+    setHeroColor(hero, info);
+
+    const body = el("div", "pl-body");
+    if (info.tracks.length) {
+      const card = el("div", "tracklist-card");
+      card.append(listHead(info), list, empty);
+      body.append(tools, card);
+      // Свой плейлист — под ним «Рекомендуемые» в его духе (recs.js)
+      if (info.playlist) body.append(recsSection(info.playlist));
+    } else {
+      body.append(el("p", "pl-empty", info.empty));
+    }
+    viewList.replaceChildren(hero, body);
   }
-  viewList.replaceChildren(hero, body);
 
   markCurrentRows(state.current ? keyOf(state.current) : null);
   syncPlayButtons();
   scroller.scrollTop = keepScroll;
+}
+
+// ---------- Экран плейлиста на ПК («Живая обложка», макет B-ekrany.html#playlist) ----------
+// Слева — стеклянная карточка: обложка, название, «Играть»/«Вперемешку», кнопки с подписями, «Скачивать новые»,
+// строка проверки медиатеки. Справа — поиск/сортировка, список с колонками, «Рекомендуемые»
+
+function liveList(info, { songs, songList, coverBox, name, tools, list, empty, cols }) {
+  const count = songs.length;
+  // «Ваш плейлист · 8 треков · 21 мин · обновлён вчера»
+  const meta = document.createDocumentFragment();
+  if (info.kind === "playlist") meta.append(el("b", "", "Ваш плейлист"), " · ");
+  meta.append(count ? `${plural(count, "трек", "трека", "треков")} · ${formatTotal(songList)}` : "Пусто");
+  const updated = Math.max(0, ...info.tracks.map((t) => t.added || 0));
+  if (updated && (info.kind === "playlist" || info.kind === "liked")) {
+    meta.append(` · ${info.kind === "liked" ? "обновлено" : "обновлён"} ${agoText(updated)}`);
+  }
+
+  const acts = [], minis = [], extra = [];
+  if (info.kind !== "disliked" && info.tracks.length) {
+    const playBtn = playPill(view, () => (playingFrom(view) ? togglePlay() : playCollection(info)));
+    playBtn.addEventListener("mouseenter", () => prefetchCollection(info));
+    const shuffle = bigPill("Вперемешку", icons.shuffle, () => playCollection(info, true));
+    shuffle.disabled = count < 2;
+    acts.push(playBtn, shuffle);
+    // Flow по списку: его исполнители и похожие на них — остальная медиатека не влияет
+    if (info.kind !== "local") {
+      const flow = miniBtn("Flow", icons.flow, () => startFlow({ playlist: { id: info.playlist?.id ?? info.kind, name: info.name, tracks: info.tracks } }));
+      flow.title = `Бесконечный поток в духе «${info.name}»`;
+      minis.push(flow);
+    }
+    if (info.kind !== "local" && info.kind !== "downloads") {
+      const dl = miniBtn("Скачать", icons.download, () => onDownloadClick(info), "pl-download");
+      dl.dataset.collection = view;
+      syncDownloadControl(dl, info.tracks);
+      minis.push(dl);
+    }
+    if (info.kind === "pick") {   // подборка меняется сама — понравилась, можно оставить себе
+      const keep = miniBtn("В медиатеку", icons.plus, () => keepPick(info));
+      keep.title = "Подборка обновится — а копия останется у вас";
+      minis.push(keep);
+    } else if (info.kind === "playlist" || info.kind === "liked") {
+      minis.push(miniBtn("Поделиться", icons.share, () => sharePlaylist({ name: info.name, tracks: songList })));
+    }
+  }
+  // «Ещё»: у своего плейлиста — его меню (переименовать, обложка, папка, удалить…), у остальных — что есть
+  const smart = info.kind !== "pick" && info.kind !== "disliked" && info.tracks.length ? [{
+    label: "Умное перемешивание", icon: icons.smartShuffle,
+    action: () => smartShuffle({ name: info.name, tracks: songList, context: info.context }),
+  }] : [];
+  if (info.playlist) {
+    minis.push(miniBtn("Ещё", icons.more, (anchor) => openPlaylistMenu(anchor, info.playlist, {
+      onPlay: () => playCollection(info),
+      onDeleted: () => showView("home"),
+      onAutoDownload: () => toggleAutoDownload(info),
+      extra: smart,
+    })));
+  } else if (smart.length) {
+    const auto = autoListId(info);
+    minis.push(miniBtn("Ещё", icons.more, (anchor) => openMenu(anchor, [
+      ...smart,
+      ...(auto ? [{ label: isAutoDownload(auto) ? "Не скачивать новые треки" : "Скачивать новые треки",
+        icon: isAutoDownload(auto) ? icons.downloaded : icons.download, action: () => toggleAutoDownload(info) }] : []),
+    ])));
+  }
+  if (autoListId(info) && info.tracks.length) extra.push(autoControl(info));
+
+  const card = plCard({ cover: coverBox, kind: info.label, name, meta, desc: info.desc, acts, minis, extra,
+    status: libStatus(info, songs) });
+
+  if (!info.tracks.length) return plLayout(card, el("p", "pl-empty", info.empty));
+  // Над списком: поиск и сортировка (listTools) и «Добавить треки» у своего плейлиста
+  if (info.playlist) {
+    const add = el("button", "chip pl-add");
+    add.type = "button";
+    add.innerHTML = `${icons.plus}<span>Добавить треки</span>`;
+    add.addEventListener("click", () => {
+      document.getElementById("query")?.focus();
+      toast("Найдите трек и нажмите «⋯» → «Добавить в плейлист» — или «Добавить» в «Рекомендуемых» ниже");
+    });
+    tools.append(el("span", "sp"), add);
+  }
+  const removable = info.kind === "disliked";
+  const tl = el("div", `tracklist-card glass ${colsClass(cols, removable)}`);
+  tl.append(liveHead(cols, { removable }), list, empty);
+  return plLayout(card, tools, tl, info.playlist ? recsSection(info.playlist) : null);
+}
+
+/** Строка проверки медиатеки внизу карточки: «Все 8 треков открываются · проверено сегодня» */
+function libStatus(info, songs) {
+  if (!MERGED_KINDS.has(info.kind) || !songs.length) return null;
+  const broken = songs.filter((g) => g.members.every((t) => isBroken(t))).length;
+  if (broken) {
+    return statusLine(`${plural(broken, "трек не открывается", "трека не открываются", "треков не открываются")} · подробнее`,
+      "bad", showLibCheckReport);
+  }
+  const at = getSetting("libCheckAt", 0);
+  if (!at) return null;   // ещё не проверяли — нечего обещать
+  const fresh = songs.some((g) => g.members.some((t) => (t.added || 0) > at));
+  const all = songs.length === 1 ? "Трек открывается" : `Все ${plural(songs.length, "трек", "трека", "треков")} открываются`;
+  return statusLine(fresh ? `Проверено ${agoText(at)} · новые треки проверю позже` : `${all} · проверено ${agoText(at)}`, "ok");
+}
+
+/** «Собрано для вас» → копия в медиатеке */
+function keepPick(info) {
+  const date = new Date(info.pick.at).toLocaleDateString("ru", { day: "numeric", month: "long" });
+  const p = createPlaylistFrom(`${info.name} · ${date}`, info.tracks);
+  toast(`Плейлист «${p.name}» — в медиатеке`);
 }
 
 // ---------- Поиск, сортировка и выбор нескольких треков в списке ----------

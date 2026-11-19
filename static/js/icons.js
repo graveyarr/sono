@@ -64,6 +64,9 @@ export const icons = {
   next: filled('<path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/>'),
   flow: outline('<path d="M2 12c2.5-4 5-4 7.5 0s5 4 7.5 0 3.5-3 5-1.5"/><path d="M2 17c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/><path d="M2 7c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-2 5-1"/>'),
   album: outline('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/>'),
+  // Сайт трека в строке списка (одним цветом с подписью, «Живая обложка»)
+  srcYoutube: filled('<path fill-rule="evenodd" d="M6.5 5h11A4.5 4.5 0 0 1 22 9.5v5a4.5 4.5 0 0 1-4.5 4.5h-11A4.5 4.5 0 0 1 2 14.5v-5A4.5 4.5 0 0 1 6.5 5zM10 9v6l5-3z"/>'),
+  srcSoundcloud: outline('<path d="M3 15.5v-3M5.5 16v-5M8 16V9.5M10.5 16V8.5M13 16V7.6c3.2-.9 6 1.4 6.3 4 1.5-.3 2.7.8 2.7 2.2s-1.1 2.2-2.4 2.2H13" stroke-width="1.8"/>'),
 };
 
 export const sourceIcons = {

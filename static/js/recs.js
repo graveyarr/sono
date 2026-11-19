@@ -10,7 +10,8 @@ import { icons } from "./icons.js";
 import { addToPlaylist, getPlaylist, isDisliked, keyOf } from "./library.js";
 import { isMeta, toReal } from "./meta.js";
 import { play, prefetch, state } from "./player.js";
-import { el, iconButton, markCurrentRows, toast, trackRow } from "./ui.js";
+import { liveUi } from "./motion.js";
+import { artistLinks, coverUrl, displayTrack, el, formatTime, iconButton, markCurrentRows, setIcon, toast, trackRow } from "./ui.js";
 
 const SHOWN = 10;     // строк на экране
 const ASK = 30;       // сколько просим у Flow за раз (часть отсеется: нет пары, повтор)
@@ -34,7 +35,7 @@ async function realTracks(list, onFound) {
   let next = 0, flushed = 0;
   const flush = () => {   // отдаём по порядку: трек i — когда готовы все до него
     while (flushed < out.length && out[flushed] !== undefined) {
-      if (out[flushed]) onFound(out[flushed]);
+      if (out[flushed]) onFound(out[flushed], list[flushed]);
       flushed++;
     }
   };
@@ -60,12 +61,13 @@ function load(playlistId) {
   entry.loading = (async () => {
     const meta = await listRecs(playlist.tracks, { size: ASK, exclude: [...entry.seen] });
     meta.forEach((t) => { entry.seen.add(songKey(t)); if (t.id) entry.seen.add(t.id); });
-    await realTracks(meta, (real) => {
+    await realTracks(meta, (real, from) => {
       const pl = getPlaylist(playlistId);
       if (!pl || isDisliked(real) || inList(pl, real)) return;
       if (entry.tracks.some((t) => keyOf(t) === keyOf(real) || songKey(t) === songKey(real))) return;
       entry.seen.add(keyOf(real));
-      entry.tracks.push({ ...real, recFor: playlistId });
+      // because — почему подобран («Похоже на keyvslocket»): на ПК — колонкой в строке
+      entry.tracks.push({ ...real, recFor: playlistId, ...(from?.because ? { because: from.because } : {}) });
       // Новый трек попал на экран — рисуем. После «Обновить» старые стоят, пока новых не наберётся на экран
       const count = usable(entry.tracks, pl).length;
       if (entry.prev ? count >= SHOWN : count <= SHOWN) { entry.prev = null; redraw(); }
@@ -80,6 +82,39 @@ function load(playlistId) {
 const usable = (tracks, playlist) => tracks.filter((t) => !isDisliked(t) && !inList(playlist, t));
 const visible = (entry, playlist) => usable(entry.prev ?? entry.tracks, playlist);
 
+/** Строка на ПК (макет B-ekrany.html): нота/▶ · обложка и название · почему подобран · длительность · «+ Добавить» */
+function liveRow(track, onPlay) {
+  const li = el("li", "track rec-row");
+  li.dataset.key = keyOf(track);
+  const n = el("span", "r-n");
+  n.innerHTML = `<span class="r-note">${icons.note}</span><span class="r-play">${icons.play}</span>`;
+  const img = el("img", "thumb");
+  img.alt = "";
+  img.loading = "lazy";
+  img.onerror = () => img.classList.add("broken");
+  img.src = coverUrl(track);
+  const shown = displayTrack(track);
+  const meta = el("div", "t-meta");
+  const sub = el("div", "t-sub");
+  const src = { youtube: icons.srcYoutube, soundcloud: icons.srcSoundcloud }[track.source];
+  if (src) {
+    const s = el("span", "t-src");
+    setIcon(s, src);
+    sub.append(s);
+  }
+  const who = el("span", "t-artists");
+  who.append(artistLinks(track, shown.artist));
+  sub.append(who);
+  meta.append(el("div", "t-title", shown.title), sub);
+  meta.title = track.title;
+  const main = el("div", "t-main");
+  main.append(img, meta);
+  li.append(n, main, el("span", "r-why", track.because || ""), el("span", "t-dur", formatTime(track.duration)));
+  li.addEventListener("click", (e) => { if (!e.target.closest("button, .t-artist")) onPlay(); });
+  li.addEventListener("contextmenu", (e) => { e.preventDefault(); openTrackMenu({ x: e.clientX, y: e.clientY }, track); });
+  return li;
+}
+
 /** Ряд «Рекомендуемые» под плейлистом. Рисуется сразу из памяти; подборки нет — собирает её в фоне */
 export function recsSection(playlist) {
   const section = el("section", "pl-recs");
@@ -93,7 +128,7 @@ export function recsSection(playlist) {
   const again = el("button", "meta-more pl-recs-again", "Обновить");
   again.type = "button";
   head.append(titles, again);
-  const list = el("ol", "tracklist pl-recs-list");
+  const list = el("ol", `tracklist pl-recs-list${liveUi() ? " glass" : ""}`);
   const note = el("p", "pl-recs-note");
   section.append(head, list, note);
 
@@ -118,13 +153,15 @@ export function recsSection(playlist) {
     const queue = shown.slice();
     const context = { type: "recs", id: pl.id, name: `Рекомендации к «${pl.name}»` };
     list.replaceChildren(...shown.map((track, n) => {
-      const row = trackRow(track, {
-        index: n,
-        onPlay: () => play(track, queue.slice(), n, context),
-        onLike: toggleLike,
-        onMenu: (anchor) => openTrackMenu(anchor, track),
-      });
+      const row = liveUi() ? liveRow(track, () => play(track, queue.slice(), n, context))
+        : trackRow(track, {
+          index: n,
+          onPlay: () => play(track, queue.slice(), n, context),
+          onLike: toggleLike,
+          onMenu: (anchor) => openTrackMenu(anchor, track),
+        });
       const add = iconButton(icons.plus, `Добавить в «${pl.name}»`, "pl-recs-add");
+      if (liveUi()) add.insertAdjacentHTML("beforeend", "<span>Добавить</span>");
       add.addEventListener("click", (e) => {
         e.stopPropagation();
         if (addToPlaylist(pl.id, track)) toast(`Добавлено в «${pl.name}»`);

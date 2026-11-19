@@ -80,3 +80,12 @@ button.play { background: #1c1c1c; color: #fff; }
 
 /* Панель «Вид» (look.js): выбранное в переключателе — белое, как в макете B-vid (светлая) */
 .lk-seg > i { background: #fff; }
+
+/* Плейлист, «Избранное», альбом на ПК (шаг 4, как в светлом B-ekrany.html): строки при наведении и играющая —
+   белее, пилюли — молочные, главная — тёмная, карточки «Ещё у …» при наведении почти белые */
+.tl-live .track:hover, .pl-live .pl-recs-list .track:hover { background: rgba(255, 255, 255, 0.5); }
+.tl-live .track.current, .tl-live .track.current:hover, .pl-live .pl-recs-list .track.current { background: rgba(255, 255, 255, 0.75); }
+.pl-live .pill { background: rgba(255, 255, 255, 0.55); border-color: rgba(255, 255, 255, 0.9); }
+.pl-live .pill:hover { background: rgba(255, 255, 255, 0.9); }
+.pl-live .pill.solid, .pl-live .pill.solid:hover { background: rgb(var(--fg-rgb)); border-color: transparent; }
+.pl-live .pl-more-row .home-card:hover { background: rgba(255, 255, 255, 0.85); }

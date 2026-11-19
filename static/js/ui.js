@@ -4,7 +4,7 @@ import { icons } from "./icons.js";
 import { isDownloaded, isDownloading } from "./downloads.js";
 import { isDisliked, isLiked, keyOf } from "./library.js";
 import { isMeta, resolvedOf } from "./meta.js";
-import { openArtist, splitArtists } from "./nav.js";
+import { openArtist, openView, splitArtists } from "./nav.js";
 
 // Большие обложки YouTube без maxres приходят 4:3 (sddefault/hqdefault), а у широких видео чёрные полосы
 // сверху и снизу «впечатаны» в саму картинку — в квадрате они были видны («Недавно слушали», плеер).
@@ -126,6 +126,22 @@ export function countText(n, one, few, many) {
   return n >= 1e4 ? `${compactNumber(n)} ${many}` : plural(n, one, few, many);
 }
 
+/** Когда это было, по-человечески: «сегодня», «вчера», «3 дня назад», «неделю назад», «2 нед. назад», «в октябре»,
+    «в мае 2025» — для колонки «Добавлен» и строки «обновлён вчера» */
+const MONTHS_IN = ["январе", "феврале", "марте", "апреле", "мае", "июне", "июле", "августе", "сентябре", "октябре", "ноябре", "декабре"];
+export function agoText(ts) {
+  if (!ts) return "";
+  const day = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const days = Math.round((day(Date.now()) - day(ts)) / 864e5);
+  if (days <= 0) return "сегодня";
+  if (days === 1) return "вчера";
+  if (days < 7) return `${plural(days, "день", "дня", "дней")} назад`;
+  if (days < 14) return "неделю назад";
+  if (days < 28) return `${Math.floor(days / 7)} нед. назад`;
+  const d = new Date(ts);
+  return `в ${MONTHS_IN[d.getMonth()]}${d.getFullYear() !== new Date().getFullYear() ? ` ${d.getFullYear()}` : ""}`;
+}
+
 /** «6,3 млн просмотров» (YouTube) / «45 тыс. прослушиваний» (SoundCloud) */
 export function playsText(plays, source) {
   if (plays == null) return "";
@@ -188,7 +204,9 @@ export function replay(node, cls) {
 // uploads: все загрузки этой песни (samesong.js), если их несколько — строка одна, с пометкой «2 загрузки»;
 // onUploads(кнопка) — по щелчку на пометку (выбор, какая играет)
 export function trackRow(track, { index = 0, numbered = false, showSource = false,
-  onPlay, onMenu, onLike, onRemove, draggable = false, uploads = null, onUploads = null } = {}) {
+  onPlay, onMenu, onLike, onRemove, draggable = false, uploads = null, onUploads = null, cols = null } = {}) {
+  // cols — список «Живой обложки» (ПК): { album, added } — показывать ли эти колонки. Сайт — значком у
+  // исполнителя (колонки «Сайт» нет), у песни с двух сайтов — «2» рядом с названием
   const li = el("li", `track ${numbered ? "numbered" : "compact"}`);
   li.dataset.key = keyOf(track);
   const many = uploads?.length > 1;
@@ -219,18 +237,37 @@ export function trackRow(track, { index = 0, numbered = false, showSource = fals
   const sub = el("div", "t-sub");
   const dl = el("span", "t-dl");   // значок «скачано» (виден, когда трек скачан или качается)
   setIcon(dl, icons.downloaded);
-  sub.append(dl, artistLinks(track, shown.artist), document.createTextNode(parts.length ? " · " + parts.join(" · ") : ""));
+  const srcIcon = cols && { youtube: icons.srcYoutube, soundcloud: icons.srcSoundcloud }[track.source];
+  if (srcIcon) {
+    const src = el("span", "t-src");
+    setIcon(src, srcIcon);
+    src.title = sourceLabel(track.source);
+    sub.append(src);
+  }
+  // В строке-таблице (cols) подпись — flex с промежутками: имена с запятыми держим одним куском
+  let who = artistLinks(track, shown.artist);
+  if (cols) { const box = el("span", "t-artists"); box.append(who); who = box; }
+  sub.append(dl, who, document.createTextNode(parts.length ? " · " + parts.join(" · ") : ""));
+  const title = el("div", "t-title", shown.title);
   if (many) {   // одна песня с нескольких сайтов — видно, что загрузок несколько, и можно выбрать, какая играет
-    const chip = el("button", "t-uploads", plural(uploads.length, "загрузка", "загрузки", "загрузок"));
+    const chip = el("button", "t-uploads", cols ? String(uploads.length) : plural(uploads.length, "загрузка", "загрузки", "загрузок"));
     chip.type = "button";
     const sites = [...new Set(uploads.map((t) => sourceLabel(t.source)).filter(Boolean))];
     chip.title = `Одна песня — ${sites.join(" и ")}. Щёлкните, чтобы выбрать, какая загрузка играет`;
     chip.addEventListener("click", (e) => { e.stopPropagation(); onUploads?.(chip); });
-    sub.append(document.createTextNode(" · "), chip);
+    if (cols) {   // значок «2» рядом с названием (название обрезается, значок остаётся)
+      title.textContent = "";
+      title.append(el("span", "t-name", shown.title), chip);
+      chip.classList.add("t-twin");
+    } else sub.append(document.createTextNode(" · "), chip);
   }
-  meta.append(el("div", "t-title", shown.title), sub);
+  meta.append(title, sub);
   meta.title = track.title;   // полное исходное название — во всплывающей подсказке
-  li.append(img, meta);
+  if (cols) {   // обложка и название — одна колонка таблицы (как в макете)
+    const main = el("div", "t-main");
+    main.append(img, meta);
+    li.append(main);
+  } else li.append(img, meta);
   // Проверка медиатеки (libcheck.js) нашла, что трек удалили, а другой загрузки нет — серым, с причиной
   const gone = rowBroken(li);
   if (gone) {
@@ -240,7 +277,18 @@ export function trackRow(track, { index = 0, numbered = false, showSource = fals
   }
 
   // Прослушивания на YouTube/SoundCloud — заполняет plays.js, когда узнает
-  if (numbered) li.append(el("span", "t-plays"), el("span", "t-source", sourceLabel(track.source)));
+  if (cols?.album) {
+    const album = el("span", "t-album", track.album || "");
+    if (track.album && track.albumId) {   // альбом из базы — ссылка на его страницу
+      album.classList.add("link");
+      album.dataset.warm = `album:${track.albumId}`;
+      album.addEventListener("click", (e) => { e.stopPropagation(); openView(`album:${track.albumId}`); });
+    }
+    li.append(album);
+  }
+  if (cols?.added) li.append(el("span", "t-added", agoText(track.added)));
+  if (numbered) li.append(el("span", "t-plays"));
+  if (numbered && !cols) li.append(el("span", "t-source", sourceLabel(track.source)));
 
   const like = iconButton(icons.heart, "В избранное", "t-like");
   like.addEventListener("click", (e) => { e.stopPropagation(); onLike?.(track); });
@@ -338,7 +386,14 @@ export function collectionCover(kind, { name = "", tracks = [], cover = null } =
   const unique = [...new Map(tracks.map((t) => [keyOf(t), t])).values()];
   if (unique.length >= 4) {
     box.classList.add("mosaic");
-    unique.slice(0, 4).forEach((t) => {
+    // Четыре разных исполнителя, если есть: у треков одного альбома обложки одинаковые — мозаика из 4 одинаковых
+    const seen = new Set(), first = [], rest = [];
+    for (const t of unique) {
+      const who = (t.channel || "").toLowerCase();
+      if (seen.has(who)) rest.push(t);
+      else { seen.add(who); first.push(t); }
+    }
+    [...first, ...rest].slice(0, 4).forEach((t) => {
       const img = el("img");
       img.alt = "";
       img.src = coverUrl(t);
