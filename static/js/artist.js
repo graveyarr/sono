@@ -52,7 +52,7 @@ document.addEventListener("pointerover", (e) => {
   if (target) warmTimer = setTimeout(() => warmPage(target.dataset.warm), 150);
 });
 
-const TYPE_NAMES = { album: "Альбом", single: "Сингл", ep: "EP", compilation: "Сборник" };
+export const TYPE_NAMES = { album: "Альбом", single: "Сингл", ep: "EP", compilation: "Сборник" };
 const contextKey = (ctx) => `${ctx.type}:${ctx.id}`;
 const playingFrom = (ctx) => !!state.current && state.context && contextKey(state.context) === contextKey(ctx);
 
@@ -371,7 +371,7 @@ export async function renderArtist(box, id, stillHere) {
 }
 
 /** Открыли страницу — готовим два первых трека (найти пару на YouTube/SoundCloud и начало звука), по одному */
-function prefetchTop(tracks, stillHere) {
+export function prefetchTop(tracks, stillHere) {
   setTimeout(async () => {
     for (const t of tracks.slice(0, 2)) {
       if (!stillHere()) return;
@@ -404,7 +404,7 @@ function newReleaseCard(r) {
   return card;
 }
 
-function releaseCard(r, markSource = true) {
+export function releaseCard(r, markSource = true) {
   const card = el("button", "home-card release-card");
   card.type = "button";
   const art = picture(r.cover, "home-card-art", r.title);
@@ -490,7 +490,7 @@ export async function renderAlbum(box, id, stillHere) {
 // кнопки с подписями, откуда альбом. Справа — треки без обложек и «Ещё у исполнителя» одним рядом
 
 const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
-function releaseDate(al) {
+export function releaseDate(al) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(al.date || "");
   return m ? `${+m[3]} ${MONTHS[+m[2] - 1]} ${m[1]}` : al.year || "";
 }

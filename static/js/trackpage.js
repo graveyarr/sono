@@ -18,7 +18,7 @@ import { openShareCard } from "./sharecard.js";
 import { SOURCE_NAMES, compactNumber, countText, coverUrl, displayTrack, el, formatTime, iconButton, markCurrentRows, toast, trackRow } from "./ui.js";
 
 const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
-const longDate = (iso) => {
+export const longDate = (iso) => {
   const [y, m, d] = String(iso).split("-").map(Number);
   if (!y || !m || !d) return "";
   // «1 января» у старых песен — заглушка YouTube Music, когда точный день неизвестен: только год
@@ -26,7 +26,7 @@ const longDate = (iso) => {
 };
 
 const info = new Map();   // «источник:id» → обещание /api/trackinfo (на время работы программы)
-function trackInfo(real) {
+export function trackInfo(real) {
   const key = keyOf(real);
   if (!info.has(key)) {
     const job = fetch(`/api/trackinfo/${real.source}/${encodeURIComponent(real.id)}`).then(async (res) => {
@@ -69,7 +69,7 @@ function lateSection(body, title, loading) {
 }
 
 /** Та же песня (чтобы не показать её саму в «Похожих» и «Ещё у исполнителя») */
-function sameAs(track) {
+export function sameAs(track) {
   const key = songKey(track);
   const meta = track.metaId || (isMeta(track) ? track.id : null);
   return (t) => songKey(t) === key || (meta && (t.metaId === meta || (isMeta(t) && t.id === meta)));

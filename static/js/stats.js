@@ -10,6 +10,7 @@ import { keyOf, lib, slim, statsChanged } from "./library.js";
 import { artistByName } from "./meta.js";
 import { openArtist, openView, splitArtists } from "./nav.js";
 import { onTrackChange, state } from "./player.js";
+import { uniqueSongs } from "./samesong.js";
 import { displayTrack, el, imgUrl, plural } from "./ui.js";
 
 const audio = document.getElementById("player");
@@ -172,6 +173,31 @@ export function artistStatsLine(artist) {
   const days = daysAgo(a.first);
   return `Вы слушаете с ${formatDate(a.first)}${days ? ` (${plural(days, "день", "дня", "дней")})` : " — с сегодня"}`
     + ` · ${formatListen(a.sec)} · ${plural(a.plays, "прослушивание", "прослушивания", "прослушиваний")}`;
+}
+
+/** Треки исполнителя, которые вы слушали (за все годы): чаще слушаемые — первыми. Для «Вы слушали» на его странице */
+export function artistTracks({ name }) {
+  const want = artistKey(name);
+  if (!want) return [];
+  const all = new Map();
+  for (const y of Object.values(lib.stats?.years ?? {})) {
+    for (const [k, r] of Object.entries(y?.tracks ?? {})) {
+      if (!r?.t || !splitArtists(r.t, displayTrack(r.t).artist).some((a) => artistKey(a.name) === want)) continue;
+      const got = all.get(k) ?? { t: r.t, plays: 0, sec: 0 };
+      got.plays += r.plays || 0;
+      got.sec += r.sec || 0;
+      all.set(k, got);
+    }
+  }
+  return uniqueSongs([...all.values()].filter((x) => x.sec >= 30)
+    .sort((a, b) => b.plays - a.plays || b.sec - a.sec).map((x) => x.t));
+}
+
+/** Сколько песен исполнителя у вас в «Избранном» (обе загрузки одной песни — одна) */
+export function artistLikedCount({ name }) {
+  const want = artistKey(name);
+  if (!want) return 0;
+  return uniqueSongs(lib.liked.filter((t) => splitArtists(t, displayTrack(t).artist).some((a) => artistKey(a.name) === want))).length;
 }
 
 /** Самые слушаемые исполнители */

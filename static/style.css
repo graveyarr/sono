@@ -4863,21 +4863,24 @@ button.pl-status:hover { color: var(--text); }
 .pl-live .pl-recs-note { margin: 4px 4px 0; font-size: 13.5px; color: var(--muted); }
 
 /* Альбом: «Ещё у …» — один ряд карточек */
-.pl-live .meta-section { margin-top: 34px; }
+.pl-live .meta-section, :is(.ar-live, .tp-live) .meta-section { margin-top: 34px; }
 .pl-live .meta-h-row { margin: 0 0 14px 4px; align-items: baseline; }
-.pl-live .meta-h-row .meta-h { margin: 0; font: 700 22px/1.2 var(--font-display); }
-.pl-live .meta-section:has(.pl-more-row) { container: plmore / inline-size; }
+:is(.ar-live, .tp-live) .meta-h-row { margin: 0 0 14px 4px; }
+.pl-live .meta-h-row .meta-h, :is(.ar-live, .tp-live) .meta-h-row .meta-h { margin: 0; font: 700 22px/1.2 var(--font-display); }
+:is(.pl-live, .ar-live, .tp-live) .meta-section:has(.pl-more-row) { container: plmore / inline-size; }
 .pl-more-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 6px 18px; }
 /* Один ряд: лишние карточки прячем по ширине (колонок = (ширина + 18) / 194) */
-@container plmore (max-width: 563.98px) { .pl-more-row > :nth-child(n+3) { display: none; } }
-@container plmore (max-width: 757.98px) { .pl-more-row > :nth-child(n+4) { display: none; } }
-@container plmore (max-width: 951.98px) { .pl-more-row > :nth-child(n+5) { display: none; } }
-@container plmore (max-width: 1145.98px) { .pl-more-row > :nth-child(n+6) { display: none; } }
-@container plmore (max-width: 1339.98px) { .pl-more-row > :nth-child(n+7) { display: none; } }
-@container plmore (max-width: 1533.98px) { .pl-more-row > :nth-child(n+8) { display: none; } }
+@container plmore (max-width: 563.98px) { .pl-more-row:not(.all) > :nth-child(n+3) { display: none; } }
+@container plmore (max-width: 757.98px) { .pl-more-row:not(.all) > :nth-child(n+4) { display: none; } }
+@container plmore (max-width: 951.98px) { .pl-more-row:not(.all) > :nth-child(n+5) { display: none; } }
+@container plmore (max-width: 1145.98px) { .pl-more-row:not(.all) > :nth-child(n+6) { display: none; } }
+@container plmore (max-width: 1339.98px) { .pl-more-row:not(.all) > :nth-child(n+7) { display: none; } }
+@container plmore (max-width: 1533.98px) { .pl-more-row:not(.all) > :nth-child(n+8) { display: none; } }
+@container plmore (min-width: 1534px) and (max-width: 1727.98px) { .pl-more-row:not(.all) > :nth-child(n+9) { display: none; } }
+@container plmore (min-width: 1728px) { .pl-more-row:not(.all) > :nth-child(n+10) { display: none; } }
 /* Карточки как в макете: прозрачные, при наведении — стекло и подъём */
-.pl-live .pl-more-row .home-card { padding: 10px; border-radius: 22px; border-color: transparent; background: none; box-shadow: none; animation: none; transition: translate 0.5s var(--ease), background-color 0.3s, box-shadow 0.5s var(--ease); }
-.pl-live .pl-more-row .home-card:hover { translate: 0 -6px; background: rgb(var(--fg-rgb) / 0.12); box-shadow: 0 22px 40px -20px color-mix(in srgb, var(--accent) 55%, transparent); }
+:is(.pl-live, .ar-live, .tp-live) .pl-more-row .home-card { padding: 10px; border-radius: 22px; border-color: transparent; background: none; box-shadow: none; animation: none; transition: translate 0.5s var(--ease), background-color 0.3s, box-shadow 0.5s var(--ease); }
+:is(.pl-live, .ar-live, .tp-live) .pl-more-row .home-card:hover { translate: 0 -6px; background: rgb(var(--fg-rgb) / 0.12); box-shadow: 0 22px 40px -20px color-mix(in srgb, var(--accent) 55%, transparent); }
 .pl-more-row .home-card-art { border-radius: 16px; }
 
 /* Окно уже: карточка — сверху, обложка слева от текста */
@@ -4902,3 +4905,211 @@ button.pl-status:hover { color: var(--text); }
   .pl-live .list-search { width: 220px; }
 }
 .pl-live .pl-empty { margin: 0; }
+
+/* ---------- «Живая обложка», шаг 5: исполнитель и страница трека (ПК; artistlive.js, tplive.js) ----------
+   Макет — design/ui-new/B-ekrany.html (#artist, #track) */
+.ar-live, .tp-live { padding: 24px var(--pad) 28px; line-height: 1.35; }
+.ar-acts .pill.big, .tp-acts .pill.big { flex: none; }
+.pill.ic { width: 44px; padding: 0; }
+.pill.on svg { color: var(--ink); }
+.meta-h-row.live-h { justify-content: flex-start; align-items: center; gap: 10px; flex-wrap: nowrap; }
+.meta-h-row.live-h .meta-more { margin: 0 0 0 auto; padding: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.live-h-sub { font-size: 13px; font-weight: 600; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Переключатель-капсула: Популярные | Вы слушали, Всё | Альбомы | Синглы */
+.seg.live-seg { gap: 0; padding: 4px; border-radius: 18px; background: rgb(127 127 127 / 0.14); flex: none; }
+.live-seg .seg-btn { height: 34px; padding: 0 14px; border-radius: 14px; font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.live-seg .seg-btn.on { background: var(--glass-hi); color: var(--text); box-shadow: 0 4px 12px -6px rgb(var(--shade-rgb) / 0.4); }
+.live-seg .seg-btn.busy { opacity: 0.6; }
+
+/* Исполнитель: шапка — размытое фото фоном, круглое фото, имя, кнопки; справа новинка */
+.ar-hero {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) 420px; gap: 34px; align-items: end;
+  min-height: 340px; padding: 34px; border-radius: 32px;
+  background: var(--glass);
+}
+.ar-hero.no-fresh { grid-template-columns: auto minmax(0, 1fr); }
+.ar-hero::before { content: ""; position: absolute; z-index: -2; inset: -30%; background: var(--img, none) center / cover; filter: blur(60px) saturate(1.6); opacity: 0.85; }
+.ar-hero::after { content: ""; position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, rgb(var(--shade-rgb) / 0.55), rgb(var(--shade-rgb) / 0.12) 60%, rgb(var(--shade-rgb) / 0.4)); }
+.ar-photo {
+  position: relative; overflow: hidden; align-self: center;
+  width: 236px; aspect-ratio: 1; border-radius: 50%;
+  box-shadow: 0 30px 60px -24px rgb(var(--shade-rgb) / 0.8);
+}
+.ar-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ar-photo.no-image { display: grid; place-items: center; }
+.ar-photo.no-image svg { width: 40%; height: 40%; }
+.ar-info { min-width: 0; }
+.ar-kind, .tp-kind { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--ink); }
+.ar-hero .ar-kind { color: var(--text); opacity: 0.8; }
+.ar-name {
+  margin: 0; padding-bottom: 0.08em;
+  font: 800 76px/1.15 var(--font-display); letter-spacing: -3px;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+}
+.ar-stat { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 2px; font-size: 15px; color: var(--muted); }
+.ar-stat b { color: var(--text); font-weight: 700; }
+.ar-trend { font-size: 13px; font-weight: 700; }
+.ar-trend.up { color: #3ddc97; }
+.ar-trend.down { color: #ff7a7a; }
+.ar-since {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 14px; padding: 7px 14px; border-radius: 16px;
+  background: rgb(var(--fg-rgb) / 0.1); backdrop-filter: blur(10px);
+  font-size: 13px; font-weight: 600;
+}
+.ar-since svg { width: 15px; height: 15px; flex: none; }
+.ar-acts { margin-top: 20px; }
+.ar-fresh {
+  display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; align-items: center;
+  padding: 14px; border-radius: 24px; cursor: pointer;
+  transition: translate 0.5s var(--ease);
+}
+.ar-fresh:hover { translate: 0 -4px; }
+.ar-fresh-art { width: 120px; height: 120px; border-radius: 16px; overflow: hidden; background: rgb(var(--fg-rgb) / 0.08); }
+.ar-fresh-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ar-fresh-art.no-image { display: grid; place-items: center; }
+.ar-fresh-art.no-image svg { width: 36px; height: 36px; }
+.ar-fresh-text { min-width: 0; }
+.ar-badge {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--ink);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.2px; white-space: nowrap;
+}
+.ar-fresh b {
+  margin: 4px 0 2px; padding-bottom: 0.1em;
+  font: 800 22px/1.15 var(--font-display);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.ar-fresh-sub { display: block; font-size: 13px; color: var(--muted); }
+.ar-fresh .ar-fresh-play { height: 36px; margin-top: 10px; padding: 0 16px; }
+.ar-fresh .ar-fresh-play svg { width: 16px; height: 16px; }
+
+/* Треки и «Об исполнителе» */
+.ar-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 24px; align-items: start; margin-top: 30px; }
+.ar-grid.single { grid-template-columns: minmax(0, 1fr); }
+.ar-tracks { min-width: 0; }
+.ar-tracks .live-seg { margin-left: auto; }
+.ar-tracks > div > .meta-more { margin: 8px 0 0 12px; }
+.ar-about { padding: 20px 22px; border-radius: 24px; }
+.ar-about .meta-h { margin: 0; font: 700 22px/1.2 var(--font-display); }
+.ar-bio { margin: 8px 0 0; font-size: 14px; line-height: 1.5; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; }
+.ar-bio.collapsed { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; padding-bottom: 0.1em; }
+.ar-bio-foot { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.ar-bio-foot .meta-more { margin: 0; padding: 2px 0; font-size: 13px; }
+.ar-bio-source { font-size: 12px; color: var(--faint); }
+.ar-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.ar-facts > div { min-width: 0; padding: 12px 14px; border-radius: 16px; background: var(--glass-hi); }
+.ar-facts b { display: block; font: 800 20px/1.15 var(--font-display); }
+.ar-facts span { display: block; font-size: 12.5px; color: var(--muted); }
+/* Похожие исполнители — круглые фото */
+.ar-live .live-artist-card .home-card-art { border-radius: 50%; }
+.live-artist-card .home-card-title, .live-artist-card .home-card-artist { text-align: center; }
+
+/* Страница трека: шапка-стекло — обложка, название, плашки, кнопки; справа текст */
+.tp-hero {
+  display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 32px; align-items: center;
+  padding: 28px; border-radius: 32px;
+}
+.tp-hero.has-lyr { grid-template-columns: 300px minmax(0, 1fr) 380px; }
+.tp-cover {
+  width: 300px; aspect-ratio: 1; border-radius: 22px; overflow: hidden;
+  background: rgb(var(--fg-rgb) / 0.08);
+  box-shadow: 0 34px 60px -26px rgb(var(--shade-rgb) / 0.7);
+}
+.tp-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tp-cover.no-image { display: grid; place-items: center; color: var(--faint); }
+.tp-cover.no-image svg { width: 30%; height: 30%; }
+.tp-info { min-width: 0; }
+.tp-album-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.tp-album-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tp-name {
+  margin: 6px 0 2px; padding-bottom: 0.08em;
+  font: 800 60px/1.15 var(--font-display); letter-spacing: -2px;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+}
+.tp-by { display: flex; flex-wrap: wrap; align-items: center; gap: 0 9px; font-size: 17px; color: var(--muted); }
+.tp-by-img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
+.tp-by-sep { margin-left: -9px; }
+.tp-by-name { padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
+.tp-by-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 20px; }
+.tp-tags:empty { margin: 8px 0 12px; }
+.tp-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 11px; border-radius: 14px;
+  background: var(--glass-hi); color: var(--muted);
+  font-size: 12.5px; font-weight: 600; white-space: nowrap;
+}
+.tp-tag svg { width: 14px; height: 14px; flex: none; }
+.tp-tag svg:last-child:not(:first-child) { width: 12px; height: 12px; margin-left: -2px; }
+.tp-info .tp-note { margin-top: 14px; }
+/* Текст справа: 5 строк; у играющей песни текущая строка ярче */
+.tp-lyr {
+  align-self: stretch; contain: size;   /* высоту задаёт шапка, а не длина текста */
+  display: flex; flex-direction: column;
+  padding: 20px 22px; border-radius: 24px;
+  background: rgb(var(--fg-rgb) / 0.06);
+}
+.tp-lyr-h { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--faint); }
+.tp-lyr-h svg { width: 14px; height: 14px; }
+.tp-lyr-lines { flex: 1; min-height: 0; overflow: hidden; }
+.tp-lyr.open .tp-lyr-lines { overflow-y: auto; scrollbar-width: thin; mask-image: linear-gradient(transparent, #000 12px, #000 calc(100% - 24px), transparent); }
+.tp-lyr-lines p { margin: 6px 0 0; font: 700 20px/1.35 var(--font-display); color: rgb(var(--fg-rgb) / 0.72); overflow-wrap: anywhere; }
+.tp-lyr.live .tp-lyr-lines p { color: rgb(var(--fg-rgb) / 0.5); transition: color 0.3s; }
+.tp-lyr.live .tp-lyr-lines p.hi { color: var(--text); }
+.tp-lyr-btn { align-self: flex-start; flex: none; height: 38px; margin-top: 12px; padding: 0 18px; font-size: 14px; }
+.tp-lyr-btn svg { width: 16px; height: 16px; }
+.tp-lyr-btn.up svg { rotate: -90deg; }
+/* Три окошка под шапкой */
+.tp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; margin-top: 24px; }
+.tp-grid:has(> :nth-child(2):last-child), .tp-grid:has(> :only-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tp-grid:empty { display: none; }
+.tp-box { min-width: 0; padding: 18px 18px 14px; border-radius: 24px; }
+.tp-box-h { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 10px; font: 700 17px/1.2 var(--font-display); }
+.tp-box-t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-box-note { flex: none; margin-left: auto; padding: 0; border: 0; background: none; color: var(--faint); font: inherit; font-size: 12.5px; font-weight: 600; }
+button.tp-box-note { cursor: pointer; }
+button.tp-box-note:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.tp-box .tp-loading { margin: 4px 6px 6px; font-size: 13px; }
+.tp-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 7px 6px; border: 0; border-radius: 14px; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: background-color 0.2s;
+}
+.tp-row:hover { background: rgb(var(--fg-rgb) / 0.06); }
+.tp-row-img { width: 44px; height: 44px; flex: none; border-radius: 10px; object-fit: cover; background: rgb(var(--fg-rgb) / 0.08); }
+.tp-row-img.broken { visibility: hidden; }
+.tp-row-text { flex: 1; min-width: 0; }
+.tp-row-text b, .tp-row-text span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-row-text b { font-size: 14px; font-weight: 600; }
+.tp-row-text span { font-size: 12.5px; color: var(--muted); }
+.tp-row-n { width: 22px; flex: none; text-align: center; color: var(--faint); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tp-row-r { flex: none; color: var(--faint); font-size: 13px; font-variant-numeric: tabular-nums; }
+.tp-row.cur b { color: var(--ink); }
+.tp-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px 16px; margin: 0; padding: 4px 6px; font-size: 13.5px; }
+.tp-kv dt { color: var(--faint); }
+.tp-kv dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
+/* Окно уже: новинка и текст прячутся, шапки ниже */
+@media (max-width: 1500px) {
+  .ar-hero, .ar-hero.no-fresh { grid-template-columns: auto minmax(0, 1fr); }
+  .ar-hero .ar-fresh { display: none; }
+  .ar-name { font-size: 60px; }
+  .tp-hero, .tp-hero.has-lyr { grid-template-columns: 240px minmax(0, 1fr); }
+  .tp-cover { width: 240px; }
+  .tp-hero .tp-lyr { display: none; }
+  .tp-name { font-size: 46px; }
+  .tp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1250px) {
+  .ar-hero { min-height: 0; padding: 24px; gap: 24px; }
+  .ar-photo { width: 150px; }
+  .ar-name { font-size: 46px; letter-spacing: -1.5px; }
+  .ar-grid { grid-template-columns: minmax(0, 1fr); }
+  .tp-hero, .tp-hero.has-lyr { grid-template-columns: 180px minmax(0, 1fr); gap: 22px; padding: 22px; }
+  .tp-cover { width: 180px; }
+  .tp-name { font-size: 36px; }
+  .tp-grid, .tp-grid:has(> :nth-child(2):last-child), .tp-grid:has(> :only-child) { grid-template-columns: minmax(0, 1fr); }
+}

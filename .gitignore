@@ -49,3 +49,5 @@ android/.kotlin/
 # Свои фоны панели «Вид» при запуске из исходников (примеры — в static/backgrounds)
 /backgrounds/
 android/
+# Граф проекта (/graphify) — создаётся на месте, в репозиторий не нужен
+graphify-out/

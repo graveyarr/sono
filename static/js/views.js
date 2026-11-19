@@ -12,6 +12,8 @@ import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
 import { openTrack, setNavigator, trackForPage } from "./nav.js";
 import { renderTrack } from "./trackpage.js";
+import { renderTrackLive } from "./tplive.js";
+import { renderArtistLive } from "./artistlive.js";
 import { openImportDialog } from "./import.js";
 import { createPlaylist as createPlaylistFrom, followedArtists, getPlaylist, getSetting, isAutoDownload, isDisliked, keyOf, lib, moveSongInPlaylist, pickedUpload, setSetting } from "./library.js";
 import { groupSongs, songCount, uniqueSongs } from "./samesong.js";
@@ -209,8 +211,10 @@ function renderMeta() {
   const stillHere = () => token === metaToken && view === key;
   if (key === "releases") return renderReleases(viewList, stillHere);   // экран «Новинки» (releaseview.js)
   const [kind, id] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
-  const render = kind === "track" ? (box, key, alive) => renderTrack(box, trackForPage(key), alive)
-    : kind === "artist" ? renderArtist : renderAlbum;
+  // На ПК («Живая обложка») исполнитель и трек — новые страницы (artistlive.js, tplive.js), на телефоне — прежние
+  const live = liveUi();
+  const render = kind === "track" ? (box, key, alive) => (live ? renderTrackLive : renderTrack)(box, trackForPage(key), alive)
+    : kind === "artist" ? (live ? renderArtistLive : renderArtist) : renderAlbum;
   render(viewList, id, stillHere).then(() => {
     if (stillHere()) syncPlayButtons();
   });

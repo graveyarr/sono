@@ -89,3 +89,11 @@ button.play { background: #1c1c1c; color: #fff; }
 .pl-live .pill:hover { background: rgba(255, 255, 255, 0.9); }
 .pl-live .pill.solid, .pl-live .pill.solid:hover { background: rgb(var(--fg-rgb)); border-color: transparent; }
 .pl-live .pl-more-row .home-card:hover { background: rgba(255, 255, 255, 0.85); }
+
+/* «Живая обложка», шаг 5: исполнитель и страница трека */
+.ar-hero::after { background: linear-gradient(90deg, rgb(255 255 255 / 0.55), rgb(255 255 255 / 0.2) 60%, rgb(255 255 255 / 0.45)); }
+.ar-trend.up { color: #13865a; }
+.ar-trend.down { color: #c0392b; }
+.live-seg .seg-btn.on { background: #fff; }
+.ar-badge { background: color-mix(in srgb, var(--accent) 18%, #fff); }
+.tp-lyr { background: rgb(255 255 255 / 0.45); }

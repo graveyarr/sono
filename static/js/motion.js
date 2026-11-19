@@ -173,6 +173,7 @@ export function withTransition(update, enter) {
   if (!can) { update(); return Promise.resolve(); }
   const t = document.startViewTransition(() => { update(); enter?.(); });
   t.finished.catch(() => {});
+  t.ready.catch(() => {});   // переход пропущен (следующий начался раньше) — не ошибка
   return t.updateCallbackDone.catch(() => {});
 }
 
