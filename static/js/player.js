@@ -782,7 +782,9 @@ let volumeLevel = DEFAULT_LEVEL;
 
 function setVolumeLevel(level) {
   volumeLevel = Math.min(Math.max(Number(level) || 0, 0), 1);
-  audio.volume = toVolume(volumeLevel);
+  // Телефон: ползунка нет, громкость — кнопками телефона. Раньше и там стояло положение по умолчанию (−18 дБ,
+  // 12 %) — треки были заметно тише других приложений (друг автора, 20 ноября). Поэтому — полная громкость
+  audio.volume = isMobile ? 1 : toVolume(volumeLevel);
 }
 
 /** Громче/тише на шаг (глобальные клавиши Ctrl+Alt+↑/↓ из трея — tray.py). Возвращает новое положение 0…1 */
