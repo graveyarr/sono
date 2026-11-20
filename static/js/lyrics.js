@@ -1,8 +1,8 @@
 // Текст песни на экране «Сейчас играет» (кнопка с микрофоном).
 // Текст берёт сервер из LRCLIB. Если у песни есть тайминги строк — текущая строка
 // подсвечивается и прокручивается к середине, по щелчку на строку — перемотка к ней.
-// «По словам» («Живая обложка», ПК): строки едут вверх, текущая крупнее, дальние размыты, слова загораются
-// по очереди (у LRCLIB отметки только у строк — слова раскладываем по времени строки). Та же строка —
+// «По словам» («Живая обложка», ПК): строки едут вверх, текущая крупнее, дальние размыты, слова плавно
+// заливаются слева направо (у LRCLIB отметки только у строк — время строки делим по слогам). Та же строка —
 // в карточке «Сейчас играет» на «Главной» (showLyricLine).
 
 import { getSetting, keyOf, setSetting } from "./library.js";
@@ -189,6 +189,21 @@ async function load() {
   sync(true);
 }
 
+/** Сколько слово «весит» во времени: по числу слогов. У LRCLIB и YouTube Music отметки только у строк —
+ *  время строки делим между словами по слогам («и» короче, чем «одиночество»), а не поровну.
+ *  Слоги: русские гласные — каждая; латиница — группы гласных (немое «e» в конце не считаем);
+ *  японский, китайский, корейский — каждый знак. Знаки вроде «—» почти ничего не весят */
+function weightOf(word) {
+  const w = word.toLowerCase();
+  const cjk = (w.match(/[぀-ヿ㐀-鿿가-힯]/g) || []).length;
+  const cyr = (w.match(/[аеёиоуыэюяі]/g) || []).length;
+  let lat = (w.match(/[aeiouyàáâäãåæéèêëíìîïóòôöõœúùûü]+/g) || []).length;
+  if (lat > 1 && /[^aeiouy]e[^a-z]*$/.test(w) && !/[^aeiouy]le[^a-z]*$/.test(w)) lat--;   // like, time — один слог
+  const syl = cjk + cyr + lat;
+  if (syl) return syl + 0.3;   // + немного на согласные по краям
+  return /[\p{L}\p{N}]/u.test(w) ? 1.3 : 0.3;
+}
+
 /** Строка — отдельные слова (для «По словам»; в остальных видах слова просто стоят подряд) */
 function wordsOf(text) {
   const frag = document.createDocumentFragment(), words = [];
@@ -196,10 +211,24 @@ function wordsOf(text) {
     if (!part) return;
     if (/^\s+$/.test(part)) { frag.append(" "); return; }
     const w = el("span", "lw", part);
+    w._wt = weightOf(part);
     frag.append(w);
     words.push(w);
   });
   return { frag, words };
+}
+
+/** Заливка слов строки: p — какая доля строки спета (0…1). Каждое слово заливается слева направо
+ *  (--lwf от 0 до 1; в style.css плавно — переход 0,12 с между проверками раз в 0,1 с) */
+function fillWords(ws, p) {
+  let at = p * ws.reduce((sum, w) => sum + w._wt, 0);
+  for (const w of ws) {
+    const f = Math.max(0, Math.min(1, at / w._wt));
+    at -= w._wt;
+    const v = f.toFixed(3);
+    if (w._f !== v) { w._f = v; w.style.setProperty("--lwf", v); }
+    w.classList.toggle("lit", f > 0);
+  }
 }
 
 function renderPanel() {
@@ -265,7 +294,7 @@ function sync(instant = false) {
   const t = audio.currentTime + 0.3 - offset;   // чуть заранее — строка загорается к моменту, когда её поют
   let i = -1;
   while (i + 1 < timed.length && timed[i + 1][0] <= t) i++;
-  // Сколько строки уже спето: слова загораются равномерно за время строки (на четверть быстрее —
+  // Сколько строки уже спето: слова заливаются по слогам за время строки (на четверть быстрее —
   // последние слова обычно тянут). Пауза до следующей строки считается не длиннее 8 с
   const start = i < 0 ? 0 : timed[i][0], end = timed[i + 1]?.[0] ?? start + 4;
   const frac = i < 0 ? 0 : Math.min(1, (t - start) / Math.max(0.6, Math.min(end - start, 8)));
@@ -285,9 +314,9 @@ function sync(instant = false) {
     }
   }
   if (heroOn && heroIndex !== Math.max(i, 0)) drawHero(Math.max(i, 0), i >= 0);
-  const lit = (count) => Math.ceil(frac * 1.25 * count);
-  if (words && lines[i]) { const ws = lines[i].words, n = lit(ws.length); ws.forEach((w, k) => w.classList.toggle("lit", k < n)); }
-  if (heroOn) { const ws = hero.querySelectorAll(".lw"), n = hero.classList.contains("ahead") ? 0 : lit(ws.length); ws.forEach((w, k) => w.classList.toggle("lit", k < n)); }
+  const sung = Math.min(1, frac * 1.25);
+  if (words && lines[i]) fillWords(lines[i].words, sung);
+  if (heroOn) fillWords([...hero.querySelectorAll(".lw")], hero.classList.contains("ahead") ? 0 : sung);
 }
 
 /** Строчка в карточке на «Главной»: новая выплывает снизу из размытия */

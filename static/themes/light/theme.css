@@ -71,12 +71,12 @@ button.play { background: #1c1c1c; color: #fff; }
 
 /* Текст «По словам» («Живая обложка»), как в светлом макете: что споют — бледнее, спетое — плотнее,
    у звучащих слов — белое свечение (тёмное выходило грязной тенью) */
-.ls-words .lw { color: rgb(var(--fg-rgb) / 0.3); }
+.ls-words .lw { --lw-off: rgb(var(--fg-rgb) / 0.3); }
 /* Карточки на «Главной»: наведённая — почти белая, ▶ — тёмная (как в светлом макете) */
 .home-card:hover { background: rgba(255, 255, 255, 0.85); }
 .home-card .tile-play { background: #17111f; color: #fff; }
-.ls-words .lyrics-line.past .lw { color: rgb(var(--fg-rgb) / 0.68); }
-.ls-words .lyrics-line.active .lw.lit { text-shadow: 0 0 24px rgba(255, 255, 255, 0.9); }
+.ls-words .lyrics-line.past .lw { --lw-off: rgb(var(--fg-rgb) / 0.68); }
+.ls-words .lyrics-line.active .lw.lit { filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.9)); }
 
 /* Панель «Вид» (look.js): выбранное в переключателе — белое, как в макете B-vid (светлая) */
 .lk-seg > i { background: #fff; }

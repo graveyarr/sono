@@ -3294,8 +3294,7 @@ body.has-track:not(.playing) .nc-cover { scale: 0.9; box-shadow: 0 14px 30px -16
 .nc-who { font-size: 18px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nc-line { margin-top: 18px; font: 600 22px/1.3 var(--font-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nc-line.empty { display: none; }
-.nc-line .lw { color: rgb(var(--fg-rgb) / 0.42); transition: color 0.35s; }
-.nc-line .lw.lit { color: var(--text); }
+.nc-line .lw { --lw-off: rgb(var(--fg-rgb) / 0.42); --lw-on: var(--text); }
 .nc-acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .nc-pill {
   position: relative;
@@ -3512,9 +3511,22 @@ body:not(.mobile) .np-actions .icon-btn[data-np="like"] { display: none; }
 .ls-words .lyrics-line.far { opacity: 0.25; filter: blur(3px); }
 .ls-words .lyrics-line.active { scale: 1; opacity: 1; filter: none; transform: none; text-shadow: none; }
 .ls-words .lyrics-line:hover { opacity: 0.85; filter: none; color: inherit; }
-.ls-words .lw { color: rgb(var(--fg-rgb) / 0.4); transition: color 0.3s, text-shadow 0.5s; }
-.ls-words .lyrics-line.past .lw { color: rgb(var(--fg-rgb) / 0.75); }
-.ls-words .lyrics-line.active .lw.lit { color: var(--text); text-shadow: 0 0 26px rgb(var(--fg-rgb) / 0.4); }
+/* Слова заливаются слева направо, как караоке (lyrics.js fillWords): --lwf — доля слова 0…1,
+   спетое — --lw-on, остальное — --lw-off, мягкий край 0,6em. Цвет — фоном по буквам (background-clip: text),
+   поэтому свечение — filter: drop-shadow (text-shadow легло бы поверх заливки) */
+@property --lwf { syntax: "<number>"; inherits: false; initial-value: 0; }
+@property --lw-on { syntax: "<color>"; inherits: false; initial-value: transparent; }
+@property --lw-off { syntax: "<color>"; inherits: false; initial-value: transparent; }
+:is(.ls-words, .nc-line) .lw {
+  color: transparent;
+  background: linear-gradient(90deg, var(--lw-on) calc(var(--lwf) * (100% + 0.6em) - 0.6em), var(--lw-off) calc(var(--lwf) * (100% + 0.6em)));
+  -webkit-background-clip: text; background-clip: text;
+  transition: --lwf 0.12s linear, --lw-on 0.3s, --lw-off 0.3s, filter 0.5s;
+}
+.ls-words .lw { --lw-off: rgb(var(--fg-rgb) / 0.4); --lw-on: var(--lw-off); }
+.ls-words .lyrics-line.past .lw { --lw-off: rgb(var(--fg-rgb) / 0.75); }
+.ls-words .lyrics-line.active .lw { --lw-on: var(--text); }
+.ls-words .lyrics-line.active .lw.lit { filter: drop-shadow(0 0 13px rgb(var(--fg-rgb) / 0.4)); }
 .ls-words .lyrics-plain { font-size: 22px; font-weight: 600; line-height: 1.5; }
 .ls-words .lyrics-message { font-size: 18px; }
 .ls-words .lyrics-skeleton { height: 34px; margin-bottom: 22px; }
