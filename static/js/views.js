@@ -1278,7 +1278,9 @@ function renderList(fresh) {
   const meta = songs.length ? `${plural(songs.length, "трек", "трека", "треков")} · ${formatTotal(songList)}` : "Пусто";
   text.append(el("div", "pl-kind", info.label), name);
   if (info.desc) text.append(el("div", "pl-desc", info.desc));
-  text.append(el("div", "pl-meta", meta));
+  const metaLine = el("div", "pl-meta", meta);
+  metaLine.dataset.kind = info.label;   // телефон: «Плейлист · 8 треков · 21 мин» одной строкой (шаг 11в)
+  text.append(metaLine);
   const coverBox = collectionCover(info.kind, info, true);
   if (info.playlist) {   // щелчок по обложке — выбрать свою картинку (как в Spotify)
     coverBox.classList.add("editable");
@@ -1336,7 +1338,7 @@ function renderList(fresh) {
     actions.append(keep);
   }
   if (info.playlist) {
-    const more = iconButton(icons.more, "Ещё");
+    const more = iconButton(icons.more, "Ещё", "pl-more");   // на телефоне её зовёт «⋯» в полоске сверху (mobile.js)
     more.addEventListener("click", () => openPlaylistMenu(more, info.playlist, {
       onPlay: () => playCollection(info),
       onDeleted: () => showView("home"),

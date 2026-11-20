@@ -141,6 +141,37 @@ function back() {
   return false;
 }
 
+// ---------- Полоска сверху у плейлиста, альбома, исполнителя (шаг 11в, макет B-telefon-ekrany.html) ----------
+// «‹» — назад, «⋯» — меню плейлиста (его кнопка в ряду под шапкой на телефоне спрятана). Пока шапка видна,
+// полоска прозрачная; прокрутили ниже — стекло и название посередине
+
+const LIST_VIEW = /^(playlist|album|artist|pick):|^(liked|disliked)$/;
+
+function initTopBar() {
+  const bar = el("div", "m-bk");
+  const back = btn("m-bk-back", icons.back);
+  back.setAttribute("aria-label", "Назад");
+  const title = el("b", "m-bk-title");
+  const more = btn("m-bk-more", icons.more);
+  more.setAttribute("aria-label", "Ещё");
+  bar.append(back, title, more);
+  document.body.append(bar);
+  back.addEventListener("click", () => (canGoBack() ? goBack() : showView("home")));
+  more.addEventListener("click", () => document.querySelector("#view-list .pl-more")?.click());
+  const scroller = document.getElementById("views");
+  const sync = () => {
+    const solid = document.body.classList.contains("on-list") && scroller.scrollTop > 220;
+    if (solid) title.textContent = document.querySelector("#view-list .pl-name")?.textContent ?? "";
+    bar.classList.toggle("solid", solid);
+  };
+  scroller.addEventListener("scroll", sync, { passive: true });
+  document.addEventListener("sono:view", (e) => {
+    document.body.classList.toggle("on-list", LIST_VIEW.test(e.detail));
+    sync();
+  });
+  document.body.classList.toggle("on-list", LIST_VIEW.test(view));
+}
+
 // ---------- «Сейчас играет» (шаг 11б, макет B-telefon.html) ----------
 // Во весь экран: сверху «свернуть», «Играет из …» и «Ещё»; внизу три подписанные кнопки «Текст / Далее / Ещё».
 // «Далее» (очередь) и «Ещё» (6 действий с подписями) — листы снизу. Жесты: обложку вбок — другой трек,
@@ -395,6 +426,7 @@ export function initMobile() {
   // «Сейчас играет»: шапка, «Текст / Далее / Ещё», листы снизу, жесты (шаг 11б). Очередь на телефоне —
   // лист «Далее» (body.sheet-queue; класс np-queue занят панелью очереди ПК), а не прежний слой show-queue: при запуске его не показываем
   initNowScreen();
+  initTopBar();
   document.body.classList.remove("show-queue");
   document.querySelectorAll('[data-np="queue"]').forEach((b) => b.classList.remove("on"));
   window.sonoBack = back;

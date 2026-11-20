@@ -6343,6 +6343,8 @@ body.mobile .view-now .up-next:not([hidden]), body.mobile .np-more-sheet {
   animation: none;
 }
 body.mobile.sheet-queue .view-now .up-next:not([hidden]), body.mobile.sheet-more .np-more-sheet { translate: 0 0; }
+/* На ПК при тексте «Далее» прячется (текст стоит на его месте); на телефоне «Далее» — лист поверх текста */
+body.mobile.show-lyrics .view-now .up-next:not([hidden]) { display: flex !important; }
 body.mobile .np-more-sheet { touch-action: none; }
 body.mobile .np-more-sheet .np-grab { position: static; display: block; margin: 0 auto 12px; }
 /* «Далее»: ручка сверху (за неё и за заголовок тянут вниз), «Сейчас играет» — не повторяем */
@@ -6376,3 +6378,205 @@ body.mobile .np-more-tile {
 }
 body.mobile .np-more-tile svg { width: 22px; height: 22px; color: var(--muted); }
 body.mobile .np-more-tile.on svg { color: var(--ink); }
+
+/* ===================== Шаг 11в: плейлист, исполнитель, меню «⋯» на телефоне (макет B-telefon-ekrany.html: #playlist, #artist, #menu) =====================
+   Прежняя разметка (views.js renderList, artist.js), новый вид — стилями. Сверху полоска «‹ … ⋯» (mobile.js initTopBar) */
+body.mobile .m-bk {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+  display: none; align-items: center; gap: 6px; padding: 6px 6px 4px;
+  border-bottom: 1px solid transparent;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+body.mobile.on-list:not(.on-now):not(.lib-open):not(.search-open) .m-bk { display: flex; }
+body.mobile .m-bk button {
+  width: 42px; height: 42px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 50%; padding: 0; color: var(--text); background: none;
+}
+body.mobile .m-bk svg { width: 24px; height: 24px; }
+body.mobile .m-bk-title {
+  flex: 1; min-width: 0; text-align: center; font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; transition: opacity 0.3s;
+}
+body.mobile .m-bk.solid {
+  background: var(--bar-bg); border-bottom-color: var(--edge);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
+}
+body.mobile .m-bk.solid .m-bk-title { opacity: 1; }
+body.mobile:not(:has(#view-list .pl-more)) .m-bk-more { visibility: hidden; }
+/* у исполнителя полоска лежит на картинке — кнопки в тёмных кружках */
+body.mobile:has(#view-list .artist-hero) .m-bk:not(.solid) button {
+  background: rgb(0 0 0 / 0.3); color: #fff;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+
+/* Шапка плейлиста: обложка посередине, название крупно, «Плейлист · 8 треков · 21 мин» */
+body.mobile .view-list .pl-hero { background: none !important; padding-top: 50px; }
+body.mobile .view-list .pl-header { align-items: center; gap: 0; text-align: center; }
+body.mobile .view-list .pl-header .collection-cover {
+  width: 232px; border-radius: 22px;
+  box-shadow: 0 34px 60px -26px rgb(var(--shade-rgb) / 0.75);
+}
+body.mobile .view-list .pl-info {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline;
+  width: 100%; min-width: 0; margin-top: 18px;
+}
+body.mobile .view-list .pl-name {
+  order: 0; flex-basis: 100%; min-width: 0;
+  font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.15; padding-bottom: 0.08em;
+}
+body.mobile .view-list .pl-kind {
+  order: 1; margin: 2px 0 0; font-size: 13.5px; font-weight: 700;
+  text-transform: none; letter-spacing: 0; color: var(--text); opacity: 1;
+}
+body.mobile .view-list .pl-meta { order: 2; margin-top: 2px; font-size: 13.5px; color: var(--muted); }
+/* вид («Плейлист», «Альбом») — началом той же строки: длинная строка переносится как обычный текст */
+body.mobile .view-list .pl-info:has(.pl-meta[data-kind]) .pl-kind { display: none; }
+body.mobile .view-list .pl-meta[data-kind]::before { content: attr(data-kind) " · "; font-weight: 700; color: var(--text); }
+body.mobile .view-list .pl-desc { order: 3; flex-basis: 100%; margin-top: 6px; font-size: 13px; }
+
+/* Кнопки: скачать, Flow, умное перемешивание … перемешать, ▶ справа; «Скачано N из M» и «Скачивать новые» — строкой ниже */
+body.mobile .view-list .pl-actions { flex-wrap: wrap; align-items: center; gap: 4px; row-gap: 0; margin: 16px -4px 8px; }
+body.mobile .view-list .pl-actions::after { content: ""; order: 7; flex-basis: 100%; }
+body.mobile .view-list .pl-actions > .icon-btn, body.mobile .view-list .pl-dl-btn {
+  width: 44px; height: 44px; border-radius: 50%; color: var(--muted);
+}
+body.mobile .view-list .pl-actions .icon-btn svg { width: 24px; height: 24px; }
+body.mobile .view-list .pl-download { display: contents; }
+body.mobile .view-list .pl-dl-btn { order: 1; }
+body.mobile .view-list .flow-pill[title^="Бесконечный"] {
+  order: 2; width: 44px; height: 44px; padding: 0; justify-content: center;
+  border: 0; border-radius: 50%; background: none; color: var(--muted);
+}
+body.mobile .view-list .flow-pill[title^="Бесконечный"] span { display: none; }
+body.mobile .view-list .flow-pill[title^="Бесконечный"] svg { width: 24px; height: 24px; }
+body.mobile .view-list .pl-smart { order: 3; }
+body.mobile .view-list .big-play + .icon-btn { order: 5; margin-left: auto; }   /* перемешать */
+body.mobile .view-list .pl-actions .big-play {
+  order: 6; width: 58px; height: 58px; margin: 0;
+  background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb) / 0.9);
+  box-shadow: 0 14px 30px -12px rgb(var(--shade-rgb) / 0.6);
+}
+body.mobile .view-list .pl-actions .big-play svg { width: 26px; height: 26px; }
+body.mobile .view-list .pl-actions > .pl-more { display: none; }   /* «⋯» — в полоске сверху */
+body.mobile .view-list .pl-dl-status { order: 8; padding-left: 6px; font-size: 12.5px; }
+body.mobile .view-list .pl-auto { order: 9; flex-basis: auto; margin-left: auto; padding: 6px 4px; }
+body.mobile .view-list .pl-actions > .flow-pill:not([title^="Бесконечный"]) { order: 4; }   /* «Сохранить в медиатеку» у подборки */
+
+/* Строки: обложка 52, название, значок сайта и исполнитель, «⋯»; без номеров, длительности и колонок */
+body.mobile .view-list .tl-head,
+body.mobile .view-list .track .t-num,
+body.mobile .view-list .track .t-plays,
+body.mobile .view-list .track .t-source,
+body.mobile .view-list .track .t-dur { display: none; }
+body.mobile .view-list .track { gap: 14px; padding: 8px 2px; border-radius: 14px; }
+body.mobile .view-list .track .thumb { width: 52px; height: 52px; border-radius: 10px; }
+body.mobile .view-list .track .t-title { font-size: 15.5px; font-weight: 700; }
+body.mobile .view-list .track .t-sub { margin-top: 2px; font-size: 13px; }
+body.mobile .view-list .track.current .t-title { color: var(--ink); }
+body.mobile .track .t-src { display: inline-flex; vertical-align: -2px; margin-right: 4px; color: var(--faint); }
+body.mobile .track .t-src svg { width: 15px; height: 14px; }
+body.mobile .view-list .list-tools { gap: 8px; }
+body.mobile .view-list .list-sort span { display: none; }
+
+/* «Рекомендуемые»: справа — «+ Добавить» */
+body.mobile .view-list .pl-recs-add {
+  width: auto; height: 34px; padding: 0 12px 0 9px; gap: 4px; flex: none;
+  display: inline-flex; align-items: center;
+  border-radius: 17px; border: 1px solid var(--edge); background: var(--glass-hi);
+  color: var(--text); font-size: 12.5px; font-weight: 700;
+}
+body.mobile .view-list .pl-recs-add::after { content: "Добавить"; }
+body.mobile .view-list .pl-recs-add svg { width: 15px; height: 15px; }
+body.mobile .view-list .pl-recs-list .t-more { display: none; }
+
+/* Исполнитель: картинка во всю ширину, имя поверх неё снизу */
+body.mobile .view-list .artist-hero { padding-top: 0; }
+body.mobile .view-list .artist-hero .pl-header { align-items: stretch; text-align: left; }
+body.mobile .view-list .artist-hero .artist-photo {
+  width: auto; height: 360px; aspect-ratio: auto; margin: 0 calc(-1 * var(--pad));
+  border-radius: 0; box-shadow: none; background: none;
+  -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent);
+}
+body.mobile .view-list .artist-hero .artist-photo img { width: 100%; height: 100%; border-radius: 0; object-fit: cover; }
+body.mobile .view-list .artist-hero .pl-info { display: block; position: relative; margin-top: -78px; text-align: left; }
+body.mobile .view-list .artist-hero .pl-kind { display: none; }
+body.mobile .view-list .artist-hero .pl-name {
+  font-size: 44px; line-height: 1.05; letter-spacing: -1.8px;
+  text-shadow: 0 4px 30px rgb(var(--shade-rgb) / 0.35);
+}
+body.mobile .view-list .artist-listeners { margin-top: 10px; font-size: 13.5px; color: var(--muted); }
+body.mobile .view-list .artist-hero .pl-meta { font-size: 12.5px; color: var(--faint); }
+body.mobile .view-list .artist-hero .pl-meta::before { content: none; }
+body.mobile .view-list .artist-mine {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 12px;
+  border-radius: 14px; font-size: 12.5px; font-weight: 600; color: var(--text); background: var(--glass-hi);
+}
+body.mobile .view-list .follow-pill {
+  order: 0; height: 40px; padding: 0 15px; margin-right: 4px;
+  border-radius: 20px; border: 1px solid var(--edge); background: var(--glass);
+  font-size: 13.5px; font-weight: 700; color: var(--text);
+}
+body.mobile .view-list .follow-pill.on { color: var(--ink); }
+/* Новинка — стеклянной карточкой без заголовка: «Новинка · Сингл · 8 октября» */
+body.mobile .view-list .meta-section:has(> .new-release) > .meta-h { display: none; }
+body.mobile .view-list .new-release {
+  gap: 14px; padding: 10px; border-radius: 22px;
+  background: var(--glass); border: 1px solid var(--edge);
+}
+body.mobile .view-list .new-release-art { width: 84px; height: 84px; border-radius: 14px; }
+body.mobile .view-list .new-release-kind { font-size: 11px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; color: var(--ink); }
+body.mobile .view-list .new-release-kind::before { content: "Новинка · "; }
+body.mobile .view-list .new-release-title { margin: 2px 0; font-size: 18px; font-weight: 800; line-height: 1.2; }
+body.mobile .view-list .new-release-sub { font-size: 13px; }
+body.mobile .view-list .new-release-play { display: none; }
+/* Альбомы и похожие — рядом, листаются вбок */
+body.mobile .view-list .release-grid, body.mobile .view-list .artist-grid {
+  display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  margin: 0 calc(-1 * var(--pad)); padding: 4px var(--pad) 10px; scroll-padding: 0 var(--pad);
+}
+body.mobile .view-list :is(.release-grid, .artist-grid)::-webkit-scrollbar { display: none; }
+body.mobile .view-list .release-grid > * { flex: none; width: 148px; }
+body.mobile .view-list .artist-grid > * { flex: none; width: 128px; }
+body.mobile .view-list .artist-card {
+  padding: 8px 8px 10px; border-radius: 22px;
+  background: var(--glass); border: 1px solid var(--edge);
+}
+
+/* Меню «⋯» — лист снизу: шапка трека, пункты 48 px под палец, «опасное» красным; под ним затемнение */
+body.mobile .menu {
+  left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  width: auto; min-width: 0; max-width: none; max-height: 82vh;
+  padding: 12px 14px 14px; border-radius: 30px;
+  border: 1px solid var(--edge); background: var(--sheet-bg);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: 0 -10px 50px -20px rgb(var(--shade-rgb) / 0.6);
+  opacity: 1; transform: none; translate: 0 calc(100% + 30px);
+  scrollbar-width: none;
+  transition: translate 0.45s var(--ease), visibility 0s 0.45s;
+}
+body.mobile .menu.open { translate: 0 0; transition: translate 0.45s var(--ease); }
+body.mobile .menu::before {
+  content: ""; display: block; width: 36px; height: 4px; margin: 0 auto 12px;
+  border-radius: 2px; background: rgb(var(--fg-rgb) / 0.22);
+}
+body.mobile .menu-dim {
+  position: fixed; inset: 0; z-index: 99;
+  background: rgb(0 0 0 / 0.38);
+  opacity: 0; pointer-events: none; transition: opacity 0.4s var(--ease);
+}
+body.mobile .menu.open + .menu-dim { opacity: 1; pointer-events: auto; }
+body.mobile .menu .menu-top { gap: 12px; padding: 0 6px 12px; margin-bottom: 4px; }
+body.mobile .menu .menu-top img { width: 52px; height: 52px; border-radius: 12px; }
+body.mobile .menu .menu-top-text b { font-size: 16px; }
+body.mobile .menu .menu-top-text span { font-size: 13px; }
+body.mobile .menu .menu-item, body.mobile .menu .menu-head {
+  height: 48px; padding: 0 8px; gap: 14px; border-radius: 14px;
+  font-size: 15px; font-weight: 600;
+}
+body.mobile .menu .menu-icon, body.mobile .menu .menu-icon svg { width: 22px; height: 22px; }
+body.mobile .menu .menu-item > svg { width: 18px; height: 18px; margin-left: auto; color: var(--faint); }
+body.mobile .menu .menu-head > svg { width: 22px; height: 22px; }
+body.mobile .menu .menu-item.danger, body.mobile .menu .menu-item.danger .menu-icon { color: #ff5d6c; }
+body.mobile .menu .menu-sep { height: 0; margin: 4px 6px; background: none; border-top: 1px solid var(--edge); }
+body.mobile .menu .menu-note { padding: 6px 8px 8px; font-size: 13px; color: var(--muted); }

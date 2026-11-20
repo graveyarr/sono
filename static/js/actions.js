@@ -306,7 +306,7 @@ function trackMenuItems(track, ctx = {}) {
   const liked = library.isLiked(real), disliked = library.isDisliked(real);
   const shown = displayTrack(track);
   const items = [
-    { head: { image: coverUrl(track), title: shown.title, sub: shown.artist } },   // шапка — только на ПК
+    { head: { image: coverUrl(track), title: shown.title, sub: shown.artist } },   // шапка: обложка, название, исполнитель
     { label: "Играть следующим", icon: icons.playNext, action: () => { queueNext(track); toast("Будет играть следующим"); } },
     { label: "Добавить в очередь", icon: icons.queue, action: () => { queueLater([track]); toast("Добавлено в очередь"); } },
     { label: "Радио по треку", icon: icons.flow, action: () => startFlow({ track: real }) },

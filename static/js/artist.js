@@ -462,7 +462,8 @@ export async function renderAlbum(box, id, stillHere) {
     [" ", al.year, al.tracks.length ? plural(al.tracks.length, "трек", "трека", "треков") : "", al.tracks.length ? formatTotal(al.tracks) : "",
       al.likes ? `${countText(al.likes, "лайк", "лайка", "лайков")} ${al.source === "soundcloud" ? "на SoundCloud" : "в Яндекс Музыке"}` : ""]
       .filter((x) => x && x.trim()).map((x, i) => (i ? " · " : " · ") + x).join("")));
-  info.append(el("div", "pl-kind", TYPE_NAMES[al.type] ?? "Альбом"), el("h1", "pl-name", al.title), facts);
+  facts.dataset.kind = TYPE_NAMES[al.type] ?? "Альбом";   // телефон: «Альбом · исполнитель · год…» одной строкой
+  info.append(el("div", "pl-kind", facts.dataset.kind), el("h1", "pl-name", al.title), facts);
   if (al.label) info.append(el("div", "meta-label", `© ${al.label}`));
   const cover = picture(al.coverLarge, "collection-cover album-cover", al.title);
   header.append(cover, info);

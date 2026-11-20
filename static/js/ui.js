@@ -238,7 +238,8 @@ export function trackRow(track, { index = 0, numbered = false, showSource = fals
   const sub = el("div", "t-sub");
   const dl = el("span", "t-dl");   // значок «скачано» (виден, когда трек скачан или качается)
   setIcon(dl, icons.downloaded);
-  const srcIcon = cols && { youtube: icons.srcYoutube, soundcloud: icons.srcSoundcloud }[track.source];
+  // Значок сайта у исполнителя — в таблице ПК и на телефоне (шаг 11в: там колонок нет, сайт — только значком)
+  const srcIcon = (cols || isMobile) && { youtube: icons.srcYoutube, soundcloud: icons.srcSoundcloud }[track.source];
   if (srcIcon) {
     const src = el("span", "t-src");
     setIcon(src, srcIcon);
@@ -423,7 +424,7 @@ export function collectionCover(kind, { name = "", tracks = [], cover = null } =
 //   { head: { image, title, sub } } — шапка меню: обложка, название, исполнитель;
 //   art: () => узел — картинка слева вместо значка (обложка плейлиста); checked — галочка справа;
 //   foot: true — пункт уходит вниз, под черту («Новый плейлист»); find (у пункта с подменю) — подсказка поиска.
-// Телефон: подменю открывается «страницей» внутри того же меню, со стрелкой назад.
+// Телефон: меню — лист снизу с шапкой трека (шаг 11в), подменю открывается «страницей» внутри того же листа, со стрелкой назад.
 // ПК («Живая обложка», шаг 10): подменю выезжает сбоку отдельной панелью, если пунктов много — с поиском;
 // ↑/↓ — по пунктам, → — открыть подменю, ← — закрыть его, Enter — выбрать, Esc — закрыть.
 
@@ -431,6 +432,8 @@ const live = !isMobile;
 const menu = el("div", live ? "menu menu-live" : "menu");
 menu.setAttribute("role", "menu");
 document.body.append(menu);
+// Телефон: под листом-меню — затемнение (стоит сразу за меню: CSS показывает его при .menu.open; касание — закрыть)
+if (!live) document.body.append(el("div", "menu-dim"));
 const sub = live ? el("div", "menu menu-live menu-sub") : null;
 if (sub) {
   sub.setAttribute("role", "menu");
@@ -445,6 +448,7 @@ const inMenu = (node) => menu.contains(node) || !!sub?.contains(node);
 export const isOverlay = (target) => !!target.closest?.(".menu, .dialog-backdrop");
 
 function placeMenu() {
+  if (!live) { menu.style.left = menu.style.top = ""; return; }   // телефон: лист снизу, место задаёт CSS
   const r = menuAnchor instanceof Element
     ? menuAnchor.getBoundingClientRect()
     : { left: menuAnchor.x, right: menuAnchor.x, top: menuAnchor.y, bottom: menuAnchor.y };
@@ -471,7 +475,10 @@ function renderMenuPage(items, title = "", back = null, direction = "") {
     page.append(head);
   }
   for (const item of items) {
-    if (item.head) continue;   // шапка с обложкой — только на ПК
+    if (item.head) {   // шапка с обложкой — у первой страницы (у подменю вместо неё — «назад»)
+      if (!title) page.append(menuTop(item.head));
+      continue;
+    }
     if (item.sep) { page.append(el("div", "menu-sep")); continue; }
     if (item.note) { page.append(el("div", "menu-note", item.note)); continue; }
     const btn = el("button", `menu-item${item.danger ? " danger" : ""}`);
@@ -493,6 +500,20 @@ function renderMenuPage(items, title = "", back = null, direction = "") {
   menu.replaceChildren(page);
   placeMenu();
   page.querySelector(".menu-item:not(:disabled)")?.focus({ preventScroll: true });
+}
+
+/** Шапка меню: обложка, название, исполнитель (ПК и телефон) */
+function menuTop(head) {
+  const top = el("div", "menu-top");
+  const img = el("img");
+  img.alt = "";
+  img.onerror = () => img.classList.add("broken");
+  if (head.image) img.src = head.image;
+  else img.classList.add("broken");
+  const text = el("div", "menu-top-text");
+  text.append(el("b", "", head.title ?? ""), el("span", "", head.sub ?? ""));
+  top.append(img, text);
+  return top;
 }
 
 // ---------- Меню ПК ----------
@@ -558,18 +579,7 @@ function liveButton(item, panel) {
 function showLive(panel, items, findLabel = "", focus = false) {
   const page = el("div", "menu-page");
   const head = items.find((i) => i.head)?.head;
-  if (head) {
-    const top = el("div", "menu-top");
-    const img = el("img");
-    img.alt = "";
-    img.onerror = () => img.classList.add("broken");
-    if (head.image) img.src = head.image;
-    else img.classList.add("broken");
-    const text = el("div", "menu-top-text");
-    text.append(el("b", "", head.title ?? ""), el("span", "", head.sub ?? ""));
-    top.append(img, text);
-    page.append(top);
-  }
+  if (head) page.append(menuTop(head));
   const list = liveItems(items);
   const count = list.filter((i) => !i.sep && !i.note && !i.foot).length;
   let input = null;

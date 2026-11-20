@@ -146,3 +146,11 @@ body.mobile .tabbar::before { background: color-mix(in srgb, var(--accent) 22%, 
 /* Шаг 11б: под листами «Далее» и «Ещё» — лёгкая вуаль, а не чёрная; плитки «Ещё» — молочные */
 body.mobile .np-dim { background: rgb(var(--shade-rgb) / 0.2); }
 body.mobile .np-more-tile { background: rgba(255, 255, 255, 0.6); }
+/* Шаг 11в: шапка плейлиста и исполнителя на телефоне — на живом фоне, без тёмной полосы: текст и кнопки обычные
+   (не «тёмный остров»), ▶ — тёмная; под меню-листом — лёгкая вуаль; «опасное» в меню — тёмно-красное */
+body.mobile .view-list .pl-hero {
+  --fg-rgb: inherit; --text: inherit; --muted: inherit; --faint: inherit; --line: inherit; --hover: inherit;
+  color: var(--text);
+}
+body.mobile .menu-dim { background: rgb(var(--shade-rgb) / 0.2); }
+body.mobile .menu .menu-item.danger, body.mobile .menu .menu-item.danger .menu-icon { color: #d6293d; }
