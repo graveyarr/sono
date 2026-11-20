@@ -6169,3 +6169,198 @@ body.mobile .sidebar { background: none; }
 body.mobile.lib-open .main { visibility: hidden; }
 body.mobile .lib-head { font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.15; padding: 6px 8px 12px; }
 body.mobile .lib-item { border-radius: 16px; }
+
+/* ===================== Шаг 11б: «Сейчас играет» на телефоне (макет B-telefon.html: #now, #lyrics, #queue, #more) =====================
+   Во весь экран поверх живого фона (вкладки прячутся). Сверху — «свернуть», «Играет из …», «Ещё» (mobile.js .np-head).
+   Части плеера стоят сеткой: .deck — display: contents, поэтому текст песни (#lyrics) встаёт между названием и перемоткой.
+   Внизу — «Текст / Далее / Ещё» (.np-pills); «Далее» (#up-next) и «Ещё» (.np-more-sheet) — листы снизу */
+body.mobile { --sheet-bg: color-mix(in srgb, var(--tint) 30%, rgb(var(--shade-rgb) / 0.7)); }
+body.mobile.on-now .tabbar, body.mobile.on-now .views::after { display: none; }
+body.mobile.on-now .view-now {
+  position: fixed; inset: 0; z-index: 45;
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+  min-height: 0; overflow: hidden;
+  padding: 4px 22px calc(16px + env(safe-area-inset-bottom, 0px));
+  animation: np-up 0.5s var(--ease);
+}
+@keyframes np-up { from { opacity: 0; transform: translateY(48px); } }
+
+/* Шапка: ⌄ · «Играет из …» · ⋯ (тянут вниз — свернуть) */
+.np-head, .np-pills, .np-more-sheet, .np-dim { display: none; }
+body.mobile .np-head {
+  position: relative; flex: none;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 56px; margin: 0 -10px;
+  touch-action: none;
+}
+body.mobile .np-grab { position: absolute; top: 6px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: rgb(var(--fg-rgb) / 0.22); }
+body.mobile .np-head-btn { width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); }
+body.mobile .np-head-btn svg { width: 24px; height: 24px; }
+body.mobile .np-down svg { width: 28px; height: 28px; transform: rotate(90deg); }
+body.mobile .np-from { min-width: 0; text-align: center; line-height: 1.2; }
+body.mobile .np-from small { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--faint); }
+body.mobile .np-from b { display: block; max-width: 62vw; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Сетка: обложка, название, перемотка, кнопки, (сообщение), «Текст / Далее / Ещё» */
+body.mobile .view-now .np-stage {
+  flex: 1; min-height: 0; width: 100%;
+  display: grid; gap: 0 12px; align-items: stretch;
+  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto auto auto auto auto;
+  grid-template-areas: "cv cv" "meta meta" "seek seek" "ctl ctl" "st st" "t2 t2";
+}
+body.mobile .view-now .deck { display: contents; }
+body.mobile .view-now .cover-stage { grid-area: cv; min-height: 0; display: grid; place-items: center; touch-action: none; }
+body.mobile .view-now .cover-wrap {
+  width: min(100%, 48vh); border-radius: 22px;
+  touch-action: none;
+  transition: transform 0.7s var(--spring), box-shadow 0.7s var(--ease), border-radius 0.5s, width 0.5s var(--ease);
+}
+body.mobile .view-now .deck.has-clip .cover-wrap { width: 100%; }
+body.mobile.playing .view-now .cover-wrap { box-shadow: 0 40px 70px -28px rgb(var(--shade-rgb) / 0.75), 0 0 120px -30px color-mix(in srgb, var(--accent) 45%, transparent); }
+body.mobile:not(.playing) .view-now .cover-wrap { transform: scale(0.88); box-shadow: 0 16px 34px -24px rgb(var(--shade-rgb) / 0.6); }
+
+body.mobile .view-now .np-row { grid-area: meta; flex-wrap: nowrap; align-items: center; gap: 10px; margin-top: 22px; min-width: 0; }
+body.mobile .view-now .np-row .info { flex: 1; min-width: 0; }
+body.mobile .view-now .info h1 {
+  margin: 0; font: 800 26px/1.15 var(--font-display); letter-spacing: -0.6px; padding-bottom: 0.1em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal;
+}
+body.mobile .view-now .info p { margin: 2px 0 0; font-size: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.mobile .view-now .np-actions { width: auto; flex: none; margin: 0 -6px 0 0; }
+body.mobile .view-now .np-actions > :not([data-np="like"]) { display: none; }   /* остальное — в листе «Ещё» */
+body.mobile .view-now .np-actions [data-np="like"] { width: 46px; height: 46px; }
+body.mobile .view-now .np-actions [data-np="like"] svg { width: 26px; height: 26px; }
+
+/* Перемотка: тонкая полоска, закрашенное — от цвета обложки к белому (в светлой — к тёмному); под пальцем толще */
+body.mobile .view-now .progress { grid-area: seek; margin-top: 16px; }
+body.mobile .view-now input[data-np="seek"] { height: 22px; }
+body.mobile .view-now input[data-np="seek"]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--ink), rgb(var(--fg-rgb))) 0 0 / var(--p) 100% no-repeat, rgb(var(--fg-rgb) / 0.15);   /* --ink: в светлой — притемнённый цвет обложки */
+  transition: height 0.3s var(--ease);
+}
+body.mobile .view-now input[data-np="seek"]:active::-webkit-slider-runnable-track { height: 9px; }
+body.mobile .view-now input[data-np="seek"]::-webkit-slider-thumb { transform: scale(0); }
+body.mobile .view-now .times { margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--faint); }
+
+/* Кнопки: перемешать · назад · большая ▶ · вперёд · повтор */
+body.mobile .view-now .controls { grid-area: ctl; display: flex; margin-top: 8px; }
+body.mobile .view-now .controls > [data-np="queue"] { display: none; }
+body.mobile .view-now .controls .buttons { width: 100%; justify-content: space-between; gap: 0; }
+body.mobile .view-now .controls .icon-btn, body.mobile .view-now .controls .icon-btn:not(.small) { width: 54px; height: 54px; }
+body.mobile .view-now .controls .icon-btn.small { color: var(--muted); }
+body.mobile .view-now .controls .icon-btn.small.on { color: var(--ink); }
+body.mobile .view-now .controls .icon-btn.small svg { width: 24px; height: 24px; }
+body.mobile .view-now .controls .icon-btn:not(.small) { color: var(--text); }
+body.mobile .view-now .controls .icon-btn:not(.small) svg { width: 30px; height: 30px; }
+body.mobile .view-now .controls .play {
+  width: 78px; height: 78px;
+  background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb));
+  box-shadow: 0 16px 34px -14px rgb(var(--shade-rgb) / 0.6);
+  transition: transform 0.3s var(--spring), width 0.5s var(--ease), height 0.5s var(--ease);
+}
+body.mobile .view-now .controls .play svg { width: 30px; height: 30px; }
+body.mobile .view-now .status { grid-area: st; margin: 6px 0 0; }
+body.mobile .view-now .status:empty { display: none; }
+
+/* «Текст / Далее / Ещё» — подписанные пилюли; включённая — белая */
+body.mobile .np-pills { grid-area: t2; display: flex; gap: 8px; margin-top: 14px; }
+body.mobile .np-pill {
+  flex: 1; height: 44px; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--edge); border-radius: 22px;
+  background: var(--glass); color: var(--muted);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  transition: background-color 0.3s, color 0.3s;
+}
+body.mobile .np-pill svg { width: 18px; height: 18px; flex: none; }
+body.mobile .np-pill.on { background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb)); border-color: transparent; }
+
+/* Режим «Текст»: обложка 58 px рядом с названием, текст по словам — во весь экран */
+body.mobile.show-lyrics .view-now .np-stage {
+  grid-template-rows: 62px minmax(0, 1fr) auto auto auto auto;
+  grid-template-areas: "cv meta" "lyr lyr" "seek seek" "ctl ctl" "st st" "t2 t2";
+}
+body.mobile.show-lyrics .view-now .cover-wrap,
+body.mobile.show-lyrics:not(.playing) .view-now .cover-wrap { width: 58px; border-radius: 13px; transform: none; box-shadow: 0 10px 20px -10px rgb(var(--shade-rgb) / 0.6); }
+body.mobile.show-lyrics .view-now .deck.has-clip .cover-wrap { aspect-ratio: 1; }
+body.mobile.show-lyrics .view-now .np-glow { display: none; }
+body.mobile.show-lyrics .view-now .np-row { margin-top: 0; align-self: center; }
+body.mobile.show-lyrics .view-now .info h1 { font-size: 17px; letter-spacing: -0.2px; -webkit-line-clamp: 1; }
+body.mobile.show-lyrics .view-now .info p { font-size: 14px; }
+body.mobile.show-lyrics .view-now .progress { margin-top: 6px; }
+body.mobile.show-lyrics .view-now .controls { margin-top: 2px; }
+body.mobile.show-lyrics .view-now .controls .play { width: 64px; height: 64px; }
+body.mobile .view-now .lyrics {
+  grid-area: lyr; justify-self: stretch; position: static; inset: auto; z-index: auto;   /* stretch: на ПК start — пока грузится, текст сжимался в узкий столбик */
+  width: auto; max-width: none; min-width: 0; height: auto; min-height: 0;
+  margin: 4px -22px 0; padding: 0 22px;
+  display: flex; flex-direction: column;
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+}
+body.mobile .view-now .lyrics .lyrics-head { padding: 6px 0 0; }
+body.mobile .view-now .lyrics .lyrics-title { font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--faint); }
+body.mobile .view-now .lyrics .lyrics-lines {
+  flex: 1; height: auto; min-height: 0;
+  padding: 24% 0 60%;
+  -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 72%, transparent);
+          mask-image: linear-gradient(transparent, #000 14%, #000 72%, transparent);
+}
+body.mobile .view-now .ls-words .lyrics-line { padding: 8px 0; font: 800 29px/1.24 var(--font-display); letter-spacing: -0.4px; transform-origin: left center; }
+body.mobile .view-now .ls-words .lyrics-line.far { filter: blur(2.5px); }
+
+/* Листы снизу: «Далее» и «Ещё». Под ними затемнение (касание — закрыть); тянут вниз — закрываются */
+body.mobile .np-dim {
+  display: block; position: fixed; inset: 0; z-index: 70;
+  background: rgb(0 0 0 / 0.38);
+  opacity: 0; pointer-events: none; transition: opacity 0.4s var(--ease);
+}
+body.mobile:is(.sheet-queue, .sheet-more) .np-dim { opacity: 1; pointer-events: auto; }
+body.mobile .view-now .up-next:not([hidden]), body.mobile .np-more-sheet {
+  display: flex; flex-direction: column;
+  position: fixed; inset: auto 8px calc(8px + env(safe-area-inset-bottom, 0px)); z-index: 72;
+  width: auto; min-width: 0; height: auto; max-height: 74vh; flex: none; align-self: auto;
+  padding: 12px 14px 16px;
+  border: 1px solid var(--edge); border-radius: 30px;
+  background: var(--sheet-bg);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: 0 -10px 50px -20px rgb(var(--shade-rgb) / 0.6);
+  translate: 0 calc(100% + 30px); transition: translate 0.55s var(--ease);
+  animation: none;
+}
+body.mobile.sheet-queue .view-now .up-next:not([hidden]), body.mobile.sheet-more .np-more-sheet { translate: 0 0; }
+body.mobile .np-more-sheet { touch-action: none; }
+body.mobile .np-more-sheet .np-grab { position: static; display: block; margin: 0 auto 12px; }
+/* «Далее»: ручка сверху (за неё и за заголовок тянут вниз), «Сейчас играет» — не повторяем */
+body.mobile .view-now .up-next::before { content: ""; flex: none; display: block; width: 36px; height: 4px; margin: 0 auto 12px; border-radius: 2px; background: rgb(var(--fg-rgb) / 0.22); }
+body.mobile .view-now .up-next-head { padding: 0 6px; align-items: center; touch-action: none; }
+body.mobile .view-now .up-next-title { font-size: 18px; font-weight: 700; }
+body.mobile .view-now .up-next-scroll > .up-next-label:first-child,
+body.mobile .view-now .up-next-scroll > .up-next-list:not(.upcoming) { display: none; }
+body.mobile .view-now .up-next-label { padding: 2px 6px 10px; font-size: 13px; font-weight: 400; color: var(--muted); }
+body.mobile .view-now .up-next-label:empty { display: none; }
+body.mobile .view-now .up-next-scroll { padding-bottom: 0; scrollbar-width: none; }
+body.mobile .view-now .up-next-item { gap: 12px; padding: 7px 4px 7px 6px; border-radius: 14px; }
+body.mobile .view-now .up-next-item img { width: 48px; height: 48px; border-radius: 10px; }
+body.mobile .view-now .up-next-name { font-size: 15px; font-weight: 600; }
+body.mobile .view-now .up-next-artist { font-size: 13px; }
+body.mobile .view-now .up-next-remove { width: 40px; height: 40px; color: var(--muted); }
+body.mobile .view-now .up-next-empty { padding: 4px 6px 8px; }
+/* «Ещё»: обложка и название, 6 подписанных действий плитками 3×2 */
+body.mobile .np-more-track { display: flex; align-items: center; gap: 12px; padding: 0 6px 2px; min-width: 0; }
+body.mobile .np-more-track img { width: 44px; height: 44px; flex: none; border-radius: 10px; object-fit: cover; background: rgb(var(--fg-rgb) / 0.08); }
+body.mobile .np-more-track div { min-width: 0; }
+body.mobile .np-more-track b { display: block; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.mobile .np-more-track span { display: block; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.mobile .np-more-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+body.mobile .np-more-tile {
+  height: 86px; padding: 0 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  border: 0; border-radius: 20px;
+  background: var(--glass-hi); color: var(--text);
+  font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.2; text-align: center;
+}
+body.mobile .np-more-tile svg { width: 22px; height: 22px; color: var(--muted); }
+body.mobile .np-more-tile.on svg { color: var(--ink); }

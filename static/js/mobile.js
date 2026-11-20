@@ -1,12 +1,18 @@
 // Телефон (приложение для Android, папка android/): нижние вкладки, медиатека отдельным экраном,
 // системная кнопка «Назад». Раскладку меняет CSS по классу body.mobile, здесь — только поведение.
 
+import { openAddToPlaylist } from "./actions.js";
 import { isMobile } from "./device.js";
+import { openFxPanel } from "./fx.js";
 import { icons } from "./icons.js";
-import { coverUrl, closeMenu, displayTrack } from "./ui.js";
+import { resolvedOf } from "./meta.js";
+import { openTrack } from "./nav.js";
+import { openShareCard } from "./sharecard.js";
+import { sleepMenuItems } from "./sleep.js";
+import { coverUrl, closeMenu, displayTrack, el, openMenu } from "./ui.js";
 import { isPlaying, onPlayState, onTrackChange, playNext, playPrev, seekTo, state, togglePlay } from "./player.js";
 import { closePanel, focusSearch } from "./search.js";
-import { canGoBack, goBack, showView } from "./views.js";
+import { canGoBack, contextName, goBack, showView } from "./views.js";
 
 export { isMobile };
 if (isMobile) document.body.classList.add("mobile");
@@ -121,6 +127,7 @@ function back() {
     return true;
   }
   if (body.classList.contains("lib-open")) { setLibraryOpen(false); return true; }
+  if (body.classList.contains("sheet-queue") || body.classList.contains("sheet-more")) { closeSheets(); return true; }
   if (body.classList.contains("on-now") && body.classList.contains("show-lyrics")) {
     document.querySelector('[data-np="lyrics"]').click();
     return true;
@@ -132,6 +139,211 @@ function back() {
   if (canGoBack()) { goBack(); return true; }
   if (view !== "home") { showView("home"); return true; }
   return false;
+}
+
+// ---------- «Сейчас играет» (шаг 11б, макет B-telefon.html) ----------
+// Во весь экран: сверху «свернуть», «Играет из …» и «Ещё»; внизу три подписанные кнопки «Текст / Далее / Ещё».
+// «Далее» (очередь) и «Ещё» (6 действий с подписями) — листы снизу. Жесты: обложку вбок — другой трек,
+// вниз (обложку или шапку) — свернуть. Кнопки эффектов, таймера, дизлайка и «в плейлист» остаются в разметке
+// (их рисуют и слушают fx.js, sleep.js, player.js), на телефоне они спрятаны — их зовёт лист «Ещё»
+
+const nowView = document.getElementById("view-now");
+const npButton = (role) => nowView.querySelector(`[data-np="${role}"]`);
+const btn = (className, icon, label) => {
+  const b = el("button", className);
+  b.type = "button";
+  b.innerHTML = icon;
+  if (label) b.append(el("span", "", label));
+  return b;
+};
+
+function closeSheets() {
+  document.body.classList.remove("sheet-queue", "sheet-more");
+  syncPills();
+}
+function openSheet(name) {
+  closeMenu();
+  document.body.classList.remove("sheet-queue", "sheet-more");
+  document.body.classList.add(`sheet-${name}`);
+  if (name === "more") fillMore();
+  syncPills();
+}
+
+/** Свернуть «Сейчас играет» — туда, откуда пришли */
+function closeNow() {
+  closeSheets();
+  if (canGoBack()) goBack();
+  else showView(view === "now" ? "home" : view);
+}
+
+let pills = null, moreSheet = null, fromName = null;
+function syncPills() {
+  if (!pills) return;
+  const body = document.body.classList;
+  pills.lyr.classList.toggle("on", body.contains("show-lyrics"));
+  pills.queue.classList.toggle("on", body.contains("sheet-queue"));
+  pills.more.classList.toggle("on", body.contains("sheet-more"));
+}
+
+function syncFrom() {
+  const name = state.current ? contextName(state.context) : "";
+  fromName.textContent = name || "Sono";
+}
+
+/** Лист «Ещё»: обложка и название, 6 подписанных действий */
+function fillMore() {
+  const t = state.current;
+  if (!t) return;
+  const shown = displayTrack(t);
+  const head = moreSheet.querySelector(".np-more-track");
+  head.querySelector("img").src = coverUrl(t);
+  head.querySelector("b").textContent = shown.title;
+  head.querySelector("span").textContent = shown.artist;
+  const dis = npButton("dislike");
+  const disTile = moreSheet.querySelector("[data-act=dislike]");
+  disTile.classList.toggle("on", dis.classList.contains("on"));
+  disTile.querySelector("span").textContent = dis.classList.contains("on") ? "Не нравится ✓" : "Не нравится";
+  moreSheet.querySelector("[data-act=sleep]").classList.toggle("on", npButton("sleep").classList.contains("on"));
+  moreSheet.querySelector("[data-act=fx]").classList.toggle("on", npButton("fx").classList.contains("on"));
+}
+
+function moreAction(act) {
+  const t = state.current;
+  closeSheets();
+  if (!t) return;
+  const anchor = pills.more;   // меню (таймер, плейлисты) открывается над кнопкой «Ещё»
+  if (act === "fx") openFxPanel(anchor);
+  else if (act === "sleep") openMenu(anchor, sleepMenuItems());
+  else if (act === "add") openAddToPlaylist(anchor, t);
+  else if (act === "about") openTrack(t);
+  else if (act === "share") openShareCard(t, resolvedOf(t) ?? t);
+  else if (act === "dislike") npButton("dislike").click();
+}
+
+/** Палец по элементу: вбок (onX) или вниз (onY) — как в макете (drag) */
+function drag(node, onX, onY, only = () => true) {
+  let sx = 0, sy = 0, axis = null, id = null;
+  node.addEventListener("pointerdown", (e) => {
+    if (e.button || e.target.closest("button, input, a") || !only(e.target)) return;
+    sx = e.clientX; sy = e.clientY; axis = null; id = e.pointerId;
+  });
+  node.addEventListener("pointermove", (e) => {
+    if (id !== e.pointerId) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!axis && Math.hypot(dx, dy) > 8) {
+      axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      if ((axis === "x" && !onX) || (axis === "y" && !onY)) { id = null; return; }
+      node.setPointerCapture(id);
+    }
+    if (axis === "x") onX.move(dx);
+    if (axis === "y") onY.move(dy);
+  });
+  const end = (e) => {
+    if (id !== e.pointerId) return;
+    id = null;
+    if (axis === "x") onX.end(e.clientX - sx);
+    if (axis === "y") onY.end(e.clientY - sy);
+    axis = null;
+  };
+  node.addEventListener("pointerup", end);
+  node.addEventListener("pointercancel", end);
+}
+
+const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+function initGestures(head) {
+  const cover = nowView.querySelector(".cover-wrap");
+  const lyricsOn = () => document.body.classList.contains("show-lyrics");
+  const swipeX = {
+    move: (dx) => { if (!lyricsOn()) cover.style.translate = `${dx * 0.9}px 0`, cover.style.rotate = `${dx / 40}deg`; },
+    end: (dx) => {
+      const from = [cover.style.translate, cover.style.rotate];
+      cover.style.translate = cover.style.rotate = "";
+      if (from[0]) cover.animate([{ translate: from[0], rotate: from[1] || "0deg" }, { translate: "0 0", rotate: "0deg" }], { duration: 480, easing: EASE });
+      if (Math.abs(dx) > 70) (dx < 0 ? playNext : playPrev)();
+    },
+  };
+  const swipeDown = {
+    move: (dy) => {
+      nowView.style.transform = `translateY(${Math.max(0, dy)}px)`;
+      nowView.style.opacity = String(1 - Math.max(0, dy) / 900);
+    },
+    end: (dy) => {
+      const from = nowView.style.transform;
+      nowView.style.transform = nowView.style.opacity = "";
+      if (dy > 110) {
+        nowView.animate([{ transform: from, opacity: 1 - dy / 900 }, { transform: "translateY(100%)", opacity: 0.4 }],
+          { duration: 320, easing: "cubic-bezier(.4,0,1,1)" }).finished.then(closeNow);
+      } else if (from) nowView.animate([{ transform: from }, { transform: "none" }], { duration: 420, easing: EASE });
+    },
+  };
+  drag(cover, swipeX, swipeDown);
+  drag(head, null, swipeDown);
+  // Листы тянут вниз за верх (у «Далее» список листается сам) — закрываются
+  const upNext = document.getElementById("up-next");
+  for (const [sheet, only] of [[upNext, (t) => t === upNext || !!t.closest(".up-next-head")], [moreSheet, () => true]]) {
+    drag(sheet, null, {
+      move: (dy) => { sheet.style.transition = "none"; sheet.style.translate = `0 ${Math.max(0, dy)}px`; },
+      end: (dy) => { sheet.style.transition = sheet.style.translate = ""; if (dy > 90) closeSheets(); },
+    }, only);
+  }
+}
+
+function initNowScreen() {
+  // Шапка: свернуть · «Играет из …» · «Ещё»
+  const head = el("div", "np-head");
+  head.append(el("span", "np-grab"));
+  const down = btn("np-head-btn np-down", icons.chevron);
+  down.setAttribute("aria-label", "Свернуть");
+  down.addEventListener("click", closeNow);
+  const from = el("div", "np-from");
+  fromName = el("b");
+  from.append(el("small", "", "Играет из"), fromName);
+  const dots = btn("np-head-btn", icons.more);
+  dots.setAttribute("aria-label", "Ещё");
+  dots.addEventListener("click", () => openSheet("more"));
+  head.append(down, from, dots);
+  nowView.prepend(head);
+
+  // Три подписанные кнопки под плеером
+  const row = el("div", "np-pills");
+  pills = {
+    lyr: btn("np-pill", icons.mic, "Текст"),
+    queue: btn("np-pill", icons.queue, "Далее"),
+    more: btn("np-pill", icons.more, "Ещё"),
+  };
+  pills.lyr.addEventListener("click", () => { closeSheets(); npButton("lyrics").click(); });
+  pills.queue.addEventListener("click", () => (document.body.classList.contains("sheet-queue") ? closeSheets() : openSheet("queue")));
+  pills.more.addEventListener("click", () => (document.body.classList.contains("sheet-more") ? closeSheets() : openSheet("more")));
+  row.append(pills.lyr, pills.queue, pills.more);
+  nowView.querySelector(".controls").after(row);
+
+  // Затемнение под листами (касание — закрыть) и лист «Ещё»
+  const dim = el("div", "np-dim");
+  dim.addEventListener("click", closeSheets);
+  moreSheet = el("div", "np-more-sheet");
+  const track = el("div", "np-more-track");
+  const img = el("img");
+  img.alt = "";
+  const text = el("div");
+  text.append(el("b"), el("span"));
+  track.append(img, text);
+  const grid = el("div", "np-more-grid");
+  for (const [act, icon, label] of [["fx", icons.fx, "Эффекты"], ["sleep", icons.moon, "Таймер сна"], ["add", icons.plus, "В плейлист"],
+    ["about", icons.info, "О треке"], ["share", icons.share, "Поделиться"], ["dislike", icons.dislike, "Не нравится"]]) {
+    const tile = btn("np-more-tile", icon, label);
+    tile.dataset.act = act;
+    tile.addEventListener("click", () => moreAction(act));
+    grid.append(tile);
+  }
+  moreSheet.append(el("span", "np-grab"), track, grid);
+  nowView.append(dim, moreSheet);
+
+  // Текст включили/выключили (lyrics.js ставит body.show-lyrics) — подсветить «Текст»
+  new MutationObserver(syncPills).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  onTrackChange(() => { syncFrom(); if (document.body.classList.contains("sheet-more")) fillMore(); });
+  document.addEventListener("sono:view", (e) => { if (e.detail !== "now") closeSheets(); });
+  syncFrom();
+  initGestures(head);
 }
 
 // ---------- Шторка и экран блокировки (PlaybackService.kt) ----------
@@ -180,17 +392,9 @@ export function initMobile() {
     e.preventDefault();
     showView("now");
   }, true);
-  // Очередь и текст песни закрывают весь экран — снизу кнопка «Свернуть» (видна, только пока они открыты)
-  const sheetClose = document.createElement("button");
-  sheetClose.type = "button";
-  sheetClose.className = "np-sheet-close";
-  sheetClose.innerHTML = `${icons.chevron}<span>Свернуть</span>`;
-  sheetClose.addEventListener("click", () => {
-    const which = document.body.classList.contains("show-lyrics") ? "lyrics" : "queue";
-    document.querySelector(`#view-now [data-np="${which}"]`)?.click();
-  });
-  document.getElementById("view-now").append(sheetClose);
-  // Очередь на телефоне — слоем на весь экран; при запуске её не показываем (кнопка сама включит снова)
+  // «Сейчас играет»: шапка, «Текст / Далее / Ещё», листы снизу, жесты (шаг 11б). Очередь на телефоне —
+  // лист «Далее» (body.sheet-queue; класс np-queue занят панелью очереди ПК), а не прежний слой show-queue: при запуске его не показываем
+  initNowScreen();
   document.body.classList.remove("show-queue");
   document.querySelectorAll('[data-np="queue"]').forEach((b) => b.classList.remove("on"));
   window.sonoBack = back;

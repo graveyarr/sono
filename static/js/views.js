@@ -17,6 +17,7 @@ import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
 import { openTrack, setNavigator, trackForPage } from "./nav.js";
 import { renderTrack } from "./trackpage.js";
+import { isMobile } from "./device.js";
 import { renderTrackLive } from "./tplive.js";
 import { renderArtistLive } from "./artistlive.js";
 import { openImportDialog } from "./import.js";
@@ -812,7 +813,7 @@ function newReleasesRow(box) {
 
 // ---------- «Далее» на экране «Сейчас играет» ----------
 
-function contextName(ctx) {
+export function contextName(ctx) {
   if (!ctx) return "";
   if (ctx.type === "liked") return "Избранное";
   if (ctx.type === "playlist") return getPlaylist(ctx.id)?.name ?? "";
@@ -863,7 +864,7 @@ function renderUpNext() {
   const keepScroll = upNext.querySelector(".up-next-scroll")?.scrollTop ?? 0;
 
   const head = el("div", "up-next-head");
-  head.append(el("span", "up-next-title", "Очередь"));
+  head.append(el("span", "up-next-title", isMobile ? "Далее" : "Очередь"));   // телефон: лист «Далее» (шаг 11б)
   const upcoming = [];
   for (let i = state.index + 1; i < state.queue.length; i++) {
     if (!isDisliked(state.queue[i])) upcoming.push(i);
@@ -882,7 +883,7 @@ function renderUpNext() {
   scroll.append(nowList);
 
   const from = contextName(state.context);
-  const label = el("div", "up-next-label", from ? `Далее — из «${from}»` : "Далее");
+  const label = el("div", "up-next-label", isMobile ? (from ? `Из «${from}»` : "") : from ? `Далее — из «${from}»` : "Далее");
   const badges = [state.shuffle && "вперемешку", state.repeat === "all" && "по кругу", state.repeat === "one" && "повтор трека"].filter(Boolean);
   if (badges.length) label.append(el("span", "up-next-mode", badges.join(" · ")));
   scroll.append(label);

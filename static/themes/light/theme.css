@@ -143,3 +143,6 @@ button.play { background: #1c1c1c; color: #fff; }
 
 /* Шаг 11, телефон: подсветка под выбранной вкладкой — цвета обложки (как в макете), а не белая на белом */
 body.mobile .tabbar::before { background: color-mix(in srgb, var(--accent) 22%, #fff); }
+/* Шаг 11б: под листами «Далее» и «Ещё» — лёгкая вуаль, а не чёрная; плитки «Ещё» — молочные */
+body.mobile .np-dim { background: rgb(var(--shade-rgb) / 0.2); }
+body.mobile .np-more-tile { background: rgba(255, 255, 255, 0.6); }

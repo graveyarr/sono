@@ -6,6 +6,7 @@
 // в карточке «Сейчас играет» на «Главной» (showLyricLine).
 
 import { getSetting, keyOf, setSetting } from "./library.js";
+import { isMobile } from "./device.js";
 import { EASE, calm, liveUi } from "./motion.js";
 import { onTrackChange, seekTo, state, togglePlay } from "./player.js";
 import { displayTrack, el } from "./ui.js";
@@ -49,15 +50,15 @@ function apply() {
 
 // Оформление текста (Настройки → Оформление): «Карточка» — фон цвета обложки, как в Spotify (по умолчанию);
 // «Спокойный» — тонкий текст без эффектов; «Крупный» — прежний: большая светящаяся строка (другу казался смешным)
-// «По словам» — для нового вида на компьютере (по умолчанию там); на телефоне его пока нет
+// «По словам» — новый вид (по умолчанию там): ПК и телефон (шаг 11б)
 export const LYRICS_STYLES = [
-  ...(liveUi() ? [{ id: "words", title: "По словам", hint: "Строки плывут вверх, слова загораются по очереди" }] : []),
+  ...(liveUi() || isMobile ? [{ id: "words", title: "По словам", hint: "Строки плывут вверх, слова загораются по очереди" }] : []),
   { id: "card", title: "Карточка", hint: "Фон цвета обложки, текущая строка — белая" },
   { id: "minimal", title: "Спокойный", hint: "Тонкий текст без эффектов" },
   { id: "big", title: "Крупный", hint: "Большие строки, текущая светится" },
 ];
 export const lyricsStyle = () => {
-  const fallback = liveUi() ? "words" : "card";
+  const fallback = liveUi() || isMobile ? "words" : "card";
   const id = getSetting("lyricsStyle", fallback);
   return LYRICS_STYLES.some((x) => x.id === id) ? id : fallback;
 };
