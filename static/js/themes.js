@@ -159,6 +159,10 @@ export function chooseTheme(id, part = "theme") {
     toast(`«${theme.name}» сделан${part === "theme" ? "а" : ""} для Sono ${theme.needs} или новее — обновите Sono`, { error: true });
     return;
   }
+  if (theme?.old) {   // шаг 12: тема для прежнего вида (themes.py → made_for_old_look)
+    toast(`«${theme.name}» сделан${part === "theme" ? "а" : ""} для прежнего вида Sono — автор обновит ${part === "theme" ? "её" : "его"} позже`, { icon: "info" });
+    return;
+  }
   setSetting(SLOTS[part].setting, theme ? theme.id : null);
   apply(part, theme);
   changed();
@@ -209,8 +213,14 @@ export async function initThemes() {
     const theme = themes.find((t) => t.id === currentThemeId(part) && t.part === part);
     // Тему удалили или она для более новой Sono — молча возвращаем обычную, настройку не трогаем:
     // папку могли временно переименовать
-    apply(part, theme && !theme.needs ? theme : null);
+    apply(part, theme && !theme.needs && !theme.old ? theme : null);
     if (!theme && part === "theme") offerMoved(currentThemeId(part));
+    // Включена тема для прежнего вида: сейчас — обычный вид, выбор не трогаем (обновится — включится сама).
+    // Сказать об этом — один раз для каждой темы, а не при каждом запуске
+    if (theme?.old && getSetting("oldThemeNoticed", null) !== theme.id) {
+      setSetting("oldThemeNoticed", theme.id);
+      toast(`«${theme.name}» сделан${part === "theme" ? "а" : ""} для прежнего вида Sono — автор обновит ${part === "theme" ? "её" : "его"} позже. Пока — обычный вид`, { icon: "info", duration: 12000 });
+    }
   }
 }
 

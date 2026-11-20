@@ -339,6 +339,8 @@ export function shot(t, index = 0, cls = "ws-shot") {
 export function state(t) {
   if (busy.has(t.id)) return { key: "busy", label: t.installed ? "Обновляю…" : "Ставлю…", disabled: true };
   if (t.needs && !t.installed) return { key: "needs", label: `Нужна Sono ${t.needs}`, disabled: true };
+  // Шаг 12: тема (и её обновление в каталоге) для прежнего вида — ни поставить, ни включить, пока автор не обновит
+  if (t.old) return { key: "old", label: "Для прежнего вида", disabled: true };
   if (!t.installed) return { key: "install", label: "Установить", kind: "primary", run: () => install(t) };
   if (t.hasUpdate) return { key: "update", label: "Обновить", kind: "primary", run: () => install(t) };
   if (currentThemeId(t.part) === t.themeId) return { key: "on", label: "Включена", kind: "ghost on", icon: icons.check, run: null };

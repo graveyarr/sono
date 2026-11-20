@@ -84,6 +84,17 @@ def needs_newer(requirement, current: str) -> str | None:
     return m.group(1) if _vtuple(current) < _vtuple(m.group(1)) else None
 
 
+# С 1.0.0 у Sono новый вид («Живая обложка»): классы и раскладка другие. Темы из мастерской и свои темы,
+# сделанные для прежнего вида, не включаются, пока автор не обновит их («sono": ">=1.0.0" в theme.json)
+NEW_LOOK = "1.0.0"
+
+
+def made_for_old_look(requirement) -> bool:
+    """«sono» ниже 1.0.0 или не указано — тема рассчитана на прежний вид. "0.9.8" и ">=0.9.8" — одно и то же."""
+    m = re.match(r"\s*(?:>=?)?\s*(\d+(?:\.\d+){0,3})\s*$", requirement) if isinstance(requirement, str) else None
+    return not m or _vtuple(m.group(1)) < _vtuple(NEW_LOOK)
+
+
 def _text(value, limit: int) -> str:
     return value.strip()[:limit] if isinstance(value, str) else ""
 
@@ -146,6 +157,9 @@ def read_theme(kind: str, name: str, current: str) -> dict | None:
         "preview": preview,
         "image": image,
         "needs": needs_newer(meta.get("sono"), current),
+        # Своя тема или из мастерской для прежнего вида — не включается (встроенные мы обновляем сами;
+        # темы из редактора меняют только цвета и шрифты — им новый вид не страшен)
+        "old": kind == "user" and editor is None and made_for_old_look(meta.get("sono")),
         "stamp": stamp,
         "tooBig": size > MAX_CSS,
         "error": error,
@@ -566,7 +580,7 @@ def save_from_editor(name: str, data: dict, current: str) -> dict | None:
     if len(preview) == 4:
         meta["preview"] = preview
     meta["editor"] = values
-    meta.setdefault("sono", ">=0.9.3")
+    meta.setdefault("sono", ">=" + NEW_LOOK)
 
     # Шрифт из Sono — копия в эту тему (вместе с лицензией): тема должна жить сама по себе
     for font_id in data.get("fonts") or []:

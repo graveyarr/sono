@@ -1723,7 +1723,8 @@ def index():
         def usable(chosen):
             kind, _, name = chosen.partition(":") if isinstance(chosen, str) else ("", "", "")
             info = themes.read_theme(kind, name, version) if kind in ("builtin", "user") else None
-            return info if info and not info["needs"] and not info["tooBig"] else None
+            # тема для прежнего вида (шаг 12) — не подключаем: страница включит обычный вид и скажет почему
+            return info if info and not info["needs"] and not info["tooBig"] and not info.get("old") else None
 
         # Тема всего Sono и отдельно — вид «Сейчас играет» (второй <link> поверх темы)
         theme, now = usable(settings.get("theme")), usable(settings.get("nowStyle"))

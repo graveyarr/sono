@@ -233,6 +233,7 @@ def catalog(current: str) -> dict:
         t["themeId"] = f"user:{mine['folder']}" if mine else None
         t["hasUpdate"] = bool(mine) and mine["version"] != t["version"]
         t["needs"] = _needs(t, current)
+        t["old"] = themes.made_for_old_look(t["sono"])   # сделана для прежнего вида — ставить нельзя (до обновления)
     cat["stale"] = time.time() - cat["fetchedAt"] > STALE_AFTER
     cat["issues"] = ISSUES_URL
     return cat
@@ -368,6 +369,8 @@ def install(theme_id: str, current: str) -> dict:
         need = _needs(entry, current)
         if need:
             raise ValueError(f"для этой темы нужна Sono {need} или новее")
+        if themes.made_for_old_look(entry["sono"]):
+            raise ValueError("тема сделана для прежнего вида Sono — автор обновит её позже")
         data = _download(file_url(entry["zip"]), MAX_ZIP, timeout=60)
         if hashlib.sha256(data).hexdigest() != entry["sha256"]:
             raise ValueError("архив не совпал с каталогом (повреждён или подменён) — попробуйте обновить каталог")

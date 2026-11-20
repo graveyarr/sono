@@ -249,7 +249,7 @@ function card(t, pick = false) {
 }
 
 function actionButton(t, s) {
-  const cls = { on: " on", update: " upd", busy: " idle", needs: " idle" }[s.key] ?? "";
+  const cls = { on: " on", update: " upd", busy: " idle", needs: " idle", old: " idle" }[s.key] ?? "";
   const b = el("button", `wsl-btn${cls}`);
   b.type = "button";
   if (s.key === "on") b.innerHTML = icons.check;

@@ -470,17 +470,17 @@ function drawThemes(part) {
   grid.replaceChildren(...list.map((t) => {
     const card = el("button", `theme-card${t.id === current || (!t.id && !current) ? " on" : ""}`);
     card.type = "button";
-    card.disabled = !!t.needs || t.tooBig;
+    card.disabled = !!t.needs || t.tooBig || !!t.old;
     const name = el("span", "theme-name", t.name);
     const sub = el("span", "theme-sub",
-      !t.id ? "Как обычно" : t.needs ? `Нужна Sono ${t.needs}` : t.tooBig ? "Файл темы больше 512 КБ" : t.error ? t.error
+      !t.id ? "Как обычно" : t.needs ? `Нужна Sono ${t.needs}` : t.old ? "Для прежнего вида — обновится позже" : t.tooBig ? "Файл темы больше 512 КБ" : t.error ? t.error
         : t.kind === "user" ? (t.author ? `${info.own} · ${t.author}` : info.own) : t.author && t.author !== "Sono" ? t.author : info.builtin);
     card.title = [t.description, t.version && `Версия ${t.version}`].filter(Boolean).join("\n");
     card.append(themeSwatch(t, part), name, sub);
     card.addEventListener("click", () => chooseTheme(t.id, part));
     // Тему можно открыть в редакторе (editor.js): свою — править её саму, встроенную и из мастерской — копию
     // (их файлы перезапишет обновление). Виды «Сейчас играет» редактор пока не умеет
-    const canEdit = part === "theme" && !t.needs && !t.tooBig;
+    const canEdit = part === "theme" && !t.needs && !t.tooBig && !t.old;
     const canDelete = t.kind === "user";
     if (!canEdit && !canDelete) return card;
     const editLabel = t.kind === "user" && !t.workshop ? "Изменить в редакторе" : "Изменить копию в редакторе";
