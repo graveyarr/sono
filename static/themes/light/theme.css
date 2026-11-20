@@ -121,3 +121,11 @@ button.play { background: #1c1c1c; color: #fff; }
 .cfg :is(.set-choice .seg, .cfg-seg, .set-strategies, .zapret-paths) .seg-btn.on { background: #fff; }
 .cfg .btn:not(.primary) { background: rgba(255, 255, 255, 0.72); border-color: rgba(255, 255, 255, 0.9); }
 .cfg .btn:not(.primary):hover:not(:disabled) { background: #fff; }
+
+/* «Живая обложка», шаг 9: «Мастерская тем» — чипы и пилюли молочные, «Включена» темнее зелёного */
+.wsl .pill:not(.solid) { background: rgba(255, 255, 255, 0.55); border-color: rgba(255, 255, 255, 0.9); }
+.wsl-chip:not(.on) { background: rgba(255, 255, 255, 0.72); border-color: rgba(255, 255, 255, 0.9); }
+.wsl .pill:not(.solid):hover, .wsl-chip:not(.on):hover { background: rgba(255, 255, 255, 0.9); }
+.wsl-btn.on { background: color-mix(in srgb, #3ddc97 25%, #fff); color: #13865a; }
+.wsl-btn.upd { color: #fff; }
+.wsl-badge:not(.on-pic) { background: rgba(255, 255, 255, 0.72); }

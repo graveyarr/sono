@@ -11,6 +11,7 @@ import { renderReleasesLive } from "./nrlive.js";
 import { renderSearchView } from "./searchlive.js";
 import { renderStats, statsCard } from "./stats.js";
 import { renderWorkshop } from "./workshop.js";
+import { renderWorkshopLive } from "./wslive.js";
 import { wrappedButton, wrappedCard } from "./wrapped.js";
 import { getPick, picks, picksBuilding } from "./picks.js";
 import { icons } from "./icons.js";
@@ -185,7 +186,7 @@ function applyView(changed) {
   // На ПК («Живая обложка») Flow, «Статистика» и «Новинки» — новые экраны (flowlive.js, statslive.js, nrlive.js)
   if (view === "flow") { if (liveUi()) renderFlowLive({ covers: flowCovers }); else renderFlowView(); }
   if (view === "stats") { if (liveUi()) renderStatsLive(viewStats); else renderStats(viewStats, wrappedButton()); }
-  if (view === "workshop" && changed) renderWorkshop(viewWorkshop);
+  if (view === "workshop" && changed) (liveUi() ? renderWorkshopLive : renderWorkshop)(viewWorkshop);   // на ПК — wslive.js
   if (view === "search" && changed) renderSearchView(viewSearch);
   if (isMetaView(view)) { if (changed) renderMeta(); }
   else if (isList) renderList(changed);

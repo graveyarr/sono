@@ -42,6 +42,7 @@ export const icons = {
   repeatOne: outline('<path d="M17 2.5l3 3-3 3"/><path d="M4 11.5v-1a5 5 0 0 1 5-5h11"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 12.5v1a5 5 0 0 1-5 5H4"/><path d="M11 10.5l1.5-1v5.5"/>'),
   queue: outline('<path d="M4 6h12M4 11h12M4 16h7"/><path d="M15.5 13.5v7l5-3.5z" fill="currentColor"/>'),
   download: outline('<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/>'),
+  refresh: outline('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4.5V11h-6.5"/>'),   // обновить каталог (мастерская)
   downloaded: filled('<circle cx="12" cy="12" r="10"/><path d="M12 7v7.5M8.5 11.5 12 15l3.5-3.5" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'),
   import: outline('<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/>'),
   // Умное перемешивание: перемешать + искорка

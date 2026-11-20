@@ -5676,3 +5676,93 @@ body.sq-open:not(.mobile) .sq-shade { opacity: 1; }
   .cfg-tab > div > span { display: none; }
   .cfg-tab-ic { width: 34px; height: 34px; }
 }
+
+/* ---------- «Живая обложка», шаг 9: «Мастерская тем» (ПК; wslive.js) ----------
+   Макет — design/ui-new/B-ekrany.html (#workshop). Прежняя мастерская (.ws-*) — на телефоне */
+.view-workshop:has(> .wsl) { padding: 0; max-width: none; }
+.wsl { padding: 24px var(--pad) 28px; font-size: 14px; line-height: 1.35; }
+.wsl-refresh svg { transition: rotate 0.6s var(--ease); }
+.wsl-refresh.busy svg { animation: wsl-spin 0.9s linear infinite; }
+@keyframes wsl-spin { to { rotate: 360deg; } }
+/* Поиск и чипы */
+.wsl-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0 6px; }
+.wsl-find { display: flex; align-items: center; gap: 9px; width: 300px; height: 40px; padding: 0 14px; border-radius: 20px; color: var(--muted); cursor: text; }
+.wsl-find svg { width: 16px; height: 16px; flex: none; }
+.wsl-find input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 13.5px; color: var(--text); }
+.wsl-find input::placeholder { color: var(--faint); }
+.wsl-find input::-webkit-search-cancel-button { filter: invert(1); opacity: 0.5; }
+.wsl-find:focus-within { border-color: rgb(var(--fg-rgb) / 0.4); }
+.wsl-chips { display: contents; }
+.wsl-chip {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px;
+  border: 1px solid var(--edge); border-radius: 17px; background: var(--glass-hi);
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; cursor: pointer;
+  transition: background-color 0.25s, color 0.25s, scale 0.3s var(--spring);
+}
+.wsl-chip:hover { color: var(--text); }
+.wsl-chip:active { scale: 0.96; }
+.wsl-chip.on { background: rgb(var(--fg-rgb)); border-color: transparent; color: rgb(var(--shade-rgb)); }
+.wsl-chip small { font-size: 12px; opacity: 0.65; }
+/* Разделы */
+.wsl-sec { margin-top: 34px; }
+.wsl-body > .wsl-sec:first-child { margin-top: 22px; }
+.wsl-h { display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px 4px; font: 700 22px/1.2 var(--font-display); }
+.wsl-h small { font-size: 13px; font-weight: 600; font-family: var(--font); color: var(--faint); }
+.wsl-h .live-seg { align-self: center; margin-left: 14px; font-family: var(--font); }
+.wsl-picks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.wsl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; }
+/* Карточка темы */
+.wsl-card { min-width: 0; padding: 12px; border-radius: 26px; cursor: pointer; outline: none; transition: translate 0.5s var(--ease), box-shadow 0.5s var(--ease), background-color 1.4s var(--ease); }
+.wsl-card:hover, .wsl-card:focus-visible { translate: 0 -5px; box-shadow: 0 26px 46px -24px rgb(var(--shade-rgb) / 0.7); }
+.wsl-card:focus-visible { box-shadow: 0 0 0 2px var(--text), 0 26px 46px -24px rgb(var(--shade-rgb) / 0.7); }
+.wsl-pv { position: relative; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 18px; }
+.wsl-shot { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border-radius: 0; box-shadow: none; }
+.wsl-shot .ws-img { transition: scale 1s var(--ease); }
+.wsl-card:hover .wsl-shot .ws-img { scale: 1.04; }
+.wsl-badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--glass-hi); color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.2px; white-space: nowrap; }
+/* Поверх картинки — тёмное стекло и белый текст при любой теме */
+.wsl-badge.on-pic { position: absolute; right: 12px; top: 12px; background: rgb(0 0 0 / 0.6); color: #fff; backdrop-filter: blur(8px); }
+.wsl-try {
+  position: absolute; right: 12px; bottom: 12px;
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px;
+  border: 0; border-radius: 18px; background: rgb(0 0 0 / 0.6); color: #fff; backdrop-filter: blur(8px);
+  font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  opacity: 0; translate: 0 8px; transition: opacity 0.3s, translate 0.45s var(--spring), background-color 0.25s;
+}
+.wsl-try svg { width: 15px; height: 15px; }
+.wsl-try:hover { background: rgb(0 0 0 / 0.8); }
+.wsl-card:hover .wsl-try, .wsl-try:focus-visible { opacity: 1; translate: 0 0; }
+.wsl-tf { display: flex; align-items: center; gap: 12px; padding: 12px 6px 4px; }
+.wsl-text { flex: 1; min-width: 0; }
+.wsl-name { display: block; overflow: hidden; padding-bottom: 0.1em; font: 800 19px/1.2 var(--font-display); white-space: nowrap; text-overflow: ellipsis; }
+.wsl-card.pick .wsl-name { font-size: 22px; }
+.wsl-desc, .wsl-meta { display: block; overflow: hidden; font-size: 13px; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+.wsl-meta { color: var(--faint); }
+.wsl-author { color: var(--muted); }
+.wsl-dl { display: inline-flex; align-items: center; gap: 2px; }
+.wsl-dl svg { width: 12px; height: 12px; }
+.wsl-tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 6px 4px; }
+.wsl-tags:empty { display: none; }
+/* Кнопка темы: Установить / Включить — белая, «Включена» — зелёная, «Обновить до …» — цвет акцента */
+.wsl-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px;
+  border: 0; border-radius: 19px; background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb));
+  font: inherit; font-size: 13.5px; font-weight: 700; white-space: nowrap; cursor: pointer;
+  transition: box-shadow 0.2s, scale 0.3s var(--spring);
+}
+.wsl-btn svg { width: 16px; height: 16px; }
+.wsl-btn:hover:not(:disabled) { box-shadow: 0 0 0 5px rgb(var(--fg-rgb) / 0.1); }
+.wsl-btn:active:not(:disabled) { scale: 0.96; }
+.wsl-btn.on { background: color-mix(in srgb, #3ddc97 22%, transparent); color: #3ddc97; cursor: default; box-shadow: none; }
+.wsl-btn.upd { background: var(--ink); color: rgb(0 0 0 / 0.85); }
+.wsl-btn.idle { background: var(--glass-hi); color: var(--muted); cursor: default; }
+/* «Своя тема — без кода» и пустые места */
+.wsl-mine { display: flex; flex-direction: column; justify-content: center; gap: 10px; min-height: 240px; padding: 22px; border-radius: 26px; border-style: dashed; }
+.wsl-mine b { padding-bottom: 0.1em; font: 800 22px/1.2 var(--font-display); }
+.wsl-mine span { font-size: 14px; line-height: 1.45; color: var(--muted); }
+.wsl-mine-acts { margin-top: 6px; }
+.wsl-empty { display: flex; align-items: center; justify-content: center; min-height: 240px; padding: 22px; border-radius: 26px; text-align: center; color: var(--muted); font-size: 15px; }
+@media (max-width: 1250px) {
+  .wsl-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
+.wsl-chip.wsl-more { border-style: dashed; }

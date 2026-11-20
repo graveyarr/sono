@@ -8,7 +8,7 @@ import { chooseTheme, currentThemeId, deleteTheme, loadThemes, onThemesChange } 
 import { compactNumber, confirmDialog, el, openModal, plural, toast } from "./ui.js";
 import { openExternal } from "./device.js";
 
-const TABS = [
+export const TABS = [
   { id: "popular", title: "Популярные", hint: "Больше всего скачиваний" },
   { id: "new", title: "Новые", hint: "Недавно появились в мастерской" },
   { id: "updated", title: "Обновлённые", hint: "Недавно обновлены авторами" },
@@ -23,10 +23,26 @@ let loading = false;
 let refreshing = false;
 const busy = new Set();        // id тем, которые сейчас ставятся
 let listening = false;
+let liveDraw = null;           // на ПК экран рисует wslive.js («Живая обложка», шаг 9): ему — данные и действия отсюда
 
 const norm = (s) => (s || "").toLowerCase().replace(/ё/g, "е");
 
 export function renderWorkshop(section) {
+  liveDraw = null;
+  start(section);
+}
+
+/** ПК: экран рисует draw из wslive.js, каталог, установка и окно темы — прежние (отсюда) */
+export function startWorkshopLive(section, draw) {
+  liveDraw = draw;
+  start(section);
+}
+
+// Что нужно новому экрану (wslive.js)
+export const wsCatalog = () => cat;
+export const wsBusy = () => ({ loading, refreshing });
+
+function start(section) {
   root = section;
   if (!listening) {
     listening = true;
@@ -51,7 +67,7 @@ async function load({ refresh = false } = {}) {
   if (refresh || cat.stale) await refreshCatalog();
 }
 
-async function refreshCatalog() {
+export async function refreshCatalog() {
   if (refreshing) return;
   refreshing = true;
   draw();
@@ -68,28 +84,28 @@ async function refreshCatalog() {
 
 // ---------- Что показывать ----------
 
-function matches(t) {
-  if (query) {
+export function matches(t, f = filter, q = query) {
+  if (q) {
     const hay = norm([t.name, t.author, t.description, ...(t.tags || [])].join(" "));
-    if (!norm(query).split(/\s+/).every((w) => hay.includes(w))) return false;
+    if (!norm(q).split(/\s+/).every((w) => hay.includes(w))) return false;
   }
-  if (filter === "all") return true;
-  if (filter === "part:theme") return t.part === "theme";
-  if (filter === "part:now") return t.part === "now";
-  if (filter === "icons") return t.icons;
-  if (filter === "font") return t.font;
-  if (filter === "installed") return !!t.installed;
-  if (filter === "updates") return t.hasUpdate;
-  if (filter.startsWith("tag:")) return (t.tags || []).includes(filter.slice(4));
+  if (f === "all") return true;
+  if (f === "part:theme") return t.part === "theme";
+  if (f === "part:now") return t.part === "now";
+  if (f === "icons") return t.icons;
+  if (f === "font") return t.font;
+  if (f === "installed") return !!t.installed;
+  if (f === "updates") return t.hasUpdate;
+  if (f.startsWith("tag:")) return (t.tags || []).includes(f.slice(4));
   return true;
 }
 
-function sorted(list) {
+export function sorted(list, order = tab) {
   const by = {
     popular: (a, b) => b.downloads - a.downloads || (b.updated || "").localeCompare(a.updated || ""),
     new: (a, b) => (b.created || "").localeCompare(a.created || ""),
     updated: (a, b) => (b.updated || "").localeCompare(a.updated || ""),
-  }[tab];
+  }[order];
   return [...list].sort((a, b) => by(a, b) || a.name.localeCompare(b.name, "ru"));
 }
 
@@ -121,6 +137,11 @@ function categories() {
 // ---------- Отрисовка ----------
 
 function draw() {
+  if (liveDraw) liveDraw();
+  else drawOld();
+}
+
+function drawOld() {
   if (!root) return;
   const keepScroll = root.querySelector(".ws-side")?.scrollTop ?? 0;
   const focused = document.activeElement?.classList.contains("ws-search-input");
@@ -153,7 +174,7 @@ function draw() {
   }
 }
 
-function statusText() {
+export function statusText() {
   if (!cat) return "Загружаю каталог…";
   if (refreshing && !cat.fetchedAt) return "Загружаю каталог…";
   const when = cat.fetchedAt ? dateText(new Date(cat.fetchedAt * 1000).toISOString().slice(0, 10)) : "";
@@ -215,7 +236,7 @@ function mainColumn() {
   }
   main.append(tabs, el("p", "ws-tab-hint", TABS.find((t) => t.id === tab).hint));
 
-  const list = sorted(cat.themes.filter(matches));
+  const list = sorted(cat.themes.filter((t) => matches(t)));
   if (!list.length) {
     main.append(el("div", "ws-empty", query ? `По запросу «${query}» ничего не нашлось` : "Здесь пока пусто"));
     return main;
@@ -266,9 +287,9 @@ function themeCard(t) {
   return card;
 }
 
-const byline = (t) => (t.author ? `Автор: ${t.author}` : "Автор не указан");
+export const byline = (t) => (t.author ? `Автор: ${t.author}` : "Автор не указан");
 
-function kindTags(t) {
+export function kindTags(t) {
   return [t.part === "now" ? "Вид «Сейчас играет»" : null, ...(t.tags || []), t.icons ? "Свои значки" : null].filter(Boolean);
 }
 
@@ -280,7 +301,7 @@ function downloadsLine(t, cls = "ws-dl") {
   return line;
 }
 
-function dateText(iso) {
+export function dateText(iso) {
   if (!iso) return "";
   const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
   if (Number.isNaN(d.getTime())) return "";
@@ -289,7 +310,7 @@ function dateText(iso) {
 }
 
 /** Картинка темы; пока не загрузилась (или её нет / нет сети) — «окно Sono» цветами темы, как в настройках */
-function shot(t, index = 0, cls = "ws-shot") {
+export function shot(t, index = 0, cls = "ws-shot") {
   const box = el("span", `${cls} theme-swatch${t.part === "now" ? " now" : ""}`);
   const [bg = "#151515", panel = "#2a2a2a", fg = "#ffffff", accent = fg] = t.preview ?? [];
   box.style.setProperty("--c-bg", bg);
@@ -314,13 +335,14 @@ function shot(t, index = 0, cls = "ws-shot") {
 
 // ---------- Кнопки: установить / включить / обновить ----------
 
-function state(t) {
-  if (busy.has(t.id)) return { label: t.installed ? "Обновляю…" : "Ставлю…", disabled: true };
-  if (t.needs && !t.installed) return { label: `Нужна Sono ${t.needs}`, disabled: true };
-  if (!t.installed) return { label: "Установить", kind: "primary", run: () => install(t) };
-  if (t.hasUpdate) return { label: "Обновить", kind: "primary", run: () => install(t) };
-  if (currentThemeId(t.part) === t.themeId) return { label: "Включена", kind: "ghost on", icon: icons.check, run: null };
-  return { label: "Включить", kind: "ghost", run: () => enable(t) };
+/** Кнопка темы: key — busy | needs | install | update | on | enable (по нему wslive.js выбирает вид кнопки) */
+export function state(t) {
+  if (busy.has(t.id)) return { key: "busy", label: t.installed ? "Обновляю…" : "Ставлю…", disabled: true };
+  if (t.needs && !t.installed) return { key: "needs", label: `Нужна Sono ${t.needs}`, disabled: true };
+  if (!t.installed) return { key: "install", label: "Установить", kind: "primary", run: () => install(t) };
+  if (t.hasUpdate) return { key: "update", label: "Обновить", kind: "primary", run: () => install(t) };
+  if (currentThemeId(t.part) === t.themeId) return { key: "on", label: "Включена", kind: "ghost on", icon: icons.check, run: null };
+  return { key: "enable", label: "Включить", kind: "ghost", run: () => enable(t) };
 }
 
 function actionButton(t, small = false) {
@@ -386,7 +408,7 @@ async function remove(t) {
 
 let details = null;   // { id, box }
 
-function openDetails(t) {
+export function openDetails(t) {
   const { box, close } = openModal({ className: "ws-dialog", onClose: () => { details = null; } });
   details = { id: t.id, box, close };
   box.addEventListener("submit", (e) => e.preventDefault());   // окно — <form>: Enter не должен его «отправлять»
