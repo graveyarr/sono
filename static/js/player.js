@@ -4,6 +4,7 @@
 
 import { icons } from "./icons.js";
 import { setCrossfadeHandler } from "./audio.js";
+import { isMobile } from "./device.js";
 import { addToHistory, altVersionOf, getSetting, isDisliked, isLiked, keyOf, lib, removeFromHistory, sessionChanged, setAltVersion, setSetting, slim } from "./library.js";
 import { isMeta, missingReason, resolveMeta, toReal } from "./meta.js";
 import { fadeUp, flipImage, liveUi, riseWords, setDiscSpinning, sheen, swapImage } from "./motion.js";
@@ -653,8 +654,8 @@ function blurredCover(img) {
   try {
     const c = document.createElement("canvas");
     const x = c.getContext("2d");
-    if (liveUi()) {
-      // ПК: из этой копии — только пятна фона; сочнее, чтобы фон был не тусклее макета «Живая обложка»
+    if (liveUi() || isMobile) {
+      // Новый вид (ПК и телефон): из этой копии — только пятна фона; сочнее, чтобы фон был не тусклее макета «Живая обложка»
       c.width = c.height = 64;
       x.filter = "blur(3px) saturate(3.6)";
       x.drawImage(img, -8, -8, 80, 80);   // с запасом по краям — чтобы размытие не темнело к краю
@@ -673,15 +674,15 @@ function setBackdrop(url) {
   artFront ^= 1;
   const next = artLayers[artFront], prev = artLayers[artFront ^ 1];
   if (url) {
-    // Растянутая обложка под пятнами — только на телефоне (на ПК она давала сероватую «пелену»)
-    next.style.backgroundImage = liveUi() ? "" : `url("${url}")`;
+    // Растянутой обложки под пятнами нет ни на ПК, ни на телефоне (шаг 11): она давала сероватую «пелену»
+    next.style.backgroundImage = "";
     next.style.setProperty("--art", `url("${url}")`);   // пятна «живой обложки» (style.css → .bg-art i)
     next.classList.add("on");
   }
   prev.classList.remove("on");
 }
 
-async function showCover(track) {
+async function showCover(track, retry = true) {
   // «Живая обложка»: старая обложка не гаснет заранее — она уедет вбок, когда новая будет готова
   const slide = liveUi() && coverEl.classList.contains("shown") && !!coverEl.getAttribute("src");
   if (!slide) coverEl.classList.remove("shown");
@@ -690,6 +691,8 @@ async function showCover(track) {
   img.src = url;
   try { await img.decode(); } catch {
     if (state.current !== track) return;
+    // Сеть при запуске бывает медленной (телефон под VPN, 20 ноября: фон остался чёрным) — ещё одна попытка
+    if (retry) setTimeout(() => { if (state.current === track) showCover(track, false); }, 3000);
     coverEl.classList.remove("shown");
     lastCoverImg = null;
     resetCoverColors();

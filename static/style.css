@@ -6022,3 +6022,150 @@ body.sq-open:not(.mobile) .sq-shade { opacity: 1; }
 .pv .mp-pv.sq .ln { left: 6px; top: 31px; width: 60%; height: 3px; }
 .pv .mp-pv.sq .ln + .ln { top: 37px; width: 40%; }
 .pv .mp-pv.sq .dot { left: calc(50% - 5px); bottom: 5px; width: 10px; height: 10px; }
+
+/* ===================== Новый интерфейс, шаг 11: телефон («Живая обложка», макет B-telefon.html) =====================
+   Прежняя разметка телефона, новый вид — стилями. Капсула висит над вкладками, вкладки — стекло внизу,
+   содержимое прокручивается под ними. Фон — пятна обложки, как на ПК (растянутой картинки под ними больше нет) */
+body.mobile { --tabs-h: 68px; --cap-gap: 8px; --cap-h: 62px; }
+body.mobile .main { background: none; }
+body.mobile .bg-art.on { opacity: 1; }
+body.mobile .bg-art i {
+  width: 150vw; height: 150vw;
+  -webkit-mask-image: radial-gradient(closest-side, #000 55%, transparent);
+          mask-image: radial-gradient(closest-side, #000 55%, transparent);
+}
+body.mobile.has-track:not(.playing) .bg-art.on { opacity: 0.7; }
+body.mobile .bg-shade { background: linear-gradient(180deg, rgb(var(--shade-rgb) / 0.25), rgb(var(--shade-rgb) / 0.62)); }
+
+/* Вкладки — стекло во всю ширину внизу; подсветка под значком переезжает (mobile.js ставит --tab-i) */
+body.mobile .tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  height: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
+  padding: 0 6px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: var(--bar-bg);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+          backdrop-filter: blur(28px) saturate(1.4);
+  border-top: 1px solid var(--edge);
+}
+body.mobile .tabbar::before {
+  content: ""; position: absolute; top: 9px; z-index: 0;
+  left: calc(6px + (100% - 12px) / 4 * var(--tab-i, 0) + (100% - 12px) / 8 - 30px);
+  width: 60px; height: 30px; border-radius: 15px;
+  background: var(--glass-hi);
+  opacity: 0; transition: left 0.5s var(--ease), opacity 0.3s;
+}
+body.mobile .tabbar.has-on::before { opacity: 1; }
+body.mobile .tab { position: relative; z-index: 1; justify-content: center; gap: 4px; padding: 0; font-size: 11.5px; color: rgb(var(--fg-rgb) / 0.42); }
+body.mobile .tab svg { transition: scale 0.45s var(--spring); }
+body.mobile .tab.on { color: var(--text); }
+body.mobile .tab.on svg { scale: 1.08; }
+
+/* Капсула-плеер над вкладками: круглая крутящаяся обложка, ♡, белая ▶, «следующий», светящийся край-полоска.
+   Касание по капсуле — «Сейчас играет» (mobile.js); перематывают там */
+body.mobile .minibar,
+body.mobile.minibar-large .minibar {
+  position: fixed; z-index: 55;
+  left: 10px; right: 10px;
+  bottom: calc(var(--tabs-h) + var(--cap-gap) + env(safe-area-inset-bottom, 0px));
+  height: var(--cap-h); margin: 0;
+  padding: 0 7px 0 8px;
+  border: 0; border-radius: 31px;
+  background: var(--bar-bg);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+          backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: 0 16px 40px -12px rgb(var(--shade-rgb) / 0.55);
+  overflow: hidden;
+}
+body.mobile.has-track:not(.on-now) .minibar,
+body.mobile.minibar-large.has-track:not(.on-now) .minibar { height: var(--cap-h); margin: 0; border: 0; }
+body.mobile:not(.has-track) .minibar, body.mobile.on-now .minibar { display: none; }
+body.mobile .minibar .mini-track { gap: 10px; padding: 0; }
+body.mobile .minibar .mini-track img, body.mobile.minibar-large .minibar .mini-track img {
+  width: 46px; height: 46px; border-radius: 50%;
+  animation: disc-spin 16s linear infinite; animation-play-state: paused;
+}
+body.mobile.playing .minibar .mini-track img { animation-play-state: running; }
+body.mobile .minibar .mini-title { font-size: 14.5px; }
+body.mobile .minibar .mini-artist { font-size: 12.5px; }
+body.mobile .minibar .mini-center .buttons { gap: 0; }
+body.mobile .minibar .icon-btn.small:not(.on):not(.like) { color: var(--text); }   /* «следующий» — белый, как в макете */
+body.mobile .minibar .small-play { width: 46px; height: 46px; background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb) / 0.9); }
+body.mobile .minibar .small-play svg { width: 22px; height: 22px; }
+/* Край-полоска — только показывает, сколько прошло (2,5 px по низу, закрашенное светится) */
+body.mobile .minibar .mini-center { position: static; }
+body.mobile .minibar .mini-progress {
+  display: block; position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+  height: 2.5px; pointer-events: none;
+  background: rgb(var(--fg-rgb) / 0.12);
+}
+body.mobile .minibar .mini-progress > * { display: none; }
+body.mobile .minibar .mini-progress::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+  width: var(--p, 0%);
+  background: linear-gradient(90deg, var(--accent), rgb(var(--fg-rgb)));
+  box-shadow: 0 0 10px var(--accent);
+}
+/* Содержимое прокручивается под капсулой и вкладками — внизу запас */
+body.mobile .views::after { content: ""; display: block; height: calc(var(--tabs-h) + 16px + env(safe-area-inset-bottom, 0px)); }
+body.mobile.has-track:not(.on-now) .views::after { height: calc(var(--tabs-h) + var(--cap-gap) + var(--cap-h) + 24px + env(safe-area-inset-bottom, 0px)); }
+body.mobile .sidebar { padding-bottom: calc(var(--tabs-h) + var(--cap-gap) + var(--cap-h) + 16px); }
+body.mobile.on-now .view-now { padding-bottom: calc(var(--tabs-h) + 12px); }
+
+/* Строка поиска — только по вкладке «Поиск» (mobile.js → body.search-open), как в макете; стеклянная пилюля */
+body.mobile:not(.search-open) .top:not(:has(#panel.open)) { display: none; }   /* панель результатов открыта — строка видна */
+body.mobile .search-bar { height: 46px; border-radius: 23px; background: var(--glass); border: 1px solid var(--edge); }
+
+/* «Главная»: крупное «Добрый вечер.», Flow — цветной остров из размытой обложки, плитки и карточки — стекло */
+body.mobile .view-home { padding: 14px 16px 0; }
+body.mobile .home-hero { margin: 6px 2px 16px; }
+body.mobile .home-greet { font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.15; padding-bottom: 0.08em; }
+body.mobile .home-greet::after { content: "."; color: var(--ink); }
+body.mobile .home-sub { display: none; }
+body.mobile .flow-card {
+  min-height: 236px; margin-bottom: 0;
+  border: 0; border-radius: 26px;
+  background: none; color: #fff;
+  display: flex; flex-direction: column; justify-content: flex-end;
+}
+body.mobile .flow-card::before {
+  content: ""; position: absolute; inset: -40%; z-index: -2;
+  background: var(--cover-url, linear-gradient(135deg, var(--accent), #7a5cff)) center / cover;
+  filter: blur(34px) saturate(1.8); opacity: 0.95;
+}
+body.mobile .flow-card::after { z-index: -1; background: linear-gradient(180deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.42)); }
+body.mobile .flow-aurora { display: none; }
+body.mobile .flow-body { padding: 20px; }
+body.mobile .flow-kind { font-size: 11.5px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase; color: rgba(255, 255, 255, 0.85); }
+body.mobile .flow-title { margin: 2px 0 0; font-size: 46px; letter-spacing: -1.5px; line-height: 1.1; color: #fff; }
+body.mobile .flow-sub { margin: 2px 0 0; font-size: 14px; color: rgba(255, 255, 255, 0.82); }
+body.mobile .flow-controls { margin-top: 14px; }
+body.mobile .flow-card .big-play.flow-play {
+  position: absolute; top: 18px; right: 16px;
+  width: 58px; height: 58px;
+  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.5);
+}
+body.mobile .flow-modes { padding: 4px; border-radius: 16px; background: rgba(0, 0, 0, 0.22); border: 1px solid rgba(255, 255, 255, 0.14); }
+body.mobile .flow-modes .seg-btn { padding: 7px 12px; border-radius: 12px; font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.72); }
+body.mobile .flow-modes .seg-btn.on { color: #fff; background: rgba(255, 255, 255, 0.22); }
+body.mobile .home-tiles { gap: 10px; margin-top: 14px; }
+body.mobile .home-tile {
+  height: 58px; border-radius: 16px; overflow: hidden;
+  background: var(--glass); border: 1px solid var(--edge);
+}
+body.mobile .home-tile .collection-cover { width: 58px; height: 58px; border-radius: 0; box-shadow: none; }
+body.mobile .home-tile-name { padding: 0 8px 0 10px; font-size: 13.5px; font-weight: 600; line-height: 1.2; }
+body.mobile .home-h { margin: 26px 2px 12px; font-size: 20px; font-weight: 700; line-height: 1.2; }
+body.mobile .home-cards { gap: 10px; grid-auto-columns: 148px; padding-top: 4px; padding-bottom: 10px; }
+body.mobile .home-card {
+  padding: 8px; border-radius: 22px;
+  background: var(--glass); border: 1px solid var(--edge);
+}
+body.mobile .home-card-art, body.mobile .home-card .collection-cover { border-radius: 15px; }
+body.mobile .home-card-title { margin: 8px 3px 0; font-size: 14px; }
+body.mobile .home-card-artist { margin: 0 3px 2px; font-size: 12.5px; }
+
+/* Медиатека — на том же живом фоне (экран под ней прячем, чтобы не просвечивал); заголовок — как «Добрый вечер» */
+body.mobile .sidebar { background: none; }
+body.mobile.lib-open .main { visibility: hidden; }
+body.mobile .lib-head { font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.15; padding: 6px 8px 12px; }
+body.mobile .lib-item { border-radius: 16px; }

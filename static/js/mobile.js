@@ -54,6 +54,12 @@ if (isMobile) {
 
 const tabbar = document.getElementById("tabbar");
 let view = "home";
+let searchMode = false;   // нажата вкладка «Поиск»: видна строка поиска (на остальных экранах её нет — шаг 11)
+
+const setSearchMode = (on) => {
+  searchMode = on;
+  document.body.classList.toggle("search-open", on);
+};
 
 const setLibraryOpen = (open) => {
   document.body.classList.toggle("lib-open", open);
@@ -62,19 +68,27 @@ const setLibraryOpen = (open) => {
 
 function syncTabs() {
   const lib = document.body.classList.contains("lib-open");
-  const searching = document.getElementById("panel").classList.contains("open");
+  const searching = searchMode || document.getElementById("panel").classList.contains("open");
   const active = lib ? "library" : searching ? "search" : view === "home" ? "home" : view === "flow" ? "flow" : "";
-  tabbar.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.dataset.tab === active));
+  const tabs = [...tabbar.querySelectorAll(".tab")];
+  tabs.forEach((t) => t.classList.toggle("on", t.dataset.tab === active));
+  // Подсветка под значком переезжает к выбранной вкладке (style.css, «шаг 11»); нет выбранной — гаснет
+  const at = tabs.findIndex((t) => t.dataset.tab === active);
+  if (at >= 0) tabbar.style.setProperty("--tab-i", at);
+  tabbar.classList.toggle("has-on", at >= 0);
 }
 
 function openTab(tab) {
   if (tab === "library") return setLibraryOpen(!document.body.classList.contains("lib-open"));
   setLibraryOpen(false);
   if (tab === "search") {
-    if (view === "now") showView("home");   // на «Сейчас играет» строки поиска нет
-    focusSearch();
+    const open = () => { setSearchMode(true); syncTabs(); focusSearch(); };
+    // На «Сейчас играет» строки поиска нет — сначала «Главная» (её событие sono:view выключает поиск, поэтому — после)
+    if (view === "now") Promise.resolve(showView("home")).then(open);
+    else open();
     return;
   }
+  setSearchMode(false);
   showView(tab);
 }
 
@@ -99,9 +113,11 @@ function back() {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     return true;
   }
-  if (document.getElementById("panel").classList.contains("open")) {
+  if (document.getElementById("panel").classList.contains("open") || searchMode) {
     closePanel();
     document.getElementById("query").blur();
+    setSearchMode(false);
+    syncTabs();
     return true;
   }
   if (body.classList.contains("lib-open")) { setLibraryOpen(false); return true; }
@@ -154,6 +170,7 @@ export function initMobile() {
   // Выбрали что-то в медиатеке — она закрывается, открывается выбранное
   document.addEventListener("sono:view", (e) => {
     view = e.detail;
+    setSearchMode(false);
     setLibraryOpen(false);
   });
   // Мини-плеер: на компьютере имя исполнителя и название — ссылки (на исполнителя, на альбом).

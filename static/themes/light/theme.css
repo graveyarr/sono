@@ -140,3 +140,6 @@ button.play { background: #1c1c1c; color: #fff; }
 :where(html.live-ui body:not(.mobile)) .dialog .btn.ghost { background: rgba(255, 255, 255, 0.55); border-color: rgba(255, 255, 255, 0.9); }
 :where(html.live-ui body:not(.mobile)) .dialog .btn.ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.9); }
 :where(html.live-ui body:not(.mobile)) .dialog-input { background: rgb(var(--fg-rgb) / 0.05); }
+
+/* Шаг 11, телефон: подсветка под выбранной вкладкой — цвета обложки (как в макете), а не белая на белом */
+body.mobile .tabbar::before { background: color-mix(in srgb, var(--accent) 22%, #fff); }
