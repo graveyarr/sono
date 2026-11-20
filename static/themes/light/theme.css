@@ -129,3 +129,14 @@ button.play { background: #1c1c1c; color: #fff; }
 .wsl-btn.on { background: color-mix(in srgb, #3ddc97 25%, #fff); color: #13865a; }
 .wsl-btn.upd { color: #fff; }
 .wsl-badge:not(.on-pic) { background: rgba(255, 255, 255, 0.72); }
+
+/* «Живая обложка», шаг 10 (ПК): меню «⋯», окна, сообщения — молочное стекло, черты видны на белом */
+:root:where(.live-ui) { --menu-bg: rgba(252, 250, 253, 0.92); --dialog-bg: rgba(252, 250, 253, 0.92); --danger: #d6293d; }
+.menu-live .menu-item:hover:not(:disabled), .menu-live .menu-item:focus-visible, .menu-live .menu-item.hov { background: color-mix(in srgb, var(--accent) 12%, #fff); }
+.menu.menu-live, .menu-live .menu-sep, .menu-top { border-color: rgb(var(--fg-rgb) / 0.1); }
+.menu-find { background: rgb(var(--fg-rgb) / 0.06); }
+:where(html.live-ui body:not(.mobile)) .dialog-backdrop { background: rgb(var(--shade-rgb) / 0.18); }
+:where(html.live-ui body:not(.mobile)) .dialog { border-color: rgba(255, 255, 255, 0.9); }
+:where(html.live-ui body:not(.mobile)) .dialog .btn.ghost { background: rgba(255, 255, 255, 0.55); border-color: rgba(255, 255, 255, 0.9); }
+:where(html.live-ui body:not(.mobile)) .dialog .btn.ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.9); }
+:where(html.live-ui body:not(.mobile)) .dialog-input { background: rgb(var(--fg-rgb) / 0.05); }

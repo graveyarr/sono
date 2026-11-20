@@ -410,38 +410,46 @@
     </div>
   </footer>
 
-  <!-- Мини-плеер поверх окон (compact.js): окно сжимается в эту плашку, остальное прячется -->
-  <div class="cp-root" id="compact" hidden>
+  <!-- Мини-плеер поверх окон (compact.js): окно сжимается в эту плашку, остальное прячется.
+       Форма — «Капсула» или «Квадрат» (data-shape; выбирается в «Виде»), окно сжимает titlebar.py -->
+  <div class="cp-root" id="compact" hidden data-shape="capsule">
+    <i class="cp-bg" aria-hidden="true"></i>
     <div class="cp-art"><img data-np="cover-mini" alt=""></div>
-    <div class="cp-body">
-      <div class="cp-top">
-        <div class="cp-text">
-          <span class="cp-title" data-np="title"></span>
-          <span class="cp-artist" data-np="artist"></span>
-        </div>
-        <button type="button" class="cp-btn" id="cp-expand" aria-label="Развернуть Sono" title="Развернуть Sono (Ctrl+M)">
-          <svg data-i="expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
-        </button>
-        <button type="button" class="cp-btn cp-close" id="cp-close" aria-label="Закрыть" title="Закрыть">
-          <svg data-i="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-        </button>
-      </div>
-      <div class="cp-controls">
-        <button type="button" class="icon-btn small like" data-np="like" aria-label="В избранное" disabled></button>
-        <button class="icon-btn small" data-np="prev" aria-label="Предыдущий" disabled>
-          <svg data-i="prev" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
-        </button>
-        <button class="play small-play" data-np="play" aria-label="Играть" disabled>
-          <svg data-i="play" class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
-          <svg data-i="pause" class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
-        </button>
-        <button class="icon-btn small" data-np="next" aria-label="Следующий" disabled>
-          <svg data-i="next" viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
-        </button>
-        <button type="button" class="icon-btn small dislike" data-np="dislike" aria-label="Не нравится" disabled></button>
-      </div>
-      <input type="range" class="cp-seek" data-np="seek" min="0" max="1000" value="0" disabled aria-label="Перемотка">
+    <div class="cp-text">
+      <span class="cp-title" data-np="title"></span>
+      <span class="cp-artist" data-np="artist"></span>
     </div>
+    <div class="cp-lyric" aria-hidden="true"></div>
+    <div class="cp-controls">
+      <button type="button" class="icon-btn small dislike cp-dis" data-np="dislike" aria-label="Не нравится" disabled></button>
+      <button type="button" class="icon-btn small like" data-np="like" aria-label="В избранное" disabled></button>
+      <button class="icon-btn small" data-np="prev" aria-label="Предыдущий" disabled>
+        <svg data-i="prev" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.5v13a.5.5 0 0 1-.77.42L9 12.4a.5.5 0 0 1 0-.82l9.23-6.5a.5.5 0 0 1 .77.42z"/></svg>
+      </button>
+      <button class="play small-play" data-np="play" aria-label="Играть" disabled>
+        <svg data-i="play" class="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10.1-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6z"/></svg>
+        <svg data-i="pause" class="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>
+      </button>
+      <button class="icon-btn small" data-np="next" aria-label="Следующий" disabled>
+        <svg data-i="next" viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.5v13a.5.5 0 0 0 .77.42L15 12.4a.5.5 0 0 0 0-.82L5.77 5.08A.5.5 0 0 0 5 5.5z"/></svg>
+      </button>
+      <button type="button" class="icon-btn small cp-mic" id="cp-mic" aria-label="Текст песни в большом окне" title="Текст песни — в большом окне">
+        <svg data-i="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      </button>
+    </div>
+    <div class="cp-win">
+      <button type="button" class="cp-btn" id="cp-pin" aria-label="Поверх всех окон" title="Поверх всех окон">
+        <svg data-i="pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3zM12 15v6"/></svg>
+      </button>
+      <button type="button" class="cp-btn" id="cp-expand" aria-label="Развернуть Sono" title="Развернуть Sono (Ctrl+M)">
+        <svg data-i="expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
+      </button>
+      <button type="button" class="cp-btn cp-close" id="cp-close" aria-label="Закрыть" title="Закрыть">
+        <svg data-i="close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="cp-vol" aria-hidden="true"></div>
+    <input type="range" class="cp-seek" data-np="seek" min="0" max="1000" value="0" disabled aria-label="Перемотка">
   </div>
 
   <audio id="player" preload="auto"></audio>

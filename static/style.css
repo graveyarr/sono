@@ -2212,7 +2212,7 @@ body:not(.mobile) .minibar .volume.inline:is(:hover, :focus-within, .dragging) >
 .dialog-backdrop.open { opacity: 1; }
 
 .dialog {
-  width: min(400px, calc(100vw - 32px));
+  width: var(--dialog-w, min(400px, calc(100vw - 32px)));   /* ПК («Живая обложка», шаг 10) — шире, 460 px */
   padding: 22px;
   border-radius: 16px;
   background: var(--dialog-bg);
@@ -3386,7 +3386,20 @@ body:not(.mobile) .home-cards {
   gap: 0 18px;
   /* запас вокруг ряда — иначе подъём и тень при наведении обрезаются его краем */
   padding: 8px 14px 40px; margin: -8px -14px -40px;
+  container-type: inline-size;
 }
+/* Не влезшие в ряд карточки уходят во второй ряд высотой 0, но рамка с отступами (22 px) оставалась видна
+   в запасе под тенью — пустая «кнопка» под рядом, открывавшая микс. Прячем их: столбцов в ряду
+   n = (ширина + 18) / 194 — всё, что после n-й карточки, не видно и не нажимается */
+@container (width < 370px) { body:not(.mobile) .home-cards > :nth-child(n+2) { visibility: hidden; } }
+@container (width < 564px) { body:not(.mobile) .home-cards > :nth-child(n+3) { visibility: hidden; } }
+@container (width < 758px) { body:not(.mobile) .home-cards > :nth-child(n+4) { visibility: hidden; } }
+@container (width < 952px) { body:not(.mobile) .home-cards > :nth-child(n+5) { visibility: hidden; } }
+@container (width < 1146px) { body:not(.mobile) .home-cards > :nth-child(n+6) { visibility: hidden; } }
+@container (width < 1340px) { body:not(.mobile) .home-cards > :nth-child(n+7) { visibility: hidden; } }
+@container (width < 1534px) { body:not(.mobile) .home-cards > :nth-child(n+8) { visibility: hidden; } }
+@container (width < 1728px) { body:not(.mobile) .home-cards > :nth-child(n+9) { visibility: hidden; } }
+@container (width < 1922px) { body:not(.mobile) .home-cards > :nth-child(n+10) { visibility: hidden; } }
 body:not(.mobile) .home-card {
   padding: 10px;
   border: 1px solid var(--edge); border-radius: 22px;
@@ -4064,42 +4077,128 @@ body.mobile .lib-folder .lib-more { opacity: 1; }
 .lib-artist .lib-artist-pic img { width: 100%; height: 100%; object-fit: cover; }
 
 
-/* ---------- Мини-плеер поверх окон (compact.js; окно сжимает titlebar.py) ---------- */
+/* ---------- Мини-плеер поверх окон (compact.js; окно сжимает titlebar.py) ----------
+   «Живая обложка», шаг 10: «Капсула» 440×84 и «Квадрат» 300×360 (data-shape), фон — размытая обложка.
+   Окно вырезано по форме (скругление 26/30 px), поэтому плашка — во всё окно. Текст всегда белый поверх обложки:
+   переменные цвета переопределены прямо на плашке (у «Светлой» они тёмные) */
 .tb-btn[hidden] { display: none; }
 .cp-root[hidden] { display: none; }
 body.mini-mode { padding: 0; display: block; }
 body.mini-mode .titlebar, body.mini-mode .sidebar, body.mini-mode .main, body.mini-mode .tabbar,
-body.mini-mode .minibar, body.mini-mode #sidebar-toggle, body.mini-mode .up-next, body.mini-mode .lyrics { display: none !important; }
+body.mini-mode .minibar, body.mini-mode #sidebar-toggle, body.mini-mode .up-next, body.mini-mode .lyrics,
+body.mini-mode .lk-panel, body.mini-mode .tip { display: none !important; }
 .cp-root {
-  position: fixed; inset: 0; z-index: 60;
-  display: flex; align-items: center; gap: 14px;
-  padding: 12px 12px 10px;
-  background: color-mix(in srgb, var(--tint, #121212) 70%, rgba(10, 10, 10, 0.55));
-  cursor: default;
+  --fg-rgb: 255 255 255; --shade-rgb: 0 0 0;
+  --text: rgb(var(--fg-rgb)); --muted: rgb(var(--fg-rgb) / 0.72); --faint: rgb(var(--fg-rgb) / 0.45);
+  position: fixed; inset: 0; z-index: 60; overflow: hidden;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 24px 0 12px;
+  border-radius: 26px;
+  background: var(--tint);
+  color: var(--text);
+  cursor: default; user-select: none;
 }
-.cp-art { flex: none; width: 104px; height: 104px; border-radius: 10px; overflow: hidden; background: rgb(var(--fg-rgb) / 0.08);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45); }
+.cp-bg {
+  position: absolute; inset: -40%; z-index: 0;
+  background: var(--cover-url, none) center / cover;
+  filter: blur(30px) saturate(1.8) brightness(0.8);
+  animation: cp-drift 18s ease-in-out infinite alternate;
+}
+@keyframes cp-drift { to { transform: rotate(14deg) scale(1.15); } }
+body.calm .cp-bg { animation: none; }
+.cp-root::after { content: ""; position: absolute; inset: 0; z-index: 0; background: rgb(0 0 0 / 0.28); pointer-events: none; }
+.cp-root > :not(.cp-bg) { position: relative; z-index: 1; }
+.cp-art {
+  flex: none; width: 58px; height: 58px; border-radius: 14px; overflow: hidden;
+  background: rgb(var(--fg-rgb) / 0.1); box-shadow: 0 8px 16px -8px rgb(var(--shade-rgb) / 0.6);
+}
 .cp-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cp-art img.broken { visibility: hidden; }
-.cp-body { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: space-between; }
-.cp-top { display: flex; align-items: flex-start; gap: 2px; min-width: 0; }
-.cp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 2px; }
-.cp-title, .cp-artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cp-title { font-size: 14.5px; font-weight: 700; line-height: 1.25; }
-.cp-artist { margin-top: 2px; font-size: 12.5px; color: var(--muted); line-height: 1.25; }
+.cp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cp-title, .cp-artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; padding-bottom: 0.1em; }
+.cp-title { font-size: 14.5px; font-weight: 700; }
+.cp-artist { font-size: 12.5px; color: var(--muted); }
+.cp-artist .t-artist { color: inherit; }
+.cp-lyric { display: none; }
+.cp-controls { flex: none; display: flex; align-items: center; gap: 12px; transition: margin 0.35s var(--ease); }
+.cp-controls .icon-btn { width: 38px; height: 38px; color: var(--text); }
+.cp-controls .icon-btn:hover:not(:disabled) { background: rgb(var(--fg-rgb) / 0.12); }
+.cp-controls .icon-btn.on { color: var(--text); }
+.cp-controls .icon-btn.like.on { color: var(--accent); }
+.cp-controls .small-play { width: 44px; height: 44px; background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb) / 0.9); }
+.cp-controls .small-play svg { width: 20px; height: 20px; }
+.cp-mic { display: none; }
+/* Дизлайк — при наведении, рядом с ♡ */
+.cp-controls .cp-dis { width: 0; margin-right: -12px; opacity: 0; overflow: hidden; pointer-events: none;
+  transition: width 0.35s var(--ease), margin 0.35s var(--ease), opacity 0.25s; }
+.cp-root:hover .cp-controls .cp-dis, .cp-dis:focus-visible { width: 38px; margin-right: 0; opacity: 1; pointer-events: auto; }
+/* Кнопки окна — при наведении: у «Капсулы» столбиком у правого края, у «Квадрата» строкой в углу */
+.cp-win {
+  position: absolute !important; right: 8px; top: 50%; translate: 0 -50%;
+  display: flex; flex-direction: column; gap: 0;
+  opacity: 0; pointer-events: none; transition: opacity 0.25s;
+}
+.cp-root:hover .cp-win, .cp-win:focus-within { opacity: 1; pointer-events: auto; }
+.cp-root[data-shape="capsule"]:hover .cp-controls, .cp-root[data-shape="capsule"]:focus-within .cp-controls { margin-right: 12px; }
 .cp-btn {
-  flex: none; width: 28px; height: 28px; display: grid; place-items: center;
-  border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer;
+  flex: none; width: 22px; height: 22px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: none; color: rgb(var(--fg-rgb) / 0.8); cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
 }
-.cp-btn svg { width: 15px; height: 15px; }
-.cp-btn:hover { background: var(--hover); color: var(--text); }
+.cp-btn svg { width: 13px; height: 13px; }
+.cp-btn:hover { background: rgb(var(--fg-rgb) / 0.16); color: var(--text); }
+.cp-btn.on { color: var(--text); }
+#cp-pin:not(.on) svg { opacity: 0.5; }
 .cp-close:hover { background: #c42b1c; color: #fff; }
-.cp-controls { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
-.cp-controls .small-play { width: 38px; height: 38px; }
-.cp-seek { height: 12px; }
-.cp-seek::-webkit-slider-runnable-track { height: 3px; }
-.cp-seek::-webkit-slider-thumb { width: 10px; height: 10px; margin-top: -3.5px; }
+/* Громкость колесом — короткая подсказка */
+.cp-vol {
+  position: absolute !important; left: 50%; top: 6px; z-index: 3 !important; translate: -50% 0;
+  padding: 3px 10px; border-radius: 10px; background: rgb(var(--shade-rgb) / 0.55);
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+  opacity: 0; transition: opacity 0.2s; pointer-events: none;
+}
+.cp-vol.show { opacity: 1; }
+/* Перемотка — тонкая полоска по нижнему краю: видна линия 3 px, под мышью — 6 px и кружок.
+   Концы — не до самых углов (их срезает скругление окна), кружок стоит на краю целиком.
+   Селекторы с «input» — иначе их перебивает общее input[type="range"] (было: вместо линии у края
+   рисовалась обычная дорожка ползунка шириной 440 px в 8 px над краем, и её конец вылезал за скругление) */
+.cp-root input.cp-seek {
+  position: absolute !important; left: 16px; right: 16px; bottom: 0; z-index: 2 !important;
+  width: auto; height: 12px; margin: 0;
+  -webkit-appearance: none; appearance: none;
+  background:
+    linear-gradient(90deg, var(--accent), rgb(var(--fg-rgb))) left bottom / var(--p, 0%) 3px no-repeat,
+    linear-gradient(rgb(var(--fg-rgb) / 0.14), rgb(var(--fg-rgb) / 0.14)) left bottom / 100% 3px no-repeat;
+  cursor: pointer; transition: background-size 0.2s;
+}
+.cp-root input.cp-seek:hover:not(:disabled) { background-size: var(--p, 0%) 6px, 100% 6px; }
+.cp-root input.cp-seek::-webkit-slider-runnable-track { height: 12px; border-radius: 0; background: none; }
+.cp-root input.cp-seek::-webkit-slider-thumb { width: 0; height: 0; margin-top: 2px; box-shadow: none; }
+.cp-root input.cp-seek:hover:not(:disabled)::-webkit-slider-thumb { width: 10px; height: 10px; border-radius: 50%; background: rgb(var(--fg-rgb)); box-shadow: 0 0 8px var(--accent); transform: none; }
+.cp-root input.cp-seek:disabled { cursor: default; }
+
+/* «Квадрат»: обложка, название, две строки текста, кнопки внизу */
+.cp-root[data-shape="square"] { flex-direction: column; align-items: stretch; gap: 0; padding: 18px; border-radius: 30px; }
+.cp-root[data-shape="square"] .cp-art { width: 116px; height: 116px; border-radius: 18px; box-shadow: 0 16px 30px -14px rgb(var(--shade-rgb) / 0.7); }
+.cp-root[data-shape="square"] .cp-text { flex: none; margin-top: 14px; }
+.cp-root[data-shape="square"] .cp-title { font: 800 21px/1.15 var(--font-display); letter-spacing: -0.3px; }
+.cp-root[data-shape="square"] .cp-artist { font-size: 13.5px; color: rgb(var(--fg-rgb) / 0.75); }
+.cp-root[data-shape="square"] .cp-lyric { display: block; margin-top: auto; min-height: 0; }
+.cp-lyric b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font: 700 16px/1.35 var(--font-display); padding-bottom: 0.1em; transition: opacity 0.4s; }
+.cp-lyric span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--faint); }
+.cp-lyric.ahead b { opacity: 0.55; }
+.cp-root[data-shape="square"] .cp-controls { justify-content: space-between; gap: 0; margin-top: 12px; }
+/* В «Квадрате» кнопки разложены по всей ширине — спрятанный дизлайк не должен занимать место */
+.cp-root[data-shape="square"] .cp-controls .cp-dis { display: none; margin-right: 0; }
+.cp-root[data-shape="square"]:hover .cp-controls .cp-dis, .cp-root[data-shape="square"] .cp-dis:focus-visible { display: grid; animation: cp-in 0.3s var(--ease); }
+@keyframes cp-in { from { opacity: 0; scale: 0.6; } }
+.cp-root[data-shape="square"] .cp-mic { display: grid; }
+.cp-root[data-shape="square"] .cp-win { top: 6px; right: 8px; translate: none; flex-direction: row; gap: 2px; }
+.cp-root[data-shape="square"] .cp-btn { width: 24px; height: 24px; }
+.cp-root[data-shape="square"] .cp-btn svg { width: 14px; height: 14px; }
+.cp-root[data-shape="square"] .cp-vol { top: auto; bottom: 74px; }
+.cp-root[data-shape="square"] .cp-seek { left: 20px; right: 20px; }
 
 /* ---------- Поиск: «Нашлось по словам песни» ---------- */
 .panel-lyrics[hidden] { display: none; }
@@ -5766,3 +5865,160 @@ body.sq-open:not(.mobile) .sq-shade { opacity: 1; }
   .wsl-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 }
 .wsl-chip.wsl-more { border-style: dashed; }
+
+/* ---------- «Живая обложка», шаг 10: меню «⋯», окна, сообщения, мини-плеер (ПК; ui.js, compact.js) ----------
+   Макет — design/ui-new/B-ekrany.html (#menu, #dialog, #dialog-new, #mini). Телефон — прежний (шаг 11).
+   Окна: :where — чтобы у окон со своим классом (.dialog.whatsnew и т.п.) их ширина и отступы оставались главнее */
+:root:where(.live-ui) {
+  --menu-bg: color-mix(in srgb, color-mix(in srgb, var(--tint) 70%, rgb(var(--shade-rgb))) 86%, transparent);
+  --dialog-bg: var(--menu-bg);
+  --danger: #ff5d6c;
+  --dialog-w: min(460px, calc(100vw - 32px));   /* у окон со своей шириной (импорт, проверка медиатеки…) — их */
+}
+
+/* Меню «⋯»: стекло, шапка с обложкой, подменю сбоку */
+.menu.menu-live {
+  width: max-content; min-width: 290px; max-width: 340px;
+  padding: 8px; border-radius: 22px;
+  background: var(--menu-bg); border: 1px solid var(--edge);
+  backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: 0 30px 70px -20px rgb(var(--shade-rgb) / 0.65);
+  transform: scale(0.94) translateY(-6px);
+  transition: opacity 0.18s, transform 0.32s var(--ease), visibility 0s 0.32s;
+  scrollbar-width: thin;
+  /* Вся высота окна под полоской (46 px) — в 1080 длинное меню трека помещается целиком
+     (при 70vh последний пункт обрезался посередине) */
+  max-height: calc(100vh - 62px);
+}
+.menu.menu-live.open { transform: none; transition: opacity 0.18s, transform 0.32s var(--ease); }
+.menu.menu-sub { z-index: 101; width: 290px; min-width: 0; transform: scale(0.96) translateX(-8px); }
+.menu-live .menu-item {
+  height: 38px; padding: 0 10px; gap: 12px;
+  border-radius: 12px; color: var(--text);
+  font-size: 13.5px; font-weight: 600;
+}
+.menu-live .menu-item[hidden] { display: none; }
+.menu-live .menu-item:hover:not(:disabled), .menu-live .menu-item:focus-visible, .menu-live .menu-item.hov { background: var(--glass-hi); }
+.menu-live .menu-item:focus-visible { box-shadow: inset 0 0 0 1.5px rgb(var(--fg-rgb) / 0.35); }
+.menu-live .menu-item.danger, .menu-live .menu-item.danger .menu-icon { color: var(--danger); }
+.menu-live .menu-item > svg { width: 16px; height: 16px; margin-left: auto; color: var(--faint); }
+.menu-live .menu-sep { height: 0; margin: 6px 4px; background: none; border-top: 1px solid var(--edge); }
+.menu-live .menu-sep[hidden], .menu-live .menu-note[hidden] { display: none; }
+.menu-live .menu-note { padding: 6px 10px 8px; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+.menu-top { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 8px 10px; margin-bottom: 6px; border-bottom: 1px solid var(--edge); }
+.menu-top img { flex: none; width: 40px; height: 40px; border-radius: 9px; object-fit: cover; background: rgb(var(--fg-rgb) / 0.08); }
+.menu-top img.broken { visibility: hidden; }
+.menu-top-text { min-width: 0; }
+.menu-top-text b, .menu-top-text span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.menu-top-text b { font-size: 14px; }
+.menu-top-text span { font-size: 12.5px; color: var(--muted); }
+.menu-find {
+  display: flex; align-items: center; gap: 9px;
+  height: 36px; margin: 2px 2px 6px; padding: 0 12px;
+  border-radius: 18px; background: rgb(var(--fg-rgb) / 0.08); color: var(--muted);
+}
+.menu-find svg { width: 15px; height: 15px; flex: none; }
+.menu-find input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 13.5px; }
+.menu-find input::placeholder { color: var(--faint); }
+.menu-find:focus-within { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 65%, transparent); }
+.menu-live .collection-cover.menu-art { flex: none; width: 28px; height: 28px; border-radius: 7px; }
+.menu-live .collection-cover.menu-art svg { width: 15px; height: 15px; }
+.menu-ok { display: grid; place-items: center; margin-left: auto; color: var(--ink); }
+.menu-ok svg { width: 16px; height: 16px; }
+
+/* Окна («Удалить?», «Новый плейлист», «Что нового», импорт, окно темы мастерской…) */
+:where(html.live-ui body:not(.mobile)) .dialog-backdrop { background: rgb(var(--shade-rgb) / 0.45); backdrop-filter: blur(6px); }
+:where(html.live-ui body:not(.mobile)) .dialog {
+  padding: 26px; border-radius: 30px;
+  background: var(--dialog-bg); border: 1px solid var(--edge);
+  backdrop-filter: blur(34px) saturate(1.5);
+  box-shadow: 0 40px 90px -30px rgb(var(--shade-rgb) / 0.7);
+  transform: scale(0.92) translateY(14px);
+  transition: transform 0.5s var(--spring);
+}
+:where(html.live-ui body:not(.mobile)) .dialog-backdrop.open .dialog { transform: none; }
+:where(html.live-ui body:not(.mobile)) .dialog h2 { font: 800 24px/1.2 var(--font-display); letter-spacing: -0.5px; padding-bottom: 0.1em; }
+:where(html.live-ui body:not(.mobile)) .dialog.dialog-ask > h2 { margin: 0; }
+:where(html.live-ui body:not(.mobile)) .dialog.dialog-ask > p { margin-top: 8px; font-size: 14px; line-height: 1.5; color: var(--muted); white-space: pre-line; }
+:where(html.live-ui body:not(.mobile)) .dialog-input {
+  height: 50px; margin-top: 16px; padding: 0 16px;
+  border: 0; border-radius: 16px;
+  background: rgb(var(--fg-rgb) / 0.08);
+  font-size: 16px; font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--edge);
+  transition: box-shadow 0.2s;
+}
+:where(html.live-ui body:not(.mobile)) .dialog-input:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 65%, transparent); }
+:where(html.live-ui body:not(.mobile)) .dialog-buttons { gap: 10px; margin-top: 24px; }
+/* Кнопки окон — пилюли: «Отмена» стеклянная, главная белая, «Удалить» красная */
+:where(html.live-ui body:not(.mobile)) .dialog .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 18px; border-radius: 22px;
+  border: 1px solid transparent; font-weight: 700;
+  transition: background-color 0.2s, box-shadow 0.2s, scale 0.3s var(--spring);
+}
+:where(html.live-ui body:not(.mobile)) .dialog .btn:hover:not(:disabled) { transform: none; }
+:where(html.live-ui body:not(.mobile)) .dialog .btn:active:not(:disabled) { transform: none; scale: 0.96; }
+:where(html.live-ui body:not(.mobile)) .dialog .btn svg { width: 18px; height: 18px; flex: none; }
+:where(html.live-ui body:not(.mobile)) .dialog .btn.ghost { background: var(--glass-hi); border-color: var(--edge); color: var(--text); }
+:where(html.live-ui body:not(.mobile)) .dialog .btn.ghost:hover:not(:disabled) { background: rgb(var(--fg-rgb) / 0.14); }
+:where(html.live-ui body:not(.mobile)) .dialog .btn.primary { background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb)); }
+:where(html.live-ui body:not(.mobile)) .dialog .btn.primary:hover:not(:disabled) { box-shadow: 0 0 0 5px rgb(var(--fg-rgb) / 0.1); }
+:where(html.live-ui body:not(.mobile)) .dialog .btn.danger { background: var(--danger); color: #fff; }
+:where(html.live-ui body:not(.mobile)) .dialog .btn.danger:hover:not(:disabled) { box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 22%, transparent); }
+.dialog-art { width: 84px; height: 84px; margin-bottom: 18px; border-radius: 18px; overflow: hidden; box-shadow: 0 16px 30px -16px rgb(var(--shade-rgb) / 0.7); }
+.dialog-art .collection-cover { width: 100%; height: 100%; border-radius: 0; }
+
+/* Сообщения внизу: белая пилюля (у светлой — тёмная); «мягкие» (YouTube → SoundCloud, скачивание, ошибка) — стекло со значком */
+:where(html.live-ui) body:not(.mobile) .toast {
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(640px, calc(100vw - var(--sidebar) - 120px));
+  min-height: 44px; padding: 8px 18px; box-sizing: border-box;
+  border-radius: 22px;
+  background: rgb(var(--fg-rgb)); color: rgb(var(--shade-rgb));
+  font-size: 13.5px; font-weight: 700; line-height: 1.3;
+  box-shadow: 0 14px 34px -12px rgb(var(--shade-rgb) / 0.6);
+  animation: toast-live-in 0.55s var(--spring) backwards;
+}
+@keyframes toast-live-in { from { opacity: 0; translate: 0 18px; scale: 0.9; } }
+:where(html.live-ui) body:not(.mobile) .toast.with-image, :where(html.live-ui) body:not(.mobile) .toast.soft { padding-left: 8px; }
+:where(html.live-ui) body:not(.mobile) .toast.with-action { padding-right: 8px; }
+:where(html.live-ui) body:not(.mobile) .toast-img { width: 28px; height: 28px; border-radius: 7px; }
+:where(html.live-ui) body:not(.mobile) .toast-action {
+  flex: none; margin-left: 4px; padding: 6px 12px; border-radius: 14px;
+  background: rgb(127 127 127 / 0.2); color: inherit; font-size: 13px;
+}
+:where(html.live-ui) body:not(.mobile) .toast-action:hover { background: rgb(127 127 127 / 0.32); }
+:where(html.live-ui) body:not(.mobile) .toast.soft {
+  background: var(--menu-bg); color: var(--text);
+  border: 1px solid var(--edge); backdrop-filter: blur(24px);
+}
+/* Над капсулой — с зазором 18 px, как в макете */
+:where(html.live-ui) body:not(.mobile).has-track .toasts { bottom: 118px; }
+/* Слой сообщений стоит от середины основной части — без этого в узком окне он сжимался, и пилюли переносились */
+:where(html.live-ui) body:not(.mobile) .toasts { width: max-content; }
+.toast-ic {
+  flex: none; display: grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 70%, transparent); color: #fff;
+  font-size: 15px; font-weight: 800;
+}
+.toast-ic svg { width: 16px; height: 16px; }
+.toast.error .toast-ic { background: var(--danger); }
+/* «Вид» → «Мини-плеер»: образцы формы (look.js) */
+.pv .mp-pv { position: absolute; display: block; overflow: hidden; background: var(--cv) center / cover; box-shadow: 0 6px 14px -6px rgb(var(--shade-rgb) / 0.6); }
+.pv .mp-pv::before { content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / 0.45); backdrop-filter: blur(6px); }
+.pv .mp-pv > i { position: absolute; z-index: 1; }
+.pv .mp-pv .ln { background: rgb(255 255 255 / 0.55); }
+.pv .mp-pv .ln.hi { background: rgb(255 255 255 / 0.95); }
+.pv .mp-pv .dot { border-radius: 50%; background: #fff; }
+.pv .mp-pv.cap { left: 12%; right: 12%; top: 19px; height: 28px; border-radius: 14px; }
+.pv .mp-pv.cap .cv { left: 4px; top: 4px; width: 20px; height: 20px; border-radius: 6px; }
+.pv .mp-pv.cap .ln { left: 30px; top: 9px; width: 32%; }
+.pv .mp-pv.cap .ln + .ln { top: 16px; width: 20%; }
+.pv .mp-pv.cap .dot { right: 6px; top: 6px; width: 16px; height: 16px; }
+.pv .mp-pv.sq { left: calc(50% - 25px); top: 6px; width: 50px; height: 56px; border-radius: 10px; }
+.pv .mp-pv.sq .cv { left: 6px; top: 6px; width: 20px; height: 20px; border-radius: 5px; }
+.pv .mp-pv.sq .ln { left: 6px; top: 31px; width: 60%; height: 3px; }
+.pv .mp-pv.sq .ln + .ln { top: 37px; width: 40%; }
+.pv .mp-pv.sq .dot { left: calc(50% - 5px); bottom: 5px; width: 10px; height: 10px; }

@@ -1,6 +1,7 @@
 // Общие кусочки интерфейса: строки треков, обложки, меню, диалоги, уведомления.
 
 import { icons } from "./icons.js";
+import { isMobile } from "./device.js";
 import { isDownloaded, isDownloading } from "./downloads.js";
 import { isDisliked, isLiked, keyOf } from "./library.js";
 import { isMeta, resolvedOf } from "./meta.js";
@@ -417,14 +418,30 @@ export function collectionCover(kind, { name = "", tracks = [], cover = null } =
 }
 
 // ---------- Всплывающее меню ----------
-// items: [{ label, icon, action, danger, disabled, submenu: () => items }, { sep: true }, ...]
-// Подменю открывается «страницей» внутри того же меню, со стрелкой назад.
+// items: [{ label, icon, action, danger, disabled, submenu: () => items }, { sep: true }, { note }, ...]
+// Необязательные поля (их рисует меню ПК; телефон шапку пропускает, остальное показывает по-старому):
+//   { head: { image, title, sub } } — шапка меню: обложка, название, исполнитель;
+//   art: () => узел — картинка слева вместо значка (обложка плейлиста); checked — галочка справа;
+//   foot: true — пункт уходит вниз, под черту («Новый плейлист»); find (у пункта с подменю) — подсказка поиска.
+// Телефон: подменю открывается «страницей» внутри того же меню, со стрелкой назад.
+// ПК («Живая обложка», шаг 10): подменю выезжает сбоку отдельной панелью, если пунктов много — с поиском;
+// ↑/↓ — по пунктам, → — открыть подменю, ← — закрыть его, Enter — выбрать, Esc — закрыть.
 
-const menu = el("div", "menu");
+const live = !isMobile;
+const menu = el("div", live ? "menu menu-live" : "menu");
 menu.setAttribute("role", "menu");
 document.body.append(menu);
+const sub = live ? el("div", "menu menu-live menu-sub") : null;
+if (sub) {
+  sub.setAttribute("role", "menu");
+  document.body.append(sub);
+}
 let menuAnchor = null;
+let subOwner = null;   // пункт меню, чьё подменю сейчас выехало сбоку
+let hoverTimer = 0;
+const SEARCH_FROM = 5;   // столько пунктов и больше — над ними поле поиска (как в макете)
 
+const inMenu = (node) => menu.contains(node) || !!sub?.contains(node);
 export const isOverlay = (target) => !!target.closest?.(".menu, .dialog-backdrop");
 
 function placeMenu() {
@@ -432,13 +449,15 @@ function placeMenu() {
     ? menuAnchor.getBoundingClientRect()
     : { left: menuAnchor.x, right: menuAnchor.x, top: menuAnchor.y, bottom: menuAnchor.y };
   const w = menu.offsetWidth, h = menu.offsetHeight, gap = 6, pad = 8;
+  const padTop = live ? 46 : pad;   // ПК: не заезжать на полоску окна (кнопки свернуть/закрыть)
   // По умолчанию — под кнопкой, правым краем к её правому краю (у курсора — от курсора вправо)
   let left = menuAnchor instanceof Element ? r.right - w : r.left;
   let top = r.bottom + gap;
-  if (top + h > innerHeight - pad) top = Math.max(pad, r.top - h - gap);   // не влезает вниз — открываем вверх
+  if (top + h > innerHeight - pad) top = Math.max(padTop, r.top - h - gap);   // не влезает вниз — открываем вверх
   left = Math.min(Math.max(pad, left), innerWidth - w - pad);
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
+  menu.style.transformOrigin = `${menuAnchor instanceof Element ? "right" : "left"} ${top < r.top ? "bottom" : "top"}`;
 }
 
 function renderMenuPage(items, title = "", back = null, direction = "") {
@@ -452,6 +471,7 @@ function renderMenuPage(items, title = "", back = null, direction = "") {
     page.append(head);
   }
   for (const item of items) {
+    if (item.head) continue;   // шапка с обложкой — только на ПК
     if (item.sep) { page.append(el("div", "menu-sep")); continue; }
     if (item.note) { page.append(el("div", "menu-note", item.note)); continue; }
     const btn = el("button", `menu-item${item.danger ? " danger" : ""}`);
@@ -475,33 +495,231 @@ function renderMenuPage(items, title = "", back = null, direction = "") {
   page.querySelector(".menu-item:not(:disabled)")?.focus({ preventScroll: true });
 }
 
+// ---------- Меню ПК ----------
+
+const norm = (s) => String(s).toLowerCase().replace(/ё/g, "е");
+
+/** Пункты «под черту» — в конец; черты в начале, в конце и две подряд убираем */
+function liveItems(items) {
+  const main = items.filter((i) => !i.foot && !i.head), foot = items.filter((i) => i.foot);
+  const list = foot.length ? [...main, { sep: true }, ...foot] : main;
+  return list.filter((it, k, a) => !it.sep || (k > 0 && k < a.length - 1 && !a[k - 1].sep));
+}
+
+function liveButton(item, panel) {
+  const btn = el("button", `menu-item${item.danger ? " danger" : ""}`);
+  btn.type = "button";
+  btn.setAttribute("role", "menuitem");
+  btn.disabled = !!item.disabled;
+  const art = item.art?.();
+  if (art) {
+    art.classList.add("menu-art");
+    btn.append(art);
+  } else {
+    const ic = el("span", "menu-icon");
+    ic.innerHTML = item.icon ?? "";
+    btn.append(ic);
+  }
+  btn.append(el("span", "menu-label", item.label));
+  if (art && item.checked) {
+    const ok = el("span", "menu-ok");
+    ok.innerHTML = icons.check;
+    btn.append(ok);
+  }
+  if (item.submenu) {
+    btn.insertAdjacentHTML("beforeend", icons.chevron);
+    btn.setAttribute("aria-haspopup", "menu");
+    btn.menuItem = item;
+  }
+  btn.addEventListener("click", (e) => {
+    if (item.submenu) {
+      // Подменю у пункта подменю (так пока не бывает) — открываем на его месте
+      if (panel === menu) openSub(btn, item, e.detail === 0);
+      else showLive(sub, item.submenu(), item.find || "Найти", true);
+      return;
+    }
+    closeMenu();
+    item.action?.();
+  });
+  if (panel === menu) {
+    // Навели на пункт с подменю — оно выезжает; на другой пункт — уезжает (с задержкой: мышь идёт к подменю наискосок)
+    btn.addEventListener("pointerenter", () => {
+      clearTimeout(hoverTimer);
+      if (subOwner === btn) return;
+      if (item.submenu && !item.disabled) hoverTimer = setTimeout(() => openSub(btn, item), 120);
+      else if (subOwner) hoverTimer = setTimeout(closeSub, 250);
+    });
+  }
+  return btn;
+}
+
+/** Нарисовать пункты в панели (главное меню или подменю). findLabel — это список (плейлистов и т.п.):
+ *  если пунктов много, над ними поле поиска с этой подсказкой; у обычного меню действий поиска нет */
+function showLive(panel, items, findLabel = "", focus = false) {
+  const page = el("div", "menu-page");
+  const head = items.find((i) => i.head)?.head;
+  if (head) {
+    const top = el("div", "menu-top");
+    const img = el("img");
+    img.alt = "";
+    img.onerror = () => img.classList.add("broken");
+    if (head.image) img.src = head.image;
+    else img.classList.add("broken");
+    const text = el("div", "menu-top-text");
+    text.append(el("b", "", head.title ?? ""), el("span", "", head.sub ?? ""));
+    top.append(img, text);
+    page.append(top);
+  }
+  const list = liveItems(items);
+  const count = list.filter((i) => !i.sep && !i.note && !i.foot).length;
+  let input = null;
+  if (findLabel && count >= SEARCH_FROM) {
+    const find = el("label", "menu-find");
+    find.innerHTML = icons.search;
+    input = el("input");
+    input.type = "text";
+    input.placeholder = findLabel;
+    input.spellcheck = false;
+    find.append(input);
+    page.append(find);
+  }
+  const empty = el("div", "menu-note menu-none", "Ничего не нашлось");
+  empty.hidden = true;
+  for (const item of list) {
+    if (item.sep) { page.append(el("div", "menu-sep")); continue; }
+    if (item.note) { page.append(el("div", "menu-note", item.note)); continue; }
+    const b = liveButton(item, panel);
+    if (!item.foot) b.dataset.find = norm(item.label);
+    page.append(b);
+  }
+  if (input) {
+    page.append(empty);
+    input.addEventListener("input", () => {
+      const words = norm(input.value).split(/\s+/).filter(Boolean);
+      let shown = 0;
+      page.querySelectorAll(".menu-item[data-find]").forEach((b) => {
+        b.hidden = !words.every((w) => b.dataset.find.includes(w));
+        if (!b.hidden) shown++;
+      });
+      page.querySelectorAll(".menu-sep").forEach((s) => { s.hidden = words.length > 0; });
+      empty.hidden = shown > 0;
+      if (panel === sub) placeSub();
+    });
+  }
+  panel.replaceChildren(page);
+  if (panel === menu) placeMenu();
+  if (focus || panel === menu) page.querySelector(".menu-item:not(:disabled)")?.focus({ preventScroll: true });
+}
+
+function placeSub() {
+  if (!subOwner) return;
+  const m = menu.getBoundingClientRect(), r = subOwner.getBoundingClientRect();
+  const w = sub.offsetWidth, h = sub.offsetHeight, pad = 8, gap = 6;
+  let left = m.right + gap;
+  if (left + w > innerWidth - pad) left = Math.max(pad, m.left - w - gap);   // справа не влезает — слева от меню
+  // Первый пункт подменю — вровень с пунктом, из которого оно выехало
+  const first = sub.querySelector(".menu-item:not([hidden])");
+  const top = Math.max(46, Math.min(r.top - (first ? first.offsetTop : 8), innerHeight - h - pad));
+  sub.style.left = `${left}px`;
+  sub.style.top = `${top}px`;
+  sub.style.transformOrigin = `${left < m.left ? "right" : "left"} top`;
+}
+
+function openSub(btn, item, focus = false) {
+  clearTimeout(hoverTimer);
+  if (subOwner === btn) {
+    if (focus) sub.querySelector(".menu-item:not(:disabled):not([hidden])")?.focus({ preventScroll: true });
+    return;
+  }
+  subOwner?.classList.remove("hov");
+  subOwner = btn;
+  btn.classList.add("hov");
+  btn.setAttribute("aria-expanded", "true");
+  sub.classList.add("open");   // сначала показать: в невидимое подменю фокус не переходит
+  showLive(sub, item.submenu(), item.find || "Найти", focus);
+  placeSub();
+}
+
+function closeSub() {
+  clearTimeout(hoverTimer);
+  if (!subOwner) return;
+  subOwner.classList.remove("hov");
+  subOwner.removeAttribute("aria-expanded");
+  subOwner = null;
+  sub.classList.remove("open");
+}
+
+/** Клавиши в меню ПК: стрелки по пунктам, → / ← — подменю, Enter в поиске — первый найденный */
+function onLiveKey(e) {
+  const panel = e.currentTarget;
+  const items = [...panel.querySelectorAll(".menu-item:not(:disabled)")].filter((b) => !b.hidden);
+  const at = items.indexOf(document.activeElement);
+  const inFind = e.target.matches?.("input");
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!items.length) return;
+    const d = e.key === "ArrowDown" ? 1 : -1;
+    items[at < 0 ? (d > 0 ? 0 : items.length - 1) : (at + d + items.length) % items.length].focus({ preventScroll: false });
+  } else if ((e.key === "Home" || e.key === "End") && !inFind) {
+    e.preventDefault();
+    items[e.key === "Home" ? 0 : items.length - 1]?.focus();
+  } else if (e.key === "ArrowRight" && panel === menu && !inFind) {
+    const btn = document.activeElement;
+    if (btn?.menuItem && !btn.disabled) { e.preventDefault(); openSub(btn, btn.menuItem, true); }
+  } else if (e.key === "ArrowLeft" && panel === sub && !inFind) {
+    e.preventDefault();
+    const owner = subOwner;
+    closeSub();
+    owner?.focus();
+  } else if (e.key === "Enter" && inFind) {
+    e.preventDefault();
+    items[0]?.click();
+  }
+}
+if (live) {
+  menu.addEventListener("keydown", onLiveKey);
+  sub.addEventListener("keydown", onLiveKey);
+  sub.addEventListener("pointerenter", () => clearTimeout(hoverTimer));
+}
+
 /** anchor — кнопка (меню под ней) или {x, y} (меню у курсора) */
 export function openMenu(anchor, items, startSubmenu = null) {
   menuAnchor = anchor;
+  if (live) closeSub();
   menu.classList.add("open");
   if (startSubmenu) {   // сразу открыть подменю, например «Добавить в плейлист»
     const item = items.find((i) => i.submenu && i.label === startSubmenu);
     if (item) {
-      renderMenuPage(item.submenu(), "", null);
+      if (live) showLive(menu, item.submenu(), item.find || "Найти");
+      else renderMenuPage(item.submenu(), "", null);
       return;
     }
   }
-  renderMenuPage(items);
+  if (live) showLive(menu, items);
+  else renderMenuPage(items);
 }
 
 export function closeMenu() {
+  if (live) closeSub();
   menu.classList.remove("open");
   menuAnchor = null;
 }
 
 document.addEventListener("pointerdown", (e) => {
-  if (menuAnchor && !menu.contains(e.target)) closeMenu();
+  if (menuAnchor && !inMenu(e.target)) closeMenu();
 }, true);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && menuAnchor) { e.stopPropagation(); closeMenu(); }
+  if (e.key !== "Escape" || !menuAnchor) return;
+  e.stopPropagation();
+  // Esc в подменю — закрыть только его и вернуться к пункту меню
+  if (subOwner && sub.contains(document.activeElement)) {
+    const owner = subOwner;
+    closeSub();
+    owner.focus();
+  } else closeMenu();
 }, true);
 addEventListener("resize", closeMenu);
-addEventListener("scroll", (e) => { if (menuAnchor && !menu.contains(e.target)) closeMenu(); }, true);
+addEventListener("scroll", (e) => { if (menuAnchor && !inMenu(e.target)) closeMenu(); }, true);
 
 // ---------- Диалоги ----------
 
@@ -529,7 +747,7 @@ export function openModal({ onClose, className = "" } = {}) {
 function openDialog(build) {
   return new Promise((resolve) => {
     let result = null;
-    const { box, close } = openModal({ onClose: () => resolve(result) });
+    const { box, close } = openModal({ className: "dialog-ask", onClose: () => resolve(result) });   // «точно?», название, выбор
     const finish = (value) => { result = value; close(); };
     const focusTarget = build(box, finish);
     focusTarget?.focus();
@@ -544,20 +762,23 @@ function dialogButtons(form, finish, okLabel, danger) {
   cancel.addEventListener("click", () => finish(null));
   const ok = el("button", `btn ${danger ? "danger" : "primary"}`, okLabel);
   ok.type = "submit";
+  if (danger && live) ok.insertAdjacentHTML("afterbegin", icons.trash);   // ПК: «🗑 Удалить», как в макете
   row.append(cancel, ok);
   form.append(row);
   return ok;
 }
 
-/** Спрашивает текст. null — если передумали */
-export function promptDialog({ title, value = "", placeholder = "", okLabel = "Сохранить" }) {
+/** Спрашивает текст. null — если передумали. text — пояснение под заголовком */
+export function promptDialog({ title, value = "", placeholder = "", okLabel = "Сохранить", text = "" }) {
   return openDialog((form, finish) => {
     const input = el("input", "dialog-input");
     input.value = value;
     input.placeholder = placeholder;
     input.maxLength = 100;
     input.spellcheck = false;
-    form.append(el("h2", "", title), input);
+    form.append(el("h2", "", title));
+    if (text && live) form.append(el("p", "", text));   // телефон — прежнее окно (шаг 11)
+    form.append(input);
     const ok = dialogButtons(form, finish, okLabel, false);
     const sync = () => { ok.disabled = !input.value.trim(); };
     input.addEventListener("input", sync);
@@ -567,9 +788,14 @@ export function promptDialog({ title, value = "", placeholder = "", okLabel = "�
   });
 }
 
-/** Спрашивает «точно?». true — да */
-export function confirmDialog({ title, text = "", okLabel = "Удалить", danger = true }) {
+/** Спрашивает «точно?». true — да. art — картинка над заголовком (обложка того, что удаляют) */
+export function confirmDialog({ title, text = "", okLabel = "Удалить", danger = true, art = null }) {
   return openDialog((form, finish) => {
+    if (art && live) {   // телефон — прежнее окно (шаг 11)
+      const box = el("div", "dialog-art");
+      box.append(art);
+      form.append(box);
+    }
     form.append(el("h2", "", title));
     if (text) form.append(el("p", "", text));
     const ok = dialogButtons(form, (v) => finish(!!v), okLabel, danger);
@@ -609,9 +835,17 @@ toasts.setAttribute("aria-live", "polite");
 document.body.append(toasts);
 
 /** Уведомление внизу. action: { label, run } — кнопка в уведомлении (например, «Отменить»); тогда оно висит дольше.
- *  duration — сколько висеть (мс), если обычного времени мало */
-export function toast(text, { error = false, action = null, duration = 0, image = null } = {}) {
+ *  duration — сколько висеть (мс), если обычного времени мало.
+ *  icon — "info" / "download": на ПК пилюля стеклянная, слева круглый значок (ошибка — тоже, значок «!») */
+const TOAST_ICONS = { info: icons.info, download: icons.download };
+export function toast(text, { error = false, action = null, duration = 0, image = null, icon = null } = {}) {
   const item = el("div", `toast${error ? " error" : ""}${action ? " with-action" : ""}`, text);
+  if (live && !image && (error || TOAST_ICONS[icon])) {
+    const ic = el("span", "toast-ic", error ? "!" : "");
+    if (!error) ic.innerHTML = TOAST_ICONS[icon];
+    item.prepend(ic);
+    item.classList.add("soft");
+  }
   if (image) {   // маленькая обложка слева (например, «Добавлено в «Избранное»»)
     const img = el("img", "toast-img");
     img.alt = "";

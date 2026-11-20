@@ -921,7 +921,7 @@ export function initPlayer() {
       if (alt) {
         removeFromHistory(track);
         swapCurrent(alt);
-        toast("YouTube не отвечает — включаю песни с SoundCloud, где они там есть");
+        toast("YouTube не отвечает — включаю песни с SoundCloud, где они там есть", { icon: "info" });
         return;
       }
       loading(false);
@@ -934,7 +934,7 @@ export function initPlayer() {
       if (twin) {
         removeFromHistory(track);
         swapCurrent(twin);
-        toast("Эта загрузка не открывалась — включил другую загрузку этой песни из медиатеки");
+        toast("Эта загрузка не открывалась — включил другую загрузку этой песни из медиатеки", { icon: "info" });
         return;
       }
       setStatus("Этот вариант трека не открывается — ищу другую загрузку…");
@@ -945,7 +945,7 @@ export function initPlayer() {
         setAltVersion(track, alt);
         removeFromHistory(track);   // в «Недавно слушали» — только рабочая загрузка, без дубля
         swapCurrent(alt);
-        toast("Этот вариант трека не открывался — включил другую загрузку");
+        toast("Этот вариант трека не открывался — включил другую загрузку", { icon: "info" });
         return;
       }
       loading(false);

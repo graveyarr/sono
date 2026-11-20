@@ -37,6 +37,15 @@ if sys.platform == "win32":
     user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
     user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
+    user32.SetWindowRgn.argtypes = [wintypes.HWND, ctypes.c_void_p, wintypes.BOOL]
+    gdi32 = ctypes.windll.gdi32
+    gdi32.CreateRoundRectRgn.restype = ctypes.c_void_p
+    gdi32.CreateRoundRectRgn.argtypes = [ctypes.c_int] * 6
+    dwmapi = ctypes.windll.dwmapi
+    dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+    dwmapi.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
 
 WM_NCCALCSIZE = 0x0083
 WM_NCLBUTTONDOWN = 0x00A1
@@ -62,12 +71,19 @@ SWP_NOSIZE = 0x0001
 # браузера (ReleaseCapture) может только поток самого окна — поэтому передаём команду ему (была ошибка:
 # окно не тащилось). wParam — что тянем: заголовок или край (HT…)
 WM_SONO_DRAG = 0x8000 + 0x51
-# Мини-плеер: окно сжимается в маленькую плашку поверх всех окон (wParam 1 — включить, 0 — вернуть)
+# Мини-плеер: окно сжимается в маленькую плашку (wParam: форма 1 «Капсула» / 2 «Квадрат», 0 — вернуть;
+# + 16, если поверх всех окон)
 WM_SONO_MINI = 0x8000 + 0x52
 WM_GETMINMAXINFO = 0x0024
-MINI_SIZE = (400, 132)       # в «пикселях страницы» — умножаем на масштаб экрана
+# Формы мини-плеера: ширина, высота и радиус скругления — в «пикселях страницы» (умножаем на масштаб экрана)
+MINI_SIZES = {1: (440, 84, 26), 2: (300, 360, 30)}
+MINI_SHAPES = {"capsule": 1, "square": 2}
 HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+SWP_NOMOVE_NOSIZE = 0x0002 | 0x0001 | 0x0010   # не двигать, не менять размер, не делать активным
 SW_RESTORE = 9
+# Подложка окна Windows 11 (Mica): pywebview включает её в тёмной теме Windows. Скругление (регион) её
+# не обрезает — вокруг мини-плеера была тёмная рамка во весь прямоугольник окна. В мини-режиме выключаем
+DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_NONE = 38, 1
 
 
 class MINMAXINFO(ctypes.Structure):
@@ -80,9 +96,10 @@ class MONITORINFO(ctypes.Structure):
                 ("dwFlags", wintypes.DWORD)]
 
 
-_mini = False
+_mini = 0             # 0 — обычное окно, иначе форма мини-плеера (MINI_SIZES)
 _before_mini = None   # (x, y, ширина, высота) обычного окна — вернуть после мини-плеера
-_mini_pos = None      # где мини-плеер стоял в прошлый раз (его могли перетащить)
+_mini_pos = {}        # где мини-плеер каждой формы стоял в прошлый раз (его могли перетащить)
+_backdrop = None      # какая подложка была у обычного окна (вернуть после мини-плеера)
 
 _hwnd = None
 _old_proc = None
@@ -105,14 +122,14 @@ def _proc(hwnd, msg, wparam, lparam):
         user32.SendMessageW(hwnd, WM_NCLBUTTONDOWN, wparam, (pt.y & 0xFFFF) << 16 | (pt.x & 0xFFFF))
         return 0
     if msg == WM_SONO_MINI:
-        _set_mini(hwnd, bool(wparam))
+        _set_mini(hwnd, wparam & 0xF, bool(wparam & 0x10))
         return 0
     if msg == WM_GETMINMAXINFO and _mini:
-        # Обычное окно не даёт сжать себя меньше 860×600 — мини-плееру можно
+        # Обычное окно не даёт сжать себя меньше 860×600 — мини-плееру можно («Капсула» — 84 px в высоту)
         result = user32.CallWindowProcW(_old_proc, hwnd, msg, wparam, lparam)
         info = ctypes.cast(lparam, ctypes.POINTER(MINMAXINFO)).contents
         scale = _scale(hwnd)
-        info.min_track.x, info.min_track.y = int(300 * scale), int(100 * scale)
+        info.min_track.x, info.min_track.y = int(200 * scale), int(60 * scale)
         return result
     if msg == WM_SIZE and wparam in (1, 2):   # свернули / развернули
         _restoring = True
@@ -151,32 +168,91 @@ def _rect(hwnd) -> tuple[int, int, int, int]:
     return r.left, r.top, r.right - r.left, r.bottom - r.top
 
 
-def _set_mini(hwnd, on: bool) -> None:
-    """Мы в потоке окна. Включить: запомнить обычное окно, сжать в плашку в правом нижнем углу экрана
-    (или туда, где она стояла в прошлый раз) и поставить поверх всех окон. Выключить: всё вернуть."""
-    global _mini, _before_mini, _mini_pos, _restoring
-    if on == _mini:
+def _frame(hwnd) -> tuple[int, int, int, int]:
+    """На сколько окно больше своего содержимого с каждой стороны (слева, сверху, справа, снизу):
+    у окна Windows есть невидимые края, за которые его тянут. Сверху у нас края нет (WM_NCCALCSIZE)."""
+    w, c, pt = wintypes.RECT(), wintypes.RECT(), wintypes.POINT(0, 0)
+    user32.GetWindowRect(hwnd, ctypes.byref(w))
+    user32.GetClientRect(hwnd, ctypes.byref(c))
+    user32.ClientToScreen(hwnd, ctypes.byref(pt))
+    left, top = pt.x - w.left, pt.y - w.top
+    return left, top, (w.right - w.left) - left - c.right, (w.bottom - w.top) - top - c.bottom
+
+
+def _client_pos(hwnd) -> tuple[int, int]:
+    pt = wintypes.POINT(0, 0)
+    user32.ClientToScreen(hwnd, ctypes.byref(pt))
+    return pt.x, pt.y
+
+
+def _backdrop_off(hwnd) -> None:
+    """Запомнить подложку окна и выключить её (на Windows 10 атрибута нет — ничего не делаем)."""
+    global _backdrop
+    value = ctypes.c_uint(0)
+    try:
+        if dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ctypes.byref(value), 4) == 0:
+            _backdrop = value.value
+            off = ctypes.c_uint(DWMSBT_NONE)
+            dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ctypes.byref(off), 4)
+    except Exception:
+        pass
+
+
+def _backdrop_back(hwnd) -> None:
+    global _backdrop
+    if _backdrop is None:
         return
-    if on:
+    value, _backdrop = ctypes.c_uint(_backdrop), None
+    try:
+        dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ctypes.byref(value), 4)
+    except Exception:
+        pass
+
+
+def _set_mini(hwnd, shape: int, pin: bool) -> None:
+    """Мы в потоке окна. shape — форма мини-плеера (1 «Капсула», 2 «Квадрат») или 0 — вернуть обычное окно.
+    Включить: запомнить обычное окно, сжать в плашку в правом нижнем углу экрана (или туда, где плашка этой
+    формы стояла в прошлый раз), скруглить углы (окно вырезается по форме) и поставить поверх всех окон (pin).
+    Та же форма ещё раз — поменять только «поверх всех окон». Выключить: всё вернуть."""
+    global _mini, _before_mini, _restoring
+    shape = shape if shape in MINI_SIZES else 0
+    order = HWND_TOPMOST if pin else HWND_NOTOPMOST
+    if shape and shape == _mini:
+        user32.SetWindowPos(hwnd, order, 0, 0, 0, 0, SWP_NOMOVE_NOSIZE)
+        return
+    if not shape:
+        if not _mini:
+            return
+        _mini_pos[_mini] = _client_pos(hwnd)
+        _mini = 0
+        _restoring = False
+        user32.SetWindowRgn(hwnd, None, True)
+        _backdrop_back(hwnd)
+        x, y, w, h = _before_mini or (100, 100, 1100, 760)
+        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, w, h, 0x0040)
+        return
+    if _mini:   # сменили форму, не выходя из мини-плеера
+        _mini_pos[_mini] = _client_pos(hwnd)
+    else:
         if user32.IsZoomed(hwnd) or user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, SW_RESTORE)
         _before_mini = _rect(hwnd)
-        _mini = True
-        scale = _scale(hwnd)
-        w, h = int(MINI_SIZE[0] * scale), int(MINI_SIZE[1] * scale)
-        mon = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
-        user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(mon))   # MONITOR_DEFAULTTONEAREST
-        work, margin = mon.rcWork, int(20 * scale)
-        x, y = _mini_pos or (work.right - w - margin, work.bottom - h - margin)
-        x = max(work.left, min(x, work.right - w))   # прошлое место за пределами экрана (сменился монитор) — подвинуть
-        y = max(work.top, min(y, work.bottom - h))
-        user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, 0x0040)   # SWP_SHOWWINDOW
-    else:
-        _mini_pos = _rect(hwnd)[:2]
-        _mini = False
-        _restoring = False
-        x, y, w, h = _before_mini or (100, 100, 1100, 760)
-        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, x, y, w, h, 0x0040)
+        _backdrop_off(hwnd)
+    _mini = shape
+    scale = _scale(hwnd)
+    cw, ch, radius = MINI_SIZES[shape]
+    w, h, r = int(cw * scale), int(ch * scale), int(radius * scale)
+    left, top, right, bottom = _frame(hwnd)
+    mon = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+    user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(mon))   # MONITOR_DEFAULTTONEAREST
+    work, margin = mon.rcWork, int(20 * scale)
+    x, y = _mini_pos.get(shape) or (work.right - w - margin, work.bottom - h - margin)
+    x = max(work.left, min(x, work.right - w))   # прошлое место за пределами экрана (сменился монитор) — подвинуть
+    y = max(work.top, min(y, work.bottom - h))
+    # Содержимое окна — ровно w×h; невидимые края вокруг него отрезает скругление (тянуть за край нельзя)
+    user32.SetWindowPos(hwnd, order, x - left, y - top, w + left + right, h + top + bottom, 0x0040)   # SWP_SHOWWINDOW
+    rgn = gdi32.CreateRoundRectRgn(left, top, left + w + 1, top + h + 1, 2 * r, 2 * r)
+    user32.SetWindowRgn(hwnd, rgn, True)   # регион теперь принадлежит окну — удалять его не нужно
 
 
 def install(window) -> bool:
@@ -227,14 +303,16 @@ class WindowApi:
     def is_maximized(self):
         return bool(_hwnd and user32.IsZoomed(_hwnd))
 
-    def set_mini(self, on):
-        """Мини-плеер: маленькое окно поверх остальных (static/js/compact.js). True — сжать, False — вернуть."""
+    def set_mini(self, on, shape="capsule", pin=True):
+        """Мини-плеер (static/js/compact.js): on — сжать / вернуть; shape — "capsule" или "square";
+        pin — поверх всех окон. Тот же вызов с другим pin в мини-режиме — только переключить «поверх»."""
         if _hwnd:
-            user32.PostMessageW(_hwnd, WM_SONO_MINI, 1 if on else 0, 0)
+            code = MINI_SHAPES.get(shape, 1) if on else 0
+            user32.PostMessageW(_hwnd, WM_SONO_MINI, code | (0x10 if pin else 0), 0)
         return bool(_hwnd)
 
     def is_mini(self):
-        return _mini
+        return bool(_mini)
 
     def tray_status(self, title, playing):
         """Что играет — для подсказки значка в трее и пункта «Пауза/Играть» в его меню."""

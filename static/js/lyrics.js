@@ -25,6 +25,8 @@ let listEl = null;      // прокручиваемый список строк
 let userScrolledAt = 0; // когда человек сам крутил текст — автопрокрутка ненадолго уступает
 let hero = null;        // строчка текста в карточке «Сейчас играет» на «Главной»
 let heroIndex = -2;     // какая строка в ней сейчас
+let mini = null;        // две строчки в мини-плеере «Квадрат» (compact.js)
+let miniIndex = -2;
 
 function apply() {
   const shown = visible && !!state.current;
@@ -151,7 +153,7 @@ function prefetchNextLyrics() {
 }
 
 /** Нужен ли текст: открыт на «Сейчас играет» или есть строчка на «Главной» */
-const wanted = () => !!state.current && (visible || (!!hero && hero.isConnected));
+const wanted = () => !!state.current && (visible || (!!hero && hero.isConnected) || !!mini);
 
 async function load() {
   const track = state.current;
@@ -167,6 +169,7 @@ async function load() {
   shownKey = null;
   heroIndex = -2;
   if (hero) { hero.replaceChildren(); hero.classList.add("empty"); }
+  drawMini(-3);
   if (visible) showLoading();
   let got;
   try {
@@ -256,7 +259,8 @@ function glide(target) {
 function sync(instant = false) {
   // Строчка на «Главной»: пустая она спрятана — смотрим, видна ли сама карточка
   const heroOn = !!hero && hero.isConnected && (hero.parentElement?.getClientRects().length ?? 0) > 0;
-  if ((!visible && !heroOn) || !timed.length) return;
+  if (mini && !timed.length && miniIndex !== -3) drawMini(-3);
+  if ((!visible && !heroOn && !mini) || !timed.length) return;
   const t = audio.currentTime + 0.3 - offset;   // чуть заранее — строка загорается к моменту, когда её поют
   let i = -1;
   while (i + 1 < timed.length && timed[i + 1][0] <= t) i++;
@@ -265,6 +269,7 @@ function sync(instant = false) {
   const start = i < 0 ? 0 : timed[i][0], end = timed[i + 1]?.[0] ?? start + 4;
   const frac = i < 0 ? 0 : Math.min(1, (t - start) / Math.max(0.6, Math.min(end - start, 8)));
   const words = visible && box.classList.contains("ls-words");
+  if (mini && i !== miniIndex) drawMini(i);
   if (i !== activeIndex) {
     activeIndex = i;
     lines.forEach((line, n) => {
@@ -296,6 +301,30 @@ function drawHero(i, singing) {
   hero.classList.toggle("ahead", !singing || k !== i);   // её ещё не поют — бледная
   if (!calm()) hero.animate([{ opacity: 0, transform: "translateY(10px)", filter: "blur(6px)" }, { opacity: 1, transform: "none", filter: "blur(0)" }],
     { duration: 600, easing: EASE });
+}
+
+/** Мини-плеер «Квадрат»: строка, которую поют (бледная — если её ещё не поют), и следующая под ней.
+ *  i = -3 — текста нет (пусто) */
+function drawMini(i) {
+  miniIndex = i;
+  if (!mini) return;
+  let k = Math.max(i, 0);
+  while (i > -3 && k < timed.length && !(timed[k][1] || "").trim()) k++;
+  const cur = i > -3 ? timed[k]?.[1] || "" : "";
+  const next = cur ? timed.slice(k + 1).find((x) => (x[1] || "").trim())?.[1] || "" : "";
+  mini.replaceChildren(...(cur ? [el("b", "", cur), el("span", "", next)] : []));
+  mini.classList.toggle("empty", !cur);
+  mini.classList.toggle("ahead", !!cur && k !== i);
+}
+
+/** Мини-плеер «Квадрат» показывает строки текста (null — убрать) */
+export function showMiniLyric(node) {
+  mini = node;
+  miniIndex = -2;
+  if (!mini) return;
+  if (!timed.length) drawMini(-3);
+  load();
+  sync(true);
 }
 
 /** Карточка «Сейчас играет» на «Главной» показывает строку текста (null — убрать) */

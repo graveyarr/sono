@@ -290,6 +290,16 @@ export function deletePlaylist(id) {
   changed("playlists");
 }
 
+/** «Вернуть» после удаления: тот же плейлист (с тем же id — папки его снова узнают) на прежнее место */
+export function restorePlaylist(playlist, index = lib.playlists.length) {
+  if (!playlist || getPlaylist(playlist.id)) return false;
+  const list = [...lib.playlists];
+  list.splice(Math.max(0, Math.min(index, list.length)), 0, playlist);
+  lib.playlists = list;
+  changed("playlists");
+  return true;
+}
+
 /** false — трек уже есть в плейлисте */
 export function addToPlaylist(id, track) {
   const p = getPlaylist(id);

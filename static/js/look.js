@@ -26,6 +26,8 @@ const DEFAULTS = {
   now: "normal",        // normal | vinyl | big
   seek: "edge",         // edge | wave | live
   queue: "hidden",      // hidden | right | bottom
+  mini: "capsule",      // мини-плеер поверх окон (compact.js): capsule | square
+  miniPin: true,        // мини-плеер поверх всех окон
 };
 const sysLight = matchMedia("(prefers-color-scheme: light)");
 
@@ -475,6 +477,14 @@ function makeSections() {
     ["right", "Справа", `<i class="cv" style="left:8px;top:16px;width:30px;height:30px"></i><i class="ln hi" style="left:44px;top:22px;width:24%"></i><i class="ln" style="left:44px;top:32px;width:18%"></i>${[10, 24, 38].map((y) => `<i class="ln" style="right:8px;top:${y + 4}px;width:20%;height:10px;border-radius:3px"></i>`).join("")}`],
     ["bottom", "Снизу", `<i class="cv" style="left:12px;top:8px;width:28px;height:28px"></i><i class="ln hi" style="left:48px;top:14px;width:34%"></i><i class="ln" style="left:48px;top:24px;width:24%"></i>${[0, 1, 2, 3].map((k) => `<i class="ln" style="left:${12 + k * 22}%;top:44px;width:17%;height:12px;border-radius:3px"></i>`).join("")}`],
   ])));
+  // Мини-плеер (Ctrl+M или кнопка в полоске окна): какой формы окно и стоит ли оно поверх всех окон
+  const pin = el("div", "lk-sw-row");
+  pin.dataset.t = "miniPin";
+  pin.innerHTML = '<div><b>Поверх всех окон</b><span>Мини-плеер не прячется за браузером и играми в окне</span></div><span class="lk-tg"></span>';
+  out.push(sec("Мини-плеер", tiles("mini", [
+    ["capsule", "Капсула", '<i class="mp-pv cap"><i class="cv"></i><i class="ln hi"></i><i class="ln"></i><i class="dot"></i></i>'],
+    ["square", "Квадрат", '<i class="mp-pv sq"><i class="cv"></i><i class="ln hi"></i><i class="ln"></i><i class="dot"></i></i>'],
+  ]), pin));
   return out;
 }
 
@@ -599,6 +609,11 @@ export function initLook() {
   addEventListener("resize", () => { fitWave(); liveRoots().forEach((r) => r.querySelectorAll(".lk-seg").forEach(placeSeg)); });
   apply();
 }
+
+/** Мини-плеер: форма (capsule / square) и «поверх всех окон» — compact.js */
+export const miniLook = () => ({ shape: st.mini === "square" ? "square" : "capsule", pin: st.miniPin !== false });
+/** Кнопка-булавка в самом мини-плеере */
+export const setMiniPin = (on) => save({ miniPin: !!on });
 
 /** Сменился трек — образцы в панели и очередь на «Сейчас играет» */
 export function lookTrackChanged() {

@@ -13,8 +13,8 @@ import { folderMenuItem } from "./libtools.js";
 import { isMeta, missingReason, resolvedOf, toReal } from "./meta.js";
 import { openAlbumAt, openArtist, openTrack, splitArtists } from "./nav.js";
 import { playNext, queueLater, queueNext, returnToQueue, state } from "./player.js";
-import { twinsIn } from "./samesong.js";
-import { confirmDialog, coverUrl, displayTrack, el, formatTime, openMenu, plural, promptDialog, sourceLabel, toast } from "./ui.js";
+import { songCount, twinsIn } from "./samesong.js";
+import { collectionCover, confirmDialog, coverUrl, displayTrack, el, formatTime, openMenu, plural, promptDialog, sourceLabel, toast } from "./ui.js";
 import { openExternal } from "./device.js";
 import { burstLike } from "./motion.js";
 
@@ -69,9 +69,12 @@ export const toggleDislike = withReal((track) => {
 // ---------- Плейлисты ----------
 
 /** Спрашивает название и создаёт плейлист; если передан трек — сразу кладёт его туда */
+const NEW_PL_TEXT = "Название можно поменять потом. Обложка соберётся из первых четырёх треков.";
+
 export async function createPlaylist(track = null) {
   const name = await promptDialog({
     title: "Новый плейлист",
+    text: NEW_PL_TEXT,
     value: `Мой плейлист №${lib.playlists.length + 1}`,
     placeholder: "Название",
     okLabel: "Создать",
@@ -176,13 +179,18 @@ export async function openTrackAlbum(track) {
 
 /** true — удалили */
 export async function deletePlaylist(playlist) {
+  const n = songCount(playlist.tracks);   // одна песня с двух сайтов — один трек, как в шапке плейлиста
   const ok = await confirmDialog({
-    title: `Удалить «${playlist.name}»?`,
-    text: "Плейлист исчезнет из медиатеки. Сами треки останутся в избранном и истории, если они там были.",
+    title: `Удалить плейлист «${playlist.name}»?`,
+    text: `${n ? `${plural(n, "трек", "трека", "треков")}. ` : ""}Сами треки останутся в избранном, истории и других плейлистах, если они там были.\nПередумаете — в сообщении внизу будет «Вернуть» на 10 секунд.`,
+    art: collectionCover("playlist", playlist, true),
   });
   if (ok) {
+    const at = lib.playlists.findIndex((p) => p.id === playlist.id);
     library.deletePlaylist(playlist.id);
-    toast(`Плейлист «${playlist.name}» удалён`);
+    toast(`Плейлист «${playlist.name}» удалён`, { duration: 10000, action: { label: "Вернуть", run: () => {
+      if (library.restorePlaylist(playlist, at)) toast(`Плейлист «${playlist.name}» вернулся`);
+    } } });
   }
   return ok;
 }
@@ -195,32 +203,38 @@ const fromWhere = (twins) => {
   return site ? ` (с ${site})` : "";
 };
 
+/** «Добавлено в «…»» с обложкой и «Отменить» (промахнуться плейлистом в длинном списке легко) */
+const addedToast = (track, p) => toast(`Добавлено в «${p.name}»`, { image: coverUrl(track),
+  action: { label: "Отменить", run: () => library.removeFromPlaylist(p.id, track) } });
+
 const addTo = withReal((track, p) => {
   if (library.getPlaylist(p.id)?.tracks.some((t) => keyOf(t) === keyOf(track))) return toast(`Уже есть в «${p.name}»`);
   // Та же песня, но другая загрузка (например, с SoundCloud, а добавляют с YouTube) — спрашиваем, нужен ли повтор
   const twins = otherUploads(p.tracks, track);
   if (twins.length) {
     return toast(`Уже есть в «${p.name}»${fromWhere(twins)}`, { action: { label: "Всё равно добавить", run: () => {
-      if (library.addToPlaylist(p.id, track)) toast(`Добавлено в «${p.name}»`);
+      if (library.addToPlaylist(p.id, track)) addedToast(track, p);
     } } });
   }
-  toast(library.addToPlaylist(p.id, track) ? `Добавлено в «${p.name}»` : `Уже есть в «${p.name}»`);
+  if (library.addToPlaylist(p.id, track)) addedToast(track, p);
+  else toast(`Уже есть в «${p.name}»`);
 });
 
 const downloadOne = withReal((track) => {
   download([track]);
-  toast("Скачиваю — трек будет играть без интернета");
+  toast("Скачиваю — трек будет играть без интернета", { icon: "download" });
 });
 
 /** Меню «В плейлист»: один трек или несколько (выбранные в списке) */
 export function addToPlaylistItems(track) {
   if (Array.isArray(track)) return addManyItems(track);
-  const items = [{ label: "Новый плейлист…", icon: icons.plus, action: () => createPlaylist(track) }];
+  const items = [{ label: "Новый плейлист…", icon: icons.plus, foot: true, action: () => createPlaylist(track) }];
   if (lib.playlists.length) items.push({ sep: true });
   const real = resolvedOf(track);   // у трека из базы «уже есть» проверяем по найденной паре
   for (const p of lib.playlists) {
     const already = !!real && twinsIn(p.tracks, real).length > 0;   // в том числе другая загрузка этой песни
-    items.push({ label: p.name, icon: already ? icons.check : "", action: () => addTo(track, p) });
+    items.push({ label: p.name, icon: already ? icons.check : "", checked: already, art: () => collectionCover("playlist", p),
+      action: () => addTo(track, p) });
   }
   return items;
 }
@@ -247,15 +261,15 @@ export function addManyToPlaylist(p, tracks) {
 // Несколько треков сразу (выбраны Ctrl/Shift). Треки «из базы» в списках не бывают выбраны — там уже пары
 function addManyItems(tracks) {
   const addAll = (p) => addManyToPlaylist(p, tracks);
-  const items = [{ label: "Новый плейлист…", icon: icons.plus, action: async () => {
-    const name = await promptDialog({ title: "Новый плейлист", value: `Мой плейлист №${lib.playlists.length + 1}`,
+  const items = [{ label: "Новый плейлист…", icon: icons.plus, foot: true, action: async () => {
+    const name = await promptDialog({ title: "Новый плейлист", text: NEW_PL_TEXT, value: `Мой плейлист №${lib.playlists.length + 1}`,
       placeholder: "Название", okLabel: "Создать" });
     if (!name) return;
     const playlist = library.createPlaylist(name, tracks);
     toast(`Создан «${playlist.name}»: ${plural(playlist.tracks.length, "трек", "трека", "треков")}`);
   } }];
   if (lib.playlists.length) items.push({ sep: true });
-  for (const p of lib.playlists) items.push({ label: p.name, icon: "", action: () => addAll(p) });
+  for (const p of lib.playlists) items.push({ label: p.name, icon: "", art: () => collectionCover("playlist", p), action: () => addAll(p) });
   return items;
 }
 
@@ -290,11 +304,13 @@ export function openUploadsMenu(anchor, members, current) {
 function trackMenuItems(track, ctx = {}) {
   const real = resolvedOf(track) ?? track;
   const liked = library.isLiked(real), disliked = library.isDisliked(real);
+  const shown = displayTrack(track);
   const items = [
+    { head: { image: coverUrl(track), title: shown.title, sub: shown.artist } },   // шапка — только на ПК
     { label: "Играть следующим", icon: icons.playNext, action: () => { queueNext(track); toast("Будет играть следующим"); } },
     { label: "Добавить в очередь", icon: icons.queue, action: () => { queueLater([track]); toast("Добавлено в очередь"); } },
     { label: "Радио по треку", icon: icons.flow, action: () => startFlow({ track: real }) },
-    { label: "Добавить в плейлист", icon: icons.plus, submenu: () => addToPlaylistItems(track) },
+    { label: "Добавить в плейлист", icon: icons.plus, find: "Найти плейлист", submenu: () => addToPlaylistItems(track) },
     { sep: true },
     { label: library.likeTarget()
         ? (liked ? `Убрать из «${library.likeTargetName()}»` : `В «${library.likeTargetName()}» (♡)`)

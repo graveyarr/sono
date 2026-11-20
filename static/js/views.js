@@ -1165,7 +1165,7 @@ async function onDownloadClick(info) {
   const { done } = countDownloaded(info.tracks);
   if (done < info.tracks.length) {
     download(info.tracks);
-    toast(`Скачиваю «${info.name}» — треки будут играть без интернета`);
+    toast(`Скачиваю «${info.name}» — треки будут играть без интернета`, { icon: "download" });
     return;
   }
   const ok = await confirmDialog({ title: `Удалить загрузки «${info.name}»?`,
