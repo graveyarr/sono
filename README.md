@@ -5,7 +5,7 @@
   &nbsp;
   <a href="https://github.com/graveyarr/sono/releases/latest"><img src="docs/img/btn-android.png" height="56" alt="Скачать для Android"></a>
 </p>
-<p align="center"><sub>Бесплатно и без рекламы · Windows 10/11 и Android 8+ · <a href="https://graveyarr.github.io/sono/">сайт Sono</a> · <a href="https://github.com/graveyarr/sono-themes">мастерская тем</a></sub></p>
+<p align="center"><sub>Бесплатно и без рекламы · Windows 10/11 и Android 8+ · <a href="https://graveyarr.github.io/sono/">сайт Sono</a> · <a href="https://t.me/sonomus">Telegram-канал</a> · <a href="https://github.com/graveyarr/sono-themes">мастерская тем</a></sub></p>
 
 # Sono
 
