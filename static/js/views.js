@@ -1849,7 +1849,9 @@ export function refreshViews(section) {
   if (section === "history") return;
   renderSidebar();
   if (view === "now") renderUpNext();
-  else if (view === "flow") renderFlowView();   // плейлисты в «Flow по плейлисту»
+  // плейлисты в «Flow по плейлисту»; новый экран — как в applyView (было всегда renderFlowView: после «Не то»
+  // или лайка на экране Flow вместо нового вида рисовался прежний)
+  else if (view === "flow") { if (liveUi() || isMobile) renderFlowLive({ covers: flowCovers }); else renderFlowView(); }
   else if (FIXED_VIEWS.includes(view) || isMetaView(view)) return;
   else renderList(false);
 }

@@ -2210,6 +2210,7 @@ body:not(.mobile) .minibar .volume.inline:is(:hover, :focus-within, .dragging) >
 }
 .dialog-backdrop.open { opacity: 1; }
 
+.dialog:focus { outline: none; }   /* фокус на самом окне — только чтобы работал Esc (ui.js openModal) */
 .dialog {
   width: var(--dialog-w, min(400px, calc(100vw - 32px)));   /* ПК («Живая обложка», шаг 10) — шире, 460 px */
   padding: 22px;
@@ -6051,14 +6052,15 @@ body.mobile .bg-art:not(.on) { visibility: hidden; transition: opacity 1.6s var(
 body.mobile .bg-art:not(.on), body.mobile .bg-art:not(.on) i { animation-play-state: paused; }
 body.mobile .bg-shade { background: linear-gradient(180deg, rgb(var(--shade-rgb) / 0.25), rgb(var(--shade-rgb) / 0.62)); }
 
-/* Вкладки — стекло во всю ширину внизу; подсветка под значком переезжает (mobile.js ставит --tab-i) */
+/* Вкладки — полоса во всю ширину внизу; подсветка под значком переезжает (mobile.js ставит --tab-i).
+   Вкладки, капсула и верхняя полоса на телефоне — без размытия (вариант «В», шаг 13): они всегда поверх
+   листаемого, и размытие под ними пересчитывалось каждый кадр — листание дёргалось. Вместо стекла —
+   тот же цвет панели поверх сплошного фона (непрозрачно, текст снизу не просвечивает). Листы и меню — стекло */
 body.mobile .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
   height: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
   padding: 0 6px calc(6px + env(safe-area-inset-bottom, 0px));
-  background: var(--bar-bg);
-  -webkit-backdrop-filter: blur(28px) saturate(1.4);
-          backdrop-filter: blur(28px) saturate(1.4);
+  background: linear-gradient(var(--bar-bg), var(--bar-bg)), var(--bg);
   border-top: 1px solid var(--edge);
 }
 body.mobile .tabbar::before {
@@ -6084,9 +6086,7 @@ body.mobile.minibar-large .minibar {
   height: var(--cap-h); margin: 0;
   padding: 0 7px 0 8px;
   border: 0; border-radius: 31px;
-  background: var(--bar-bg);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-          backdrop-filter: blur(24px) saturate(1.4);
+  background: linear-gradient(var(--bar-bg), var(--bar-bg)), var(--bg);   /* без размытия — см. вкладки выше */
   box-shadow: 0 16px 40px -12px rgb(var(--shade-rgb) / 0.55);
   overflow: hidden;
 }
@@ -6401,8 +6401,7 @@ body.mobile .m-bk-title {
   opacity: 0; transition: opacity 0.3s;
 }
 body.mobile .m-bk.solid {
-  background: var(--bar-bg); border-bottom-color: var(--edge);
-  -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4);
+  background: linear-gradient(var(--bar-bg), var(--bar-bg)), var(--bg); border-bottom-color: var(--edge);   /* без размытия — см. вкладки */
 }
 body.mobile .m-bk.solid .m-bk-title { opacity: 1; }
 body.mobile:not(:has(#view-list .pl-more)) .m-bk-more { visibility: hidden; }

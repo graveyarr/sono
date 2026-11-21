@@ -156,7 +156,9 @@ function yearCard() {
   return card;
 }
 
-export function renderStatsLive(box) {
+// host, а не box: имя box занято функцией выше (рамка «Исполнители»/«Треки») — с ним экран был пустым,
+// когда за неделю или месяц ещё нечего показать
+export function renderStatsLive(host) {
   const root = el("div", "sx-live");
   const head = el("div", "live-hd");
   const title = el("h1", "live-h1");
@@ -206,5 +208,5 @@ export function renderStatsLive(box) {
   head.append(left, el("span", "sp"), segment(PERIODS, period, (v) => { period = v; draw(); }));
   root.append(head, body);
   draw();
-  box.replaceChildren(root);
+  host.replaceChildren(root);
 }

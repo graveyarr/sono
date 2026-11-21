@@ -750,7 +750,13 @@ export function openModal({ onClose, className = "" } = {}) {
   backdrop.addEventListener("pointerdown", (e) => { if (e.target === backdrop) close(); });
   backdrop.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } });
   document.body.append(backdrop);
-  requestAnimationFrame(() => backdrop.classList.add("open"));
+  // Esc слушает само окно — если открывший код не поставил фокус внутрь (поле, кнопка), фокус берёт окно,
+  // иначе он оставался на кнопке позади и Esc не закрывал (было: «Проверка медиатеки»)
+  box.tabIndex = -1;
+  requestAnimationFrame(() => {
+    backdrop.classList.add("open");
+    if (!closed && !backdrop.contains(document.activeElement)) box.focus({ preventScroll: true });
+  });
   return { box, close };
 }
 
