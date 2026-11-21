@@ -4,11 +4,13 @@
 // (views.js, экран "search"): «Лучший результат», «Треки», «Альбомы и синглы», «Исполнители», «Плейлисты»;
 // фильтры «Всё | Треки | …» и «Искать на: Везде | YouTube | SoundCloud».
 // История — в настройках медиатеки (settings.searchHistory, на сервере), не в localStorage: у .exe каждый
-// запуск новый порт. На телефоне — прежняя панель (search.js).
+// запуск новый порт. Телефон (шаг 11г): то же самое, но история — не выпадающим списком, а прямо на экране «Поиск»,
+// пока поле пустое (макет B-telefon-ekrany.html, #search и #search-res).
 
 import { openTrackMenu, openUploadsMenu, toggleLike } from "./actions.js";
 import { load, picture, releaseCard } from "./artist.js";
 import { headRow, segment } from "./artistlive.js";
+import { isMobile } from "./device.js";
 import { tasteArtists, tasteOf } from "./flow.js";
 import { icons } from "./icons.js";
 import { openImportDialog } from "./import.js";
@@ -389,6 +391,7 @@ export function renderSearchView(box) {
   view = "search";
   if (res && input && !input.value) { input.value = res.q; syncField(); }
   paint({ enter: true });
+  if (isMobile && input && !input.value.trim()) openDrop();   // телефон: пустое поле — история прямо на экране
 }
 
 function paint({ enter = false } = {}) {
@@ -801,7 +804,7 @@ export function initSearchLive() {
   input = document.getElementById("query");
   form = document.getElementById("search-form");
   holder = document.getElementById("search");
-  input.placeholder = "Что включим? Исполнитель, трек или ссылка";
+  input.placeholder = isMobile ? "Исполнитель, трек или ссылка" : "Что включим? Исполнитель, трек или ссылка";
   where = WHERE.some(([, v]) => v === getSetting("searchWhere")) ? getSetting("searchWhere") : "all";
   drop = el("div", "sq-drop");
   drop.setAttribute("role", "listbox");
@@ -863,7 +866,7 @@ export function initSearchLive() {
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
-      closeDrop();
+      if (!(isMobile && view === "search")) closeDrop();
       input.blur();
     }
   });
@@ -877,6 +880,7 @@ export function initSearchLive() {
 
   // Щелчок мимо поиска закрывает список (но не по меню «⋯» или окну, открытым из него)
   document.addEventListener("pointerdown", (e) => {
+    if (isMobile && view === "search") return;   // телефон: история — часть экрана, а не всплывающий список
     if (dropOpen() && !holder.contains(e.target) && !isOverlay(e.target)) closeDrop();
   });
   addEventListener("resize", () => { if (dropOpen()) placeShade(); });

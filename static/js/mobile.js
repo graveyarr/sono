@@ -5,13 +5,14 @@ import { openAddToPlaylist } from "./actions.js";
 import { isMobile } from "./device.js";
 import { openFxPanel } from "./fx.js";
 import { icons } from "./icons.js";
+import { openLook } from "./look.js";
 import { resolvedOf } from "./meta.js";
 import { openTrack } from "./nav.js";
 import { openShareCard } from "./sharecard.js";
 import { sleepMenuItems } from "./sleep.js";
 import { coverUrl, closeMenu, displayTrack, el, openMenu } from "./ui.js";
 import { isPlaying, onPlayState, onTrackChange, playNext, playPrev, seekTo, state, togglePlay } from "./player.js";
-import { closePanel, focusSearch } from "./search.js";
+import { focusSearch } from "./search.js";
 import { canGoBack, contextName, goBack, showView } from "./views.js";
 
 export { isMobile };
@@ -60,13 +61,6 @@ if (isMobile) {
 
 const tabbar = document.getElementById("tabbar");
 let view = "home";
-let searchMode = false;   // нажата вкладка «Поиск»: видна строка поиска (на остальных экранах её нет — шаг 11)
-
-const setSearchMode = (on) => {
-  searchMode = on;
-  document.body.classList.toggle("search-open", on);
-};
-
 const setLibraryOpen = (open) => {
   document.body.classList.toggle("lib-open", open);
   syncTabs();
@@ -74,8 +68,7 @@ const setLibraryOpen = (open) => {
 
 function syncTabs() {
   const lib = document.body.classList.contains("lib-open");
-  const searching = searchMode || document.getElementById("panel").classList.contains("open");
-  const active = lib ? "library" : searching ? "search" : view === "home" ? "home" : view === "flow" ? "flow" : "";
+  const active = lib ? "library" : ["home", "search", "flow"].includes(view) ? view : "";
   const tabs = [...tabbar.querySelectorAll(".tab")];
   tabs.forEach((t) => t.classList.toggle("on", t.dataset.tab === active));
   // Подсветка под значком переезжает к выбранной вкладке (style.css, «шаг 11»); нет выбранной — гаснет
@@ -87,14 +80,8 @@ function syncTabs() {
 function openTab(tab) {
   if (tab === "library") return setLibraryOpen(!document.body.classList.contains("lib-open"));
   setLibraryOpen(false);
-  if (tab === "search") {
-    const open = () => { setSearchMode(true); syncTabs(); focusSearch(); };
-    // На «Сейчас играет» строки поиска нет — сначала «Главная» (её событие sono:view выключает поиск, поэтому — после)
-    if (view === "now") Promise.resolve(showView("home")).then(open);
-    else open();
-    return;
-  }
-  setSearchMode(false);
+  // «Поиск» — свой экран (шаг 11г, как на ПК: searchlive.js); уже на нём — к полю, с клавиатурой
+  if (tab === "search" && view === "search") return focusSearch();
   showView(tab);
 }
 
@@ -108,6 +95,7 @@ function back() {
     return true;
   }
   if (document.querySelector(".menu.open")) { closeMenu(); return true; }
+  if (body.classList.contains("look-open")) { openLook(false); return true; }   // панель «Вид» (шаг 11г)
   // Редактор тем (editor.js) — закрыть его (спросит, сохранить ли изменения)
   if (body.classList.contains("theme-editing")) {
     dispatchEvent(new CustomEvent("sono:editor-back"));
@@ -119,14 +107,10 @@ function back() {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     return true;
   }
-  if (document.getElementById("panel").classList.contains("open") || searchMode) {
-    closePanel();
-    document.getElementById("query").blur();
-    setSearchMode(false);
-    syncTabs();
-    return true;
-  }
   if (body.classList.contains("lib-open")) { setLibraryOpen(false); return true; }
+  // «Настройки»: открыт раздел — сначала назад к списку разделов (setlive.js, шаг 11г)
+  const settingsBack = view === "settings" && document.querySelector(".cfg.m-page .cfg-m-back");
+  if (settingsBack) { settingsBack.click(); return true; }
   if (body.classList.contains("sheet-queue") || body.classList.contains("sheet-more")) { closeSheets(); return true; }
   if (body.classList.contains("on-now") && body.classList.contains("show-lyrics")) {
     document.querySelector('[data-np="lyrics"]').click();
@@ -413,7 +397,6 @@ export function initMobile() {
   // Выбрали что-то в медиатеке — она закрывается, открывается выбранное
   document.addEventListener("sono:view", (e) => {
     view = e.detail;
-    setSearchMode(false);
     setLibraryOpen(false);
   });
   // Мини-плеер: на компьютере имя исполнителя и название — ссылки (на исполнителя, на альбом).
@@ -430,8 +413,6 @@ export function initMobile() {
   document.body.classList.remove("show-queue");
   document.querySelectorAll('[data-np="queue"]').forEach((b) => b.classList.remove("on"));
   window.sonoBack = back;
-  // Поиск: открыта панель результатов — подсвечена вкладка «Поиск»
-  new MutationObserver(syncTabs).observe(document.getElementById("panel"), { attributes: true, attributeFilter: ["class"] });
   // Кнопка «→» на клавиатуре телефона — спрятать клавиатуру, чтобы были видны все результаты
   const query = document.getElementById("query");
   query.enterKeyHint = "search";

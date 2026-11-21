@@ -1,5 +1,5 @@
-// Строка поиска и выпадающая панель под ней (история поиска / результаты) — телефон.
-// На ПК («Живая обложка») поиск свой: выпадающая история и экран результатов — searchlive.js.
+// Прежний поиск: строка поиска и выпадающая панель под ней (история поиска / результаты).
+// На ПК («Живая обложка») и с шага 11г на телефоне — новый поиск: история и экран результатов (searchlive.js).
 
 import { openTrackMenu, toggleLike } from "./actions.js";
 import { sourceIcons } from "./icons.js";
@@ -9,10 +9,13 @@ import { describeLink, looksLikeLink } from "./links.js";
 import { openImportDialog } from "./import.js";
 import { artistByName } from "./meta.js";
 import { openView } from "./nav.js";
+import { isMobile } from "./device.js";
 import { liveUi } from "./motion.js";
 import { byTaste, focusSearchLive, initSearchLive } from "./searchlive.js";
 import { play, prefetch, state } from "./player.js";
 import { SOURCE_NAMES, displayTrack, el, imgUrl, isOverlay, markCurrentRows, plural, trackRow } from "./ui.js";
+
+const newSearch = () => liveUi() || isMobile;   // новый поиск (searchlive.js): ПК «Живая обложка» и телефон
 
 const searchBox = document.getElementById("search");
 const searchBar = document.getElementById("search-form");
@@ -207,7 +210,7 @@ function showSearchError(text) {
 
 /** История изменилась (включили трек, убрали из истории) — перерисовать, если она на экране */
 export function refreshHistory() {
-  if (panelMode === "history" && !liveUi()) showHistory();
+  if (panelMode === "history" && !newSearch()) showHistory();
 }
 
 function setActiveRow(i, scroll = true) {
@@ -319,13 +322,13 @@ function scheduleSearch() {
 // byTaste — общий с ПК (searchlive.js): исполнители из вашего вкуса поднимаются на несколько мест
 
 export function focusSearch() {
-  if (liveUi()) return focusSearchLive();
+  if (newSearch()) return focusSearchLive();
   queryInput.focus();
   queryInput.select();
 }
 
 export function initSearch() {
-  if (liveUi()) return initSearchLive();   // ПК: новый поиск (searchlive.js)
+  if (newSearch()) return initSearchLive();   // ПК и телефон: новый поиск (searchlive.js)
   source = SOURCE_NAMES[getSetting("source")] ? getSetting("source") : "youtube";
   renderSource();
   showHistory();

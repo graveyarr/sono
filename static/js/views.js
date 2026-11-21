@@ -156,7 +156,6 @@ const FIXED_VIEWS = ["home", "flow", "now", "settings", "stats", "workshop", "se
     (View Transitions, motion.js) — новый экран появляется не сразу, а в следующем кадре */
 export function showView(key, { back = false } = {}) {
   if (!FIXED_VIEWS.includes(key) && !isMetaView(key) && !describe(key)) key = "home";
-  if (key === "search" && !liveUi()) key = "home";   // на телефоне поиск — прежняя панель (search.js)
   const changed = key !== view;
   const first = !view;
   if (changed && view && !back) {
@@ -183,9 +182,10 @@ function applyView(changed) {
   viewList.hidden = !isList;
   if (view === "home") renderHome(changed);
   if (view === "now") renderUpNext();
-  if (view === "settings" && changed) (liveUi() ? renderSettingsLive : renderSettings)();   // на ПК — 4 раздела (setlive.js)
+  if (view === "settings" && changed) (liveUi() || isMobile ? renderSettingsLive : renderSettings)();   // 4 раздела (setlive.js; телефон — с шага 11г)
   // На ПК («Живая обложка») Flow, «Статистика» и «Новинки» — новые экраны (flowlive.js, statslive.js, nrlive.js)
-  if (view === "flow") { if (liveUi()) renderFlowLive({ covers: flowCovers }); else renderFlowView(); }
+  // Flow — новый экран и на телефоне (шаг 11г)
+  if (view === "flow") { if (liveUi() || isMobile) renderFlowLive({ covers: flowCovers }); else renderFlowView(); }
   if (view === "stats") { if (liveUi()) renderStatsLive(viewStats); else renderStats(viewStats, wrappedButton()); }
   if (view === "workshop" && changed) (liveUi() ? renderWorkshopLive : renderWorkshop)(viewWorkshop);   // на ПК — wslive.js
   if (view === "search" && changed) renderSearchView(viewSearch);
@@ -334,6 +334,9 @@ function renderHome(entering = false) {
   if (!viewHome.contains(homeRest)) {
     const hero = el("div", "home-hero");
     hero.append(homeGreet, el("p", "home-sub", "Что послушаем?"));
+    // Телефон (шаг 11г): кнопка «Вид» (палитра) — справа от приветствия, как в макете; на ПК она в верхней полосе
+    const lookBtn = document.getElementById("look-btn");
+    if (lookBtn) hero.append(lookBtn);
     viewHome.replaceChildren(hero, flowCard(), homeRest);
   }
   if (homeGreet.textContent !== greeting()) homeGreet.textContent = greeting();
@@ -617,7 +620,7 @@ function flowCovers() {
 }
 
 function syncFlowCards() {
-  if (view === "flow" && liveUi()) syncFlowLive();   // те же обложки — у карточек режимов на экране Flow
+  if (view === "flow" && (liveUi() || isMobile)) syncFlowLive();   // те же обложки — у карточек режимов на экране Flow
   if (!flowRowEl) return;
   const covers = flowCovers();
   flowRowEl.querySelectorAll(".fl-card").forEach((card, i) => {

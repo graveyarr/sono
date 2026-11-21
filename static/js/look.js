@@ -2,8 +2,10 @@
 // вид «Сейчас играет», полоска времени в капсуле, очередь на «Сейчас играет». Меняется сразу — панель справа,
 // окно слева сужается и показывает изменения. Макет — design/ui-new/B-vid.html.
 // Настройки — settings.look (медиатека на сервере), тема — прежняя settings.theme (themes.js).
-// Свои фоны — файлы на сервере (backgrounds.py, /api/backgrounds). Телефон — отдельным шагом (там всё прежнее).
+// Свои фоны — файлы на сервере (backgrounds.py, /api/backgrounds). Телефон (шаг 11г): та же панель листом снизу
+// (кнопка-палитра на «Главной»), только тема, цвет и фон — остальное там про капсулу и окно ПК.
 
+import { isMobile } from "./device.js";
 import { icons } from "./icons.js";
 import { getSetting, isDisliked, keyOf, setSetting } from "./library.js";
 import { liveUi } from "./motion.js";
@@ -78,10 +80,10 @@ function applyBackground() {
 }
 
 function apply() {
-  if (!liveUi()) return;
   const b = document.body;
   applySystemTheme();
   applyBackground();
+  if (!liveUi()) return;   // вид «Сейчас играет», полоска в капсуле и очередь — только на ПК
   b.dataset.lookNow = st.now;
   b.dataset.lookSeek = st.seek;
   b.dataset.lookQueue = st.queue;
@@ -328,7 +330,7 @@ function build() {
   panel.setAttribute("aria-label", "Вид");
   const head = el("div", "lk-head");
   const titles = el("div");
-  titles.append(el("h2", "", "Вид"), el("p", "", "Меняется сразу — смотрите на окно слева"));
+  titles.append(el("h2", "", "Вид"), el("p", "", isMobile ? "Меняется сразу" : "Меняется сразу — смотрите на окно слева"));
   const close = el("button", "lk-x");
   close.type = "button";
   close.innerHTML = icons.close;
@@ -356,6 +358,11 @@ function build() {
   go.addEventListener("click", openWorkshop);
   foot.append(reset, go);
   panel.append(head, body, foot);
+  if (isMobile) {   // телефон: панель — лист снизу, под ним затемнение (касание — закрыть)
+    const dim = el("div", "lk-dim");
+    dim.addEventListener("click", () => openLook(false));
+    document.body.append(dim);
+  }
   document.body.append(panel);
   attach(body, panel);   // перетащить картинку можно на всю панель
 }
@@ -375,7 +382,6 @@ function attach(root, dropArea = root) {
 /** «Настройки → Вид» на ПК (setlive.js): те же разделы, что в панели справа. root — раздел настроек
     (разделы можно разложить внутри него как угодно). Возвращает массив разделов .lk-sec */
 export function lookSections(root) {
-  if (!liveUi()) return [];
   const list = makeSections();
   attach(root);
   return list;
@@ -455,6 +461,7 @@ function makeSections() {
     ["own", "Свой фон", '<i class="own" data-ownpv></i>'],
     ["plain", "Однотонный", '<i class="plain"></i>'],
   ], "four"), own));
+  if (isMobile) return out;   // телефон: «Сейчас играет», полоска времени, очередь и мини-плеер — про ПК
   // «Сейчас играет»
   const more = el("button", "lk-link");
   more.type = "button";
@@ -583,7 +590,6 @@ function openWorkshop() {
 }
 
 export function openLook(open = !document.body.classList.contains("look-open")) {
-  if (!liveUi()) return;
   if (open && !panel) build();
   document.body.classList.toggle("look-open", open);
   document.getElementById("look-btn")?.classList.toggle("on", open);
@@ -596,7 +602,6 @@ export function openLook(open = !document.body.classList.contains("look-open")) 
 }
 
 export function initLook() {
-  if (!liveUi()) return;
   // Медиатека загружается уже после того, как модуль прочитал настройки (main.js: loadLibrary) — читаем заново,
   // иначе после перезапуска «Вид» был обычным, а следующий выбор стирал прежние
   st = look();
@@ -617,7 +622,6 @@ export const setMiniPin = (on) => save({ miniPin: !!on });
 
 /** Сменился трек — образцы в панели и очередь на «Сейчас играет» */
 export function lookTrackChanged() {
-  if (!liveUi()) return;
   renderNowQueue();
   if (document.body.classList.contains("look-open") || liveRoots().some((r) => r !== body)) sync();
 }

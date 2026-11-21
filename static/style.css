@@ -481,7 +481,6 @@ body.on-now.playing .viz { opacity: 0.44; }   /* было 0.5 — по прос�
 .look-btn svg { width: 20px; height: 20px; }
 .look-btn:hover { color: var(--text); background: color-mix(in srgb, var(--glass) 60%, rgb(var(--fg-rgb) / 0.1)); }
 .look-btn:active { scale: 0.94; }
-body.mobile .look-btn { display: none; }   /* на телефоне «Вид» — в настройках */
 
 /* «Назад» на панели слева от поиска (Настройки → Оформление → Кнопка «Назад», backbtn.js) —
    тогда стрелки в полоске окна нет. Поиск остаётся ровно по центру: поля слева и справа одинаковые. */
@@ -4563,7 +4562,6 @@ body.mobile .track .pl-recs-add { opacity: 1; }   /* на телефоне кн�
 }
 body.custom-titlebar .lk-panel { top: calc(var(--titlebar) + 10px); }
 body.look-open .lk-panel { translate: 0 0; opacity: 1; visibility: visible; transition: translate 0.6s var(--ease), opacity 0.35s, background-color 1.4s var(--ease); }
-body.mobile .lk-panel { display: none; }
 .lk-head { display: flex; align-items: flex-start; gap: 10px; padding: 20px 18px 10px 24px; }
 .lk-head > div { flex: 1; }
 .lk-head h2 { margin: 0; font: 800 26px/1.15 var(--font-display); letter-spacing: -0.8px; }
@@ -4688,18 +4686,18 @@ body.calm .pv :is(.blob, .disc, .bars i) { animation: none; }
 .lk-sw-row.on .lk-tg { background: var(--ink); }
 .lk-sw-row.on .lk-tg::after { translate: 18px 0; }
 
-/* ---------- Что меняет «Вид» (ПК) ---------- */
+/* ---------- Что меняет «Вид» (ПК; с шага 11г фон и цвет — и на телефоне) ---------- */
 /* Фон: без движения / однотонный / свой; свой цвет — пятна этого цвета вместо обложки */
-body:not(.mobile)[data-look-bg="still"] :is(.bg-art, .bg-art i) { animation-play-state: paused; }
-body:not(.mobile):is([data-look-bg="own"], [data-look-bg="plain"]) :is(.bg-art, .bg-glow) { opacity: 0 !important; }
-body:not(.mobile).look-fixed:is([data-look-bg="live"], [data-look-bg="still"]) .bg-art { opacity: 0 !important; }
-body:not(.mobile).look-fixed:is([data-look-bg="live"], [data-look-bg="still"]) .bg-glow { opacity: 0.85 !important; animation: look-tint 24s ease-in-out infinite alternate; }
-body:not(.mobile).look-fixed[data-look-bg="still"] .bg-glow { animation-play-state: paused; }
+body[data-look-bg="still"] :is(.bg-art, .bg-art i) { animation-play-state: paused; }
+body:is([data-look-bg="own"], [data-look-bg="plain"]) :is(.bg-art, .bg-glow) { opacity: 0 !important; }
+body.look-fixed:is([data-look-bg="live"], [data-look-bg="still"]) .bg-art { opacity: 0 !important; }
+body.look-fixed:is([data-look-bg="live"], [data-look-bg="still"]) .bg-glow { opacity: 0.85 !important; animation: look-tint 24s ease-in-out infinite alternate; }
+body.look-fixed[data-look-bg="still"] .bg-glow { animation-play-state: paused; }
 @keyframes look-tint { to { transform: translate(4%, 6%) scale(1.1); } }
 .own-bg { position: absolute; inset: 0; overflow: hidden; opacity: 0; pointer-events: none; transition: opacity 0.9s var(--ease); }
 .own-bg i { position: absolute; inset: calc(var(--own-blur, 0px) * -2); background: var(--own) center / cover no-repeat; filter: blur(var(--own-blur, 0px)); }
 .own-bg::after { content: ""; position: absolute; inset: 0; background: rgb(var(--shade-rgb) / var(--own-dim, 0.35)); }
-body:not(.mobile)[data-look-bg="own"] .own-bg { opacity: 1; }
+body[data-look-bg="own"] .own-bg { opacity: 1; }
 
 /* «Сейчас играет»: пластинка — обложка на виниле, крутится, пока играет; блик стоит на месте */
 body:not(.mobile)[data-look-now="vinyl"] .view-now .cover-wrap {
@@ -6123,8 +6121,8 @@ body.mobile.has-track:not(.on-now) .views::after { height: calc(var(--tabs-h) + 
 body.mobile .sidebar { padding-bottom: calc(var(--tabs-h) + var(--cap-gap) + var(--cap-h) + 16px); }
 body.mobile.on-now .view-now { padding-bottom: calc(var(--tabs-h) + 12px); }
 
-/* Строка поиска — только по вкладке «Поиск» (mobile.js → body.search-open), как в макете; стеклянная пилюля */
-body.mobile:not(.search-open) .top:not(:has(#panel.open)) { display: none; }   /* панель результатов открыта — строка видна */
+/* Строка поиска — только на экране «Поиск» (шаг 11г: body.on-search, views.js), как в макете; стеклянная пилюля */
+body.mobile:not(.on-search) .top { display: none; }
 body.mobile .search-bar { height: 46px; border-radius: 23px; background: var(--glass); border: 1px solid var(--edge); }
 
 /* «Главная»: крупное «Добрый вечер.», Flow — цветной остров из размытой обложки, плитки и карточки — стекло */
@@ -6387,7 +6385,7 @@ body.mobile .m-bk {
   border-bottom: 1px solid transparent;
   transition: background-color 0.3s, border-color 0.3s;
 }
-body.mobile.on-list:not(.on-now):not(.lib-open):not(.search-open) .m-bk { display: flex; }
+body.mobile.on-list:not(.on-now):not(.lib-open) .m-bk { display: flex; }
 body.mobile .m-bk button {
   width: 42px; height: 42px; flex: none; display: grid; place-items: center;
   border: 0; border-radius: 50%; padding: 0; color: var(--text); background: none;
@@ -6463,21 +6461,21 @@ body.mobile .view-list .pl-dl-status { order: 8; padding-left: 6px; font-size: 1
 body.mobile .view-list .pl-auto { order: 9; flex-basis: auto; margin-left: auto; padding: 6px 4px; }
 body.mobile .view-list .pl-actions > .flow-pill:not([title^="Бесконечный"]) { order: 4; }   /* «Сохранить в медиатеку» у подборки */
 
-/* Строки: обложка 52, название, значок сайта и исполнитель, «⋯»; без номеров, длительности и колонок */
-body.mobile .view-list .tl-head,
-body.mobile .view-list .track .t-num,
-body.mobile .view-list .track .t-plays,
-body.mobile .view-list .track .t-source,
-body.mobile .view-list .track .t-dur { display: none; }
-body.mobile .view-list .track { gap: 14px; padding: 8px 2px; border-radius: 14px; }
-body.mobile .view-list .track .thumb { width: 52px; height: 52px; border-radius: 10px; }
-body.mobile .view-list .track .t-title { font-size: 15.5px; font-weight: 700; }
-body.mobile .view-list .track .t-sub { margin-top: 2px; font-size: 13px; }
-body.mobile .view-list .track.current .t-title { color: var(--ink); }
+/* Строки (плейлист, исполнитель; с шага 11г и результаты поиска): обложка 52, название, значок сайта и исполнитель, «⋯»; без номеров, длительности и колонок */
+body.mobile :is(.view-list, .sr-live) .tl-head,
+body.mobile :is(.view-list, .sr-live) .track .t-num,
+body.mobile :is(.view-list, .sr-live) .track .t-plays,
+body.mobile :is(.view-list, .sr-live) .track .t-source,
+body.mobile :is(.view-list, .sr-live) .track .t-dur { display: none; }
+body.mobile :is(.view-list, .sr-live) .track { gap: 14px; padding: 8px 2px; border-radius: 14px; }
+body.mobile :is(.view-list, .sr-live) .track .thumb { width: 52px; height: 52px; border-radius: 10px; }
+body.mobile :is(.view-list, .sr-live) .track .t-title { font-size: 15.5px; font-weight: 700; }
+body.mobile :is(.view-list, .sr-live) .track .t-sub { margin-top: 2px; font-size: 13px; }
+body.mobile :is(.view-list, .sr-live) .track.current .t-title { color: var(--ink); }
 body.mobile .track .t-src { display: inline-flex; vertical-align: -2px; margin-right: 4px; color: var(--faint); }
 body.mobile .track .t-src svg { width: 15px; height: 14px; }
-body.mobile .view-list .list-tools { gap: 8px; }
-body.mobile .view-list .list-sort span { display: none; }
+body.mobile :is(.view-list, .sr-live) .list-tools { gap: 8px; }
+body.mobile :is(.view-list, .sr-live) .list-sort span { display: none; }
 
 /* «Рекомендуемые»: справа — «+ Добавить» */
 body.mobile .view-list .pl-recs-add {
@@ -6580,3 +6578,228 @@ body.mobile .menu .menu-head > svg { width: 22px; height: 22px; }
 body.mobile .menu .menu-item.danger, body.mobile .menu .menu-item.danger .menu-icon { color: #ff5d6c; }
 body.mobile .menu .menu-sep { height: 0; margin: 4px 6px; background: none; border-top: 1px solid var(--edge); }
 body.mobile .menu .menu-note { padding: 6px 8px 8px; font-size: 13px; color: var(--muted); }
+
+/* ===================== Шаг 11г: поиск, медиатека, Flow, настройки, «Вид» на телефоне (макеты B-telefon-ekrany.html, B-telefon.html) ===================== */
+
+/* «Поиск» — свой экран (views.js "search", searchlive.js): заголовок, поле с кольцом; пока поле пустое — история прямо
+   на экране («Недавно искали», «По вашему вкусу», подсказка про ссылки), начали печатать — результаты */
+body.mobile.on-search .top {
+  display: block; padding: 14px 16px 6px;
+}
+body.mobile.on-search .top::before {
+  content: "Поиск"; display: block; margin: 6px 2px 16px;
+  font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.15; padding-bottom: 0.08em;
+}
+body.mobile.on-search .top .panel-back, body.mobile.on-search .top .look-btn { display: none; }
+body.mobile .search { max-width: none; }
+body.mobile .search-bar { height: 54px; padding: 0 12px 0 18px; border-radius: 27px; }
+body.mobile.on-search .search-bar {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent), 0 10px 40px -12px var(--accent);
+}
+body.mobile .search-bar input { font-size: 16px; }
+body.mobile #source-btn, body.mobile .search-bar .divider { display: none; }
+body.mobile .search-bar:not(.has-text) .clear { display: none; }
+body.mobile .sq-shade, body.mobile .sq-keys { display: none; }
+/* История — не всплывающий список, а продолжение экрана (результатов под ней нет, пока поле пустое) */
+body.mobile.on-search.sq-open .top {
+  flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none;
+  padding-bottom: calc(var(--tabs-h) + var(--cap-gap) + var(--cap-h) + 24px + env(safe-area-inset-bottom, 0px));
+}
+body.mobile.on-search.sq-open .views { display: none; }
+body.mobile .sq-drop {
+  position: static; display: none; max-height: none; overflow: visible;
+  margin-top: 14px; padding: 0; border: 0; border-radius: 0;
+  background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+  opacity: 1; translate: none; visibility: visible; pointer-events: auto; transition: none;
+}
+body.mobile .sq-drop.open { display: block; }
+body.mobile .sq-h { margin: 10px 2px 8px; }
+body.mobile .sq-h2 { margin-top: 20px; }
+body.mobile .sq-row { gap: 14px; padding: 7px 2px; }
+body.mobile .sq-row > img, body.mobile .sq-ic { width: 52px; height: 52px; }
+body.mobile .sq-ic { border-radius: 14px; }
+body.mobile .sq-text b { font-size: 15.5px; font-weight: 700; }
+body.mobile .sq-text span { font-size: 13px; }
+body.mobile .sq-x { opacity: 1; width: 40px; height: 40px; }
+body.mobile .sq-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px 4px; }
+body.mobile .sq-chips::-webkit-scrollbar { display: none; }
+body.mobile .sq-tip { margin-top: 20px; padding: 14px; border-radius: 20px; background: var(--glass); border: 1px solid var(--edge); }
+
+/* Результаты: фильтры строкой, листаются вбок; всё в одну колонку */
+body.mobile .sr-live { padding: 6px 16px 0; }
+body.mobile .sr-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 8px; }
+body.mobile .sr-filters > .seg:first-child {
+  flex-basis: calc(100% + 32px); margin: 0 -16px; padding: 0 16px 2px;
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; background: none; border: 0; border-radius: 0;
+}
+body.mobile .sr-filters > .seg:first-child::-webkit-scrollbar { display: none; }
+body.mobile .sr-filters > .seg:first-child .seg-btn {
+  flex: none; height: 36px; padding: 0 15px; border-radius: 18px;
+  background: var(--glass); border: 1px solid var(--edge); color: var(--muted); font-weight: 700;
+}
+body.mobile .sr-filters > .seg:first-child .seg-btn.on { background: rgb(var(--fg-rgb)); border-color: transparent; color: rgb(var(--shade-rgb) / 0.9); }
+body.mobile .sr-filters .sr-sp { display: none; }
+body.mobile .sr-where-label { font-size: 12.5px; }
+body.mobile .sr-top { display: block; margin-top: 14px; }
+body.mobile .sr-best-col > .meta-h-row { display: none; }
+body.mobile .sr-best { display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: 24px; min-height: 0; }
+body.mobile .sr-best-art { flex: none; width: 76px; height: 76px; }
+body.mobile .sr-best-art img { width: 100%; height: 100%; }
+body.mobile .sr-best-text { flex: 1; min-width: 0; }
+body.mobile .sr-best-name {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 22px; line-height: 1.15; letter-spacing: -0.4px; padding-bottom: 0.1em;
+}
+body.mobile .sr-best-sub { font-size: 12.5px; }
+body.mobile .sr-best-play { position: static; flex: none; width: 48px; height: 48px; opacity: 1; translate: none; scale: 1; }
+body.mobile .sr-tracks-col { margin-top: 22px; }
+body.mobile .sr-live .sr-tracks { padding: 0; border: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body.mobile .sr-live .meta-section { margin-top: 26px; }
+body.mobile .sr-live .meta-h-row { margin: 0 2px 10px; }
+body.mobile .sr-live .meta-h-row .meta-h { font-size: 20px; }
+body.mobile .sr-live .pl-more-row {
+  display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 -16px; padding: 4px 16px 10px;
+}
+body.mobile .sr-live .pl-more-row::-webkit-scrollbar { display: none; }
+body.mobile .sr-live .pl-more-row > * { flex: none; width: 148px; }
+/* Подсказка про ссылки — карточкой: значок, «Вставьте ссылку…», сайты строкой ниже */
+body.mobile .sq-tip { flex-wrap: wrap; gap: 8px 12px; padding: 14px; border-top: 1px solid var(--edge); font-size: 13.5px; line-height: 1.35; }
+body.mobile .sq-tip > svg { width: 42px; height: 42px; padding: 11px; border-radius: 13px; background: var(--glass-hi); color: var(--ink); }
+body.mobile .sq-tip > span:not(.sq-svc) { flex: 1; min-width: 0; color: var(--text); font-weight: 600; }
+body.mobile .sq-svc { flex-basis: 100%; flex-wrap: wrap; margin: 0 0 0 54px; }
+/* Строки-таблица ПК (.tl-live: результаты поиска) на телефоне — обычной строкой: обложка, название, исполнитель, «⋯» */
+body.mobile .sr-live .tl-live .track.numbered { display: flex; height: auto; }
+body.mobile .sr-live .tl-live .t-main { flex: 1; gap: 14px; }
+body.mobile .sr-live .tl-live .thumb { width: 52px; height: 52px; border-radius: 10px; }
+body.mobile .sr-live .tl-live .t-album, body.mobile .sr-live .tl-live .t-added { display: none; }
+
+/* Flow — новый экран (flowlive.js) в одну колонку: шапка с ▶ / «Пропустить» / «Не то», три режима карточками друг под
+   другом (макет B-telefon.html#flow), «Настроить» — строки чипов, «Flow по исполнителю / плейлисту» листаются вбок */
+body.mobile .fw-live { padding: 14px 16px 0; }
+body.mobile .fw-hero, body.mobile .fw-hero.has-next { display: block; min-height: 0; padding: 22px 20px 20px; border-radius: 28px; }
+body.mobile .fw-title { margin: 4px 0 4px -2px; font-size: 64px; letter-spacing: -3px; }
+body.mobile .fw-sub { font-size: 14.5px; }
+body.mobile .fw-acts { margin-top: 18px; gap: 8px; }
+body.mobile .fw-play { width: 64px; height: 64px; }
+body.mobile .fw-play svg { width: 26px; height: 26px; }
+body.mobile .fw-hero .pill { height: 40px; padding: 0 14px; font-size: 13.5px; }
+body.mobile .fw-next { margin-top: 18px; padding: 10px; border-radius: 22px; }
+body.mobile .fw-modes { grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 14px; }
+body.mobile .fl-card.fw-mode { height: 104px; padding: 16px 20px; border-radius: 26px; justify-content: flex-end; }
+body.mobile .fl-card.fw-mode b { font-size: 24px; }
+body.mobile .fw-mode .fl-sub { font-size: 13px; }
+body.mobile .fw-tune { display: block; margin-top: 14px; padding: 18px 16px; border-radius: 24px; }
+body.mobile .fw-tune-lead { margin: 0 0 14px; }
+body.mobile .fw-tune-lead h3 { font-size: 18px; }
+body.mobile .fw-tune-col + .fw-tune-col { margin-top: 14px; }
+body.mobile .fw-tune h5 { margin-bottom: 8px; }
+body.mobile .fw-chips { gap: 6px; }
+body.mobile .fw-chip { height: 36px; }
+body.mobile .fw-live .meta-section { margin-top: 26px; }
+body.mobile .fw-live .meta-h-row { display: block; margin: 0 2px 10px; }
+body.mobile .fw-live .meta-h-row .meta-h { font-size: 20px; }
+body.mobile .fw-live .live-h-sub { display: block; margin-top: 2px; font-size: 12.5px; }
+body.mobile .fw-live .pl-more-row {
+  display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 -16px; padding: 4px 16px 10px;
+}
+body.mobile .fw-live .pl-more-row::-webkit-scrollbar { display: none; }
+body.mobile .fw-live .pl-more-row > * { flex: none; width: 128px; }
+/* Ряды карточек на телефоне листаются вбок — прятать «лишние» по ширине (container plmore на ПК) не нужно */
+body.mobile :is(.fw-live, .sr-live) .meta-section:has(.pl-more-row) { container-type: normal; }
+
+/* Медиатека (макет B-telefon.html#lib): «+» — стеклянный кружок, фильтры — пилюли как в поиске */
+body.mobile #new-playlist { width: 44px; height: 44px; border-radius: 50%; background: var(--glass); border: 1px solid var(--edge); color: var(--text); }
+body.mobile .lib-chips { gap: 6px; }
+body.mobile .lib-chip { height: 36px; padding: 0 15px; border-radius: 18px; background: var(--glass); border: 1px solid var(--edge); font-size: 13.5px; font-weight: 700; }
+body.mobile .lib-chip.on { background: rgb(var(--fg-rgb)); border-color: transparent; color: rgb(var(--shade-rgb) / 0.9); }
+
+/* «Вид» на телефоне (look.js, макет B-telefon.html#look): кнопка-палитра справа от «Добрый вечер.», панель — лист снизу */
+body.mobile .home-hero { position: relative; padding-right: 54px; }
+body.mobile .home-hero .look-btn {
+  position: absolute; right: 0; top: 50%; translate: 0 -50%;
+  width: 44px; height: 44px; padding: 0; justify-content: center; border-radius: 50%;
+  background: var(--glass); border: 1px solid var(--edge); color: var(--text);
+}
+body.mobile .home-hero .look-btn span { display: none; }
+body.mobile .home-hero .look-btn svg { width: 22px; height: 22px; }
+body.mobile .lk-panel {
+  top: auto; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); z-index: 98;
+  width: auto; max-height: 82vh;
+  border-radius: 30px; border: 1px solid var(--edge); background: var(--sheet-bg);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: 0 -10px 50px -20px rgb(var(--shade-rgb) / 0.6);
+  translate: 0 calc(100% + 30px); opacity: 1;
+  transition: translate 0.55s var(--ease), visibility 0s 0.55s;
+}
+body.mobile.look-open .lk-panel { translate: 0 0; visibility: visible; transition: translate 0.55s var(--ease); }
+body.mobile .lk-panel::before {
+  content: ""; display: block; flex: none; width: 36px; height: 4px; margin: 10px auto 0;
+  border-radius: 2px; background: rgb(var(--fg-rgb) / 0.22);
+}
+body.mobile .lk-head { padding: 8px 12px 6px 20px; }
+body.mobile .lk-body { padding: 4px 18px 10px; scrollbar-width: none; }
+body.mobile .lk-foot { padding: 10px 12px 14px; }
+/* под листом — затемнение (look.js .lk-dim; касание — закрыть) */
+body.mobile .lk-dim {
+  position: fixed; inset: 0; z-index: 97;
+  background: rgb(0 0 0 / 0.38); opacity: 0; pointer-events: none; transition: opacity 0.4s var(--ease);
+}
+body.mobile.look-open .lk-dim { opacity: 1; pointer-events: auto; }
+body.mobile .lk-seg button { min-width: 0; padding: 0 4px; gap: 5px; font-size: 12.5px; }
+
+/* «Настройки» на телефоне (setlive.js, макет B-telefon-ekrany.html#settings): список из 4 разделов карточками со стрелкой,
+   «Быстро», версия; раздел открывается целиком (.cfg.m-page) со стрелкой «назад»; поиск — по всем разделам сразу */
+body.mobile .cfg { display: block; padding: 14px 16px 0; }
+body.mobile .view-settings:has(> .cfg) { padding: 0; }   /* прежний экран настроек телефона был с отступами */
+body.mobile .cfg-nav {
+  position: static; padding: 0; border: 0; border-radius: 0;
+  background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+body.mobile .cfg-m-h1 { margin: 6px 2px 14px; font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.15; padding-bottom: 0.08em; }
+body.mobile .cfg-find { height: 46px; margin-bottom: 14px; padding: 0 16px; border-radius: 23px; background: var(--glass); border: 1px solid var(--edge); }
+body.mobile .cfg-find input { font-size: 15px; }
+body.mobile .cfg-tab {
+  margin-bottom: 8px; padding: 12px; border-radius: 20px;
+  background: var(--glass); border: 1px solid var(--edge); color: var(--text);
+}
+body.mobile .cfg-tab.on { background: var(--glass); }
+body.mobile .cfg-tab > div { flex: 1; }
+body.mobile .cfg-tab::after {
+  content: ""; flex: none; width: 8px; height: 8px; margin-right: 6px;
+  border: solid var(--faint); border-width: 2px 2px 0 0; rotate: 45deg;
+}
+body.mobile .cfg-tab-ic, body.mobile .cfg-tab.on .cfg-tab-ic {
+  width: 44px; height: 44px; border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--ink);
+}
+body.mobile .cfg-tab-ic svg { width: 22px; height: 22px; }
+body.mobile .cfg-tab b { font-size: 15.5px; }
+body.mobile .cfg-tab > div > span { display: block; color: var(--muted); }   /* узкое окно ПК их прячет — на телефоне нужны */
+body.mobile .cfg-quick { margin-top: 18px; }
+body.mobile .cfg-foot { align-items: center; margin-top: 16px; border-top: 0; }
+body.mobile .cfg-foot-link { justify-content: center; }
+/* что видно: список — или открытый раздел — или результаты поиска под полем */
+body.mobile .cfg.m-page .cfg-nav { display: none; }
+body.mobile .cfg:not(.m-page):not(.searching) .cfg-body { display: none; }
+body.mobile .cfg.searching:not(.m-page) .cfg-nav > :not(.cfg-find):not(.cfg-m-h1) { display: none; }
+body.mobile .cfg.searching:not(.m-page) .cfg-body .live-hd { display: none; }
+body.mobile .cfg-body .live-hd { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 2px 14px; }
+body.mobile .cfg-m-back {
+  width: 42px; height: 42px; margin-left: -10px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: none; color: var(--text);
+}
+body.mobile .cfg-m-back svg { width: 24px; height: 24px; }
+body.mobile .cfg-body .live-kick { display: none; }
+body.mobile .cfg-body .live-h1 { font-size: 30px; letter-spacing: -1px; }
+body.mobile .cfg-cols { display: block; }
+body.mobile .cfg-col { gap: 12px; }
+body.mobile .cfg-col + .cfg-col { margin-top: 12px; }
+body.mobile .cfg-card { padding: 14px 16px 6px; }
+body.mobile .cfg-card > h3 { font-size: 16px; }
+body.mobile .cfg-row, body.mobile .cfg .set-switch { flex-wrap: wrap; gap: 10px 12px; }
+body.mobile .cfg-row > .cfg-row-text { flex: 1 1 200px; }
+body.mobile .cfg .seg { width: 100%; }   /* «Выкл / 3 с / 6 с…» и др. — во всю ширину карточки, как в макете */
+body.mobile .cfg .seg .seg-btn { flex: 1; }

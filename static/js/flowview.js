@@ -15,6 +15,7 @@ import { artistByName } from "./meta.js";
 import { isPlaying, onPlayState, onTrackChange, playNext, state, togglePlay } from "./player.js";
 import { coverUrl, displayTrack, el, imgUrl, plural, toast } from "./ui.js";
 import { musicLevels } from "./viz.js";
+import { isMobile } from "./device.js";
 import { liveUi } from "./motion.js";
 
 const box = document.getElementById("view-flow");
@@ -463,8 +464,8 @@ function useCurrentCover() {
 }
 
 export function initFlowView() {
-  // На ПК («Живая обложка») у Flow свой экран (flowlive.js), а живой фон — общий: холст и шейдер не нужны
-  if (liveUi()) return;
+  // На ПК («Живая обложка») и на телефоне (шаг 11г) у Flow свой экран (flowlive.js), а живой фон — общий: холст и шейдер не нужны
+  if (liveUi() || isMobile) return;
   initGL();
   useCurrentCover();
   coverEl.addEventListener("load", useCurrentCover);   // сменилась обложка — новая краска

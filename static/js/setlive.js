@@ -2,10 +2,12 @@
 // «Сеть и система». Макет — design/ui-new/B-ekrany.html (#settings, #settings-look, #settings-lib, #settings-sys).
 // Сами настройки — прежние (settings.js, system.js, local.js, look.js): здесь они только разложены по карточкам.
 // Слева — оглавление с поиском «Найти настройку»: он ищет по всем разделам сразу.
-// Телефон — прежний экран (settings.js renderSettings); какой показать, решает views.js.
+// Телефон (шаг 11г, макет B-telefon-ekrany.html#settings): сначала список из 4 разделов и «Быстро», нажали раздел —
+// он открывается целиком (со стрелкой «назад»); строк про компьютер (трей, Discord, обход, папки, закладки, обновления) нет.
 
 import { EQ_PRESETS, FX_PRESETS, getFx, onFxChange, setFx } from "./audio.js";
 import { CHANGELOG } from "./changelog.js";
+import { isMobile } from "./device.js";
 import { openThemeEditor } from "./editor.js";
 import { openFxPanel } from "./fx.js";
 import { icons } from "./icons.js";
@@ -21,6 +23,7 @@ import { appUpdateStatus, appUpdateText, autoFlowRow, backRow, backupButtons, bg
   switchRow, themesRow, tipsRow, trayRow, updateText, vizColorsRow, vizStyleRow, zapretCard } from "./settings.js";
 import { sleepNow, startSleep, stopSleep } from "./sleep.js";
 import { autostartBlock, cacheBlock, hotkeysBlock } from "./system.js";
+import { chooseTheme, currentThemeId } from "./themes.js";
 import { resetTips } from "./tips.js";
 import { el, plural, toast } from "./ui.js";
 import { showWelcome, startTour } from "./welcome.js";
@@ -34,6 +37,9 @@ const TABS = [
   { id: "lib", name: "Медиатека", icon: "libraryIc", d: "Проверка, импорт, свои файлы" },
   { id: "sys", name: "Сеть и система", icon: "gear", d: "Обход блокировок, трей, обновления" },
 ];
+// На телефоне обхода, трея и обновлений нет (обход — через VPN телефона, новая версия ставится APK)
+if (isMobile) TABS[3] = { id: "sys", name: "Система", icon: "gear", d: "Кэш, знакомство с Sono, о программе" };
+if (isMobile) TABS[2] = { ...TABS[2], d: "Проверка, импорт, резервная копия" };   // папок с музыкой на телефоне нет
 let tab = "play";           // открытый раздел (как в макете: по умолчанию «Звук и плеер»)
 let query = "";             // «Найти настройку»
 let netOpen = false;        // «Для опытных» в «Обходе блокировок» развёрнуто
@@ -104,9 +110,17 @@ function lookPane(pane) {
     t.addEventListener("click", go);
     return words(t, w);
   };
-  more.append(
-    tile("Мастерская", "Темы целиком", "ws", () => openView("workshop"), "мастерская тем темы от слушателей"),
-    tile("Редактор тем", "Своя — без кода", "ed", () => openThemeEditor(), "редактор тем своя тема создать"));
+  more.append(tile("Мастерская", "Темы целиком", "ws", () => openView("workshop"), "мастерская тем темы от слушателей"));
+  if (!isMobile) more.append(tile("Редактор тем", "Своя — без кода", "ed", () => openThemeEditor(), "редактор тем своя тема создать"));
+  if (isMobile) {   // телефон: в «Виде» нет «Сейчас играет», полоски, очереди; «Назад» — системная, капсула своя
+    return [[theme, color, bg,
+      card("Визуализация", "", [vizStyleRow(), vizColorsRow()], { words: "визуализация под музыку столбики цвета" }),
+      card("Темы", "", [themesRow("theme")], { cls: "cfg-themes", words: "тема свои темы мастерская" })],
+    [card("Движение", "", [noAnimRow()], { words: "анимации движение слабый телефон эффекты батарея" }), more,
+      card("Экран «Сейчас играет»", "", [nowBackgroundRow(), lyricsRow(), clipsRow()], { words: "сейчас играет фон текст песни клип" }),
+      card("Виды «Сейчас играет» из тем", "", [themesRow("now")], { cls: "cfg-themes", words: "вид сейчас играет мастерская" }),
+      card("Медиатека", "", [libToolsRow()], { words: "папки фильтры медиатека" })]];
+  }
   const left = [theme, color, bg, now,
     card("Визуализация", "", [vizStyleRow(), vizColorsRow()], { words: "визуализация под музыку столбики цвета" }),
     card("Темы", "", [themesRow("theme")], { cls: "cfg-themes", words: "тема свои темы мастерская папка тем создать редактор" })];
@@ -249,7 +263,8 @@ function localCard() {
 
 function backupCard() {
   const result = el("div", "set-result-line");
-  const [save, load, picker] = backupButtons(result, { saveLabel: "Сохранить", restoreLabel: "Загрузить" });
+  // Телефон: «Отправить копию…» (файл уходит через «Поделиться» — из папки приложения его иначе не достать)
+  const [save, load, picker] = backupButtons(result, { saveLabel: isMobile ? undefined : "Сохранить", restoreLabel: "Загрузить" });
   const btns = el("div", "cfg-btns");
   btns.append(save, load, picker);
   return card("Резервная копия", "pin", [
@@ -271,6 +286,7 @@ function browserCard() {
 }
 
 function libPane() {
+  if (isMobile) return [[checkCard(), importCard()], [backupCard()]];   // папок с компьютера и закладок браузера нет
   return [[checkCard(), importCard()], [localCard(), backupCard(), browserCard()]];
 }
 
@@ -445,6 +461,13 @@ function introCard() {
 }
 
 function sysPane() {
+  if (isMobile) {
+    const about = card("О программе", "info", [row(`Sono ${CHANGELOG[0]?.version ?? ""} для Android`,
+      "Новая версия ставится поверх старой — медиатека остаётся. Обход блокировок на телефоне не нужен: музыка идёт через ваш VPN.")],
+    { words: "о программе версия android обновление vpn обход" });
+    return [[card("Кэш в памяти телефона", "folder", [cacheBlock(choiceRow, true)], { words: "кэш память место очистить предел гб" })],
+      [about, introCard()]];
+  }
   const netC = card("Обход блокировок", "spark", [], { cls: "cfg-net", words: "обход блокировок youtube soundcloud тормозит замедляют" });
   netBody(netC);
   return [
@@ -512,8 +535,16 @@ function drawHead() {
 
 // ---------- Экран ----------
 
+/** Телефон: «Быстро» под списком разделов — то, что меняют чаще всего */
+function quickCard() {
+  const light = switchRow("Светлая тема", "Белый фон, тёмный текст", currentThemeId() === "builtin:light",
+    (on) => chooseTheme(on ? "builtin:light" : null));
+  return card("Быстро", "", [light, noAnimRow()], { cls: "cfg-quick" });
+}
+
 function showTab(id, { animate = true } = {}) {
   tab = id;
+  root.classList.add("m-page");   // телефон: открыт раздел (на ПК класс ни на что не влияет)
   if (query) { query = ""; root.querySelector(".cfg-find input").value = ""; }
   filter();
   box.closest(".views")?.scrollTo?.({ top: 0 });
@@ -533,6 +564,7 @@ function build() {
     if (e.key === "Escape" && input.value) { e.stopPropagation(); input.value = ""; query = ""; filter(); }
   });
   find.append(input);
+  if (isMobile) nav.append(el("h1", "cfg-m-h1", "Настройки"));
   nav.append(find);
   for (const t of TABS) {
     const b = el("button", "cfg-tab");
@@ -563,6 +595,7 @@ function build() {
     return a;
   };
   foot.append(ver, link("spark", "Что нового", () => showWhatsNew(CHANGELOG.slice(0, 3))), link("info", "Экскурсия по Sono", startTour));
+  if (isMobile) nav.append(quickCard());
   nav.append(foot);
 
   const body = el("div", "cfg-body");
@@ -571,6 +604,17 @@ function build() {
   kick = el("div", "live-kick");
   h1 = el("h1", "live-h1");
   hdl.append(kick, h1);
+  if (isMobile) {   // телефон: «назад» к списку разделов
+    const back = el("button", "cfg-m-back");
+    back.type = "button";
+    back.setAttribute("aria-label", "Назад");
+    back.innerHTML = icons.back;
+    back.addEventListener("click", () => {
+      root.classList.remove("m-page");
+      box.closest(".views")?.scrollTo?.({ top: 0 });
+    });
+    hd.append(back);
+  }
   hd.append(hdl);
   body.append(hd);
   const builders = { look: lookPane, play: playPane, lib: libPane, sys: sysPane };
@@ -582,7 +626,7 @@ function build() {
     // Две колонки как в макете; в узком окне — одна: сначала левая, потом правая (как CSS columns в макете)
     for (const list of builders[t.id](pane)) {
       const col = el("div", "cfg-col");
-      col.append(...list);
+      col.append(...list.filter(Boolean));
       cols.append(col);
     }
     pane.append(cols);
@@ -613,6 +657,7 @@ export async function renderSettingsLive() {
   setNetRedraw(redrawNet);
   build();
   showTab(tab, { animate: false });
+  if (isMobile) root.classList.remove("m-page");   // телефон: сначала — список разделов
   lookForZapret();
   if (pendingGo) { go(pendingGo); pendingGo = null; }
 }
