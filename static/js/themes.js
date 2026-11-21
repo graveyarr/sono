@@ -153,6 +153,9 @@ function watch(part, theme) {
 
 /** Выбрать тему (part "theme") или вид «Сейчас играет» (part "now"); id null — обычные */
 export function chooseTheme(id, part = "theme") {
+  // Список тем при запуске грузится, только если тема уже выбрана (initThemes): у того, кто тему не менял,
+  // он пуст — и «Светлая» в «Виде» молча ничего не делала. Сначала загрузить, потом выбрать
+  if (id && !themes.length) { loadThemes().then(() => { if (themes.length) chooseTheme(id, part); }); return; }
   const theme = id ? themes.find((t) => t.id === id && t.part === part) : null;
   if (id && !theme) return;
   if (theme?.needs) {

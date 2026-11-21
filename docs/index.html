@@ -1,0 +1,331 @@
+<!doctype html>
+<!-- Сайт Sono на GitHub Pages (graveyarr.github.io/sono). Одна страница, без внешних шрифтов и библиотек.
+     Кнопки «Скачать» сами берут свежий выпуск через API GitHub; без JavaScript ведут на страницу выпуска. -->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sono — музыка с YouTube и SoundCloud</title>
+<meta name="description" content="Бесплатный музыкальный плеер для Windows и Android: YouTube и SoundCloud в одном месте, без рекламы и аккаунтов. Новый вид «Живая обложка», Flow, страница трека, новинки.">
+<meta property="og:title" content="Sono — музыка с YouTube и SoundCloud">
+<meta property="og:description" content="Бесплатный плеер для Windows и Android. Без рекламы и аккаунтов.">
+<meta property="og:image" content="https://graveyarr.github.io/sono/img/banner.jpg">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0a0a0c">
+<link rel="icon" href="img/icon.png">
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --fg-rgb: 255 255 255;
+    --text: rgb(var(--fg-rgb));
+    --muted: rgb(var(--fg-rgb) / 0.66);
+    --faint: rgb(var(--fg-rgb) / 0.4);
+    --line: rgb(var(--fg-rgb) / 0.1);
+    --glass: rgb(var(--fg-rgb) / 0.05);
+    --glass-hi: rgb(var(--fg-rgb) / 0.09);
+    --radius: 18px;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    color-scheme: dark;
+  }
+  /* Цвет свечения медленно меняется — как фон Sono при смене треков */
+  @property --h { syntax: "<number>"; inherits: true; initial-value: 265; }
+  @keyframes hue { 0% { --h: 265; } 33% { --h: 200; } 66% { --h: 25; } 100% { --h: 265; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font-family: var(--font);
+    -webkit-font-smoothing: antialiased; line-height: 1.5; overflow-x: hidden;
+    animation: hue 24s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) { body { animation: none; } html { scroll-behavior: auto; } }
+  a { color: inherit; }
+  .glow {
+    position: absolute; inset: 0 0 auto; height: 1100px; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(700px 520px at 72% 260px, hsl(var(--h) 85% 45% / 0.45), transparent 70%),
+      radial-gradient(520px 420px at 15% 120px, hsl(calc(var(--h) + 60) 80% 40% / 0.22), transparent 70%);
+  }
+  .wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+  /* Шапка */
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0; }
+  .logo img { height: 30px; display: block; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; }
+  nav a { text-decoration: none; color: var(--muted); font-size: 15px; font-weight: 600; padding: 7px 12px; border-radius: 99px; transition: background 0.2s, color 0.2s; }
+  nav a:hover { background: var(--glass-hi); color: var(--text); }
+
+  /* Первый экран */
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 40px; align-items: center; padding: 40px 0 70px; }
+  h1 { font-family: var(--display); font-size: clamp(40px, 6vw, 72px); line-height: 1.04; letter-spacing: -0.035em; margin: 0; padding-bottom: 0.06em; }
+  .lead { font-size: clamp(17px, 1.6vw, 20px); color: var(--muted); margin: 20px 0 30px; max-width: 30em; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 12px; text-decoration: none;
+    padding: 13px 24px 13px 18px; border-radius: 99px; font-weight: 700; font-size: 17px;
+    transition: transform 0.2s var(--ease), background 0.2s;
+  }
+  .btn:hover { transform: scale(1.03); }
+  .btn:active { transform: scale(0.97); }
+  .btn svg { width: 24px; height: 24px; flex: none; }
+  .btn small { display: block; font-size: 12px; font-weight: 600; opacity: 0.6; line-height: 1.1; }
+  .btn span { display: block; line-height: 1.2; }
+  .btn.primary { background: #fff; color: #000; }
+  .btn.ghost { background: var(--glass); color: var(--text); box-shadow: inset 0 0 0 1.5px var(--line); }
+  .btn.ghost:hover { background: var(--glass-hi); }
+  .meta { margin-top: 14px; font-size: 13.5px; color: var(--faint); }
+  .meta a { color: var(--muted); }
+  .shots { position: relative; aspect-ratio: 16 / 11; }
+  .shots .pc {
+    position: absolute; left: 0; top: 4%; width: 88%; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 40px 90px rgb(0 0 0 / 0.6), 0 0 0 1px var(--line), 0 0 120px hsl(var(--h) 85% 50% / 0.25);
+    transform: perspective(1600px) rotateY(-9deg) rotateX(3deg);
+  }
+  .shots .phone {
+    position: absolute; right: 0; bottom: 0; width: 27%; border-radius: 26px; overflow: hidden;
+    border: 6px solid #141418; box-shadow: 0 30px 70px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line);
+    transform: rotate(4deg);
+  }
+  .shots img { display: block; width: 100%; height: auto; }
+
+  /* Разделы */
+  section { padding: 60px 0; }
+  h2 { font-family: var(--display); font-size: clamp(28px, 3.6vw, 42px); letter-spacing: -0.025em; line-height: 1.15; margin: 0 0 10px; padding-bottom: 0.05em; }
+  .sub { color: var(--muted); font-size: 17px; margin: 0 0 32px; max-width: 40em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px;
+    backdrop-filter: blur(20px); transition: background 0.2s, transform 0.3s var(--ease);
+  }
+  .card:hover { background: var(--glass-hi); transform: translateY(-2px); }
+  .card .ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: hsl(var(--h) 70% 55% / 0.22); margin-bottom: 14px; }
+  .card .ico svg { width: 22px; height: 22px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  .demos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  .demo { margin: 0; }
+  .demo video { display: block; width: 100%; border-radius: 14px; background: #000; box-shadow: 0 0 0 1px var(--line); }
+  .demo figcaption { margin-top: 10px; color: var(--muted); font-size: 15px; }
+  .demo b { color: var(--text); }
+
+  .phones { display: flex; gap: 18px; justify-content: center; }
+  .phones img { width: min(30%, 260px); height: auto; border-radius: 26px; border: 6px solid #141418; box-shadow: 0 20px 60px rgb(0 0 0 / 0.5), 0 0 0 1px var(--line); }
+  .phones img:nth-child(2) { transform: translateY(-24px); }
+
+  /* Помощь */
+  .help { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .help ol { margin: 10px 0 0; padding-left: 22px; color: var(--muted); }
+  .help li { margin: 6px 0; }
+  .help b { color: var(--text); }
+  .smartscreen {
+    margin-top: 16px; border-radius: 10px; overflow: hidden; background: #1f3f8a; color: #fff; font-family: var(--font);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .smartscreen .top { padding: 16px 18px 10px; }
+  .smartscreen .t { font-size: 19px; font-weight: 600; line-height: 1.25; }
+  .smartscreen .d { font-size: 12.5px; opacity: 0.85; margin-top: 6px; }
+  .smartscreen .more { display: inline-block; margin-top: 8px; font-size: 12.5px; text-decoration: underline; outline: 2px solid #ffd54a; outline-offset: 3px; border-radius: 2px; }
+  .smartscreen .bar { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; background: rgb(0 0 0 / 0.18); }
+  .smartscreen .bar span { font-size: 12px; padding: 5px 14px; border: 1px solid rgb(255 255 255 / 0.6); }
+  .smartscreen .bar .run { outline: 2px solid #ffd54a; outline-offset: 2px; }
+  details { border-top: 1px solid var(--line); padding: 16px 0; }
+  details:last-child { border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; font-weight: 700; font-size: 17px; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--muted); font-weight: 400; font-size: 22px; line-height: 1; transition: transform 0.2s; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { color: var(--muted); margin: 10px 0 0; max-width: 46em; }
+
+  .final { text-align: center; padding: 80px 0 90px; }
+  .final .buttons { justify-content: center; }
+  footer { border-top: 1px solid var(--line); padding: 26px 0 40px; color: var(--faint); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 22px; justify-content: space-between; }
+  footer a { color: var(--muted); }
+
+  /* Телефон и узкое окно */
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; padding-top: 10px; gap: 34px; }
+    nav a:not(.gh) { display: none; }
+    .demos { grid-template-columns: 1fr; }
+    section { padding: 44px 0; }
+  }
+  @media (max-width: 480px) {
+    .wrap { padding: 0 16px; }
+    .btn { flex: 1 1 100%; justify-content: center; }
+    .phones { gap: 10px; }
+    .phones img { border-width: 4px; border-radius: 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="wrap">
+  <header>
+    <a class="logo" href="./" aria-label="Sono"><img src="img/logo.png" alt="sono."></a>
+    <nav>
+      <a href="#features">Возможности</a>
+      <a href="#demo">В деле</a>
+      <a href="#help">Помощь</a>
+      <a class="gh" href="https://github.com/graveyarr/sono">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Вся музыка.<br>Без рекламы.</h1>
+      <p class="lead">YouTube и SoundCloud в одном плеере: андеграунд, ремиксы и всё, чего нет в стримингах. Бесплатно, без аккаунтов и подписок — для Windows и Android.</p>
+      <div class="buttons" data-downloads>
+        <a class="btn primary" data-os="windows" href="https://github.com/graveyarr/sono/releases/latest">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.1l7.4-1v7.2H3zM11.3 4l9.7-1.4v8.7h-9.7zM3 12.2h7.4v7.2l-7.4-1zM11.3 12.2H21v8.7l-9.7-1.4z"/></svg>
+          <span><small>Скачать для</small>Windows</span>
+        </a>
+        <a class="btn ghost" data-os="android" href="https://github.com/graveyarr/sono/releases/latest">
+          <svg viewBox="0 0 24 24" fill="#7ddc7a" aria-hidden="true"><path d="M6 9.2h12v8.3a1.3 1.3 0 0 1-1.3 1.3h-1v2.5a1.2 1.2 0 0 1-2.4 0v-2.5h-2.6v2.5a1.2 1.2 0 0 1-2.4 0v-2.5h-1A1.3 1.3 0 0 1 6 17.5zM3.8 9.4a1.2 1.2 0 0 1 2.4 0v5.4a1.2 1.2 0 0 1-2.4 0zm14 0a1.2 1.2 0 0 1 2.4 0v5.4a1.2 1.2 0 0 1-2.4 0zM6.1 8.4a6 6 0 0 1 3-4.6L8.2 2.3l.5-.3 1 1.6a6.2 6.2 0 0 1 4.6 0l1-1.6.5.3-.9 1.5a6 6 0 0 1 3 4.6zm3.4-2.3a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2zm5 0a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2z"/></svg>
+          <span><small>Скачать для</small>Android</span>
+        </a>
+      </div>
+      <p class="meta" data-meta>Windows 10/11 · Android 8+ · <a href="https://github.com/graveyarr/sono/releases">все версии</a></p>
+    </div>
+    <div class="shots">
+      <div class="pc"><img src="img/pc-now.jpg" alt="Sono на компьютере: «Сейчас играет»" width="1600" height="1000"></div>
+      <div class="phone"><img src="img/phone-now.jpg" alt="Sono на телефоне" width="585" height="1266"></div>
+    </div>
+  </div>
+
+  <section id="features">
+    <h2>Что умеет Sono</h2>
+    <p class="sub">Всё, за что любят большие сервисы, — и то, чего у них нет.</p>
+    <div class="grid">
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12c2.5-4 5-4 7.5 0s5 4 7.5 0 3.5-4 5-2"/><path d="M2 17c2.5-4 5-4 7.5 0s5 4 7.5 0 3.5-4 5-2" opacity=".5"/></svg></div><h3>Flow</h3><p>Бесконечная волна под ваш вкус: любимое вперемешку с новым. Можно выбрать занятие, настроение и язык.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></div><h3>Ссылки отовсюду</h3><p>Вставьте в поиск ссылку из Spotify, Яндекс Музыки, Apple Music или Deezer — Sono найдёт ту же запись и включит.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V5.5l11-2v11a2.5 2.5 0 1 1-2-2.45V7.1l-7 1.3z"/></svg></div><h3>Страница трека</h3><p>Кто спродюсировал и написал, когда вышел, лейбл, текст, другие загрузки и похожие треки.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg></div><h3>Новинки</h3><p>Свежие релизы ваших исполнителей с Яндекса и SoundCloud — даже то, что вышло только там.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.3-1-1.6-1-2.6 0-.9.7-1.6 1.7-1.6H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg></div><h3>Живая обложка</h3><p>Цвета песни разливаются по всему окну и меняются с каждым треком. В «Виде» — светлая тема, свой цвет, своя картинка или GIF фоном.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div><h3>Без VPN на компьютере</h3><p>Встроенный обход замедлений. Если провайдер закрыл YouTube совсем, Sono включит ту же песню с SoundCloud.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/></svg></div><h3>Переезд за минуту</h3><p>Плейлисты и «Мне нравится» из Яндекс Музыки, Spotify, SoundCloud, Apple Music и Deezer.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></div><h3>Тексты, клипы, офлайн</h3><p>Текст заливается по слогам, как в караоке, клип вместо обложки, скачивание треков, эквалайзер и эффекты.</p></div>
+    </div>
+  </section>
+
+  <section id="demo">
+    <h2>Sono в деле</h2>
+    <p class="sub">Настоящие записи экрана, без монтажа.</p>
+    <div class="demos">
+      <figure class="demo"><video src="media/links.mp4" poster="media/links.jpg" muted loop playsinline preload="none" data-auto></video><figcaption><b>Ссылка из Spotify</b> — вставили в поиск, и трек играет</figcaption></figure>
+      <figure class="demo"><video src="media/track.mp4" poster="media/track.jpg" muted loop playsinline preload="none" data-auto></video><figcaption><b>Страница трека</b> — щелчок по названию</figcaption></figure>
+      <figure class="demo"><video src="media/look.mp4" poster="media/look.jpg" muted loop playsinline preload="none" data-auto></video><figcaption><b>«Вид» под себя</b> — цвет, фон, светлая тема</figcaption></figure>
+      <figure class="demo"><video src="media/live.mp4" poster="media/live.jpg" muted loop playsinline preload="none" data-auto></video><figcaption><b>Живая обложка</b> — окно перекрашивается под каждую песню</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="phone">
+    <h2>И на телефоне</h2>
+    <p class="sub">Та же медиатека и Flow в новом виде — в кармане. Перенести всё с компьютера — один файл.</p>
+    <div class="phones">
+      <img src="img/phone-home.jpg" alt="«Главная» на телефоне" loading="lazy" width="585" height="1266">
+      <img src="img/phone-now.jpg" alt="«Сейчас играет» на телефоне" loading="lazy" width="585" height="1266">
+      <img src="img/phone-lyrics.jpg" alt="Текст песни на телефоне" loading="lazy" width="585" height="1266">
+    </div>
+  </section>
+
+  <section id="help">
+    <h2>Помощь с установкой</h2>
+    <p class="sub">Sono — бесплатная программа с открытым кодом. Платной цифровой подписи у неё нет, поэтому Windows и Android один раз переспрашивают.</p>
+    <div class="help">
+      <div class="card">
+        <h3>Windows пишет «Система Windows защитила ваш компьютер»</h3>
+        <ol>
+          <li>Нажмите <b>«Подробнее»</b> под текстом.</li>
+          <li>Появится кнопка <b>«Выполнить в любом случае»</b> — нажмите её.</li>
+          <li>Дальше — «Далее» → «Установить». Права администратора не нужны.</li>
+        </ol>
+        <div class="smartscreen" aria-hidden="true">
+          <div class="top">
+            <div class="t">Система Windows защитила ваш компьютер</div>
+            <div class="d">Фильтр SmartScreen предотвратил запуск неопознанного приложения…</div>
+            <span class="more">Подробнее</span>
+          </div>
+          <div class="bar"><span class="run">Выполнить в любом случае</span><span>Не выполнять</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Как поставить на Android</h3>
+        <ol>
+          <li>Скачайте файл <b>SonoAndroid-….apk</b> кнопкой «Android» выше.</li>
+          <li>Откройте его. Телефон спросит, можно ли ставить приложения из браузера, — <b>разрешите</b>. Sono нет в Google Play, поэтому так.</li>
+          <li>Если появится «Play Защита» — <b>«Подробнее» → «Всё равно установить»</b>.</li>
+        </ol>
+        <p style="color: var(--muted); margin: 14px 0 0; font-size: 15px;">Нужен Android 8 или новее. На телефоне встроенного обхода блокировок нет — если что-то не открывается, включите VPN.</p>
+      </div>
+    </div>
+    <div style="margin-top: 30px;">
+      <details><summary>Это безопасно?</summary><p>Весь код Sono открыт на GitHub — любой может его посмотреть. Sono не просит аккаунтов и паролей, а ваша медиатека хранится только у вас на устройстве.</p></details>
+      <details><summary>Почему бесплатно и без рекламы?</summary><p>Sono делается для себя и друзей. Музыку он берёт с YouTube и SoundCloud, сам ничего не продаёт и ничего о вас не собирает.</p></details>
+      <details><summary>Как перенести музыку из Яндекса или Spotify?</summary><p>Вставьте ссылку на плейлист в поиск — Sono перенесёт его в медиатеку. С Яндекс Музыки и SoundCloud можно переехать целиком: Sono предложит это при первом запуске.</p></details>
+      <details><summary>Как обновлять?</summary><p>Sono на компьютере сам предлагает обновиться, когда выходит новая версия. Для телефона новые версии — на <a href="https://github.com/graveyarr/sono/releases">странице выпусков</a>.</p></details>
+      <details><summary>Где взять темы?</summary><p>В Sono: «Мастерская тем» в меню слева. Цвет, светлую тему и свой фон можно выбрать сразу — кнопкой «Вид». Темы мастерской пока сделаны для прежнего вида Sono и включатся, когда их обновят. Свою тему можно сделать в редакторе и предложить в <a href="https://github.com/graveyarr/sono-themes">мастерскую</a>.</p></details>
+    </div>
+  </section>
+
+  <section class="final">
+    <h2>Попробуйте Sono</h2>
+    <p class="sub" style="margin: 0 auto 28px;">Ставится за полминуты. Удаляется ещё быстрее.</p>
+    <div class="buttons" data-downloads>
+      <a class="btn primary" data-os="windows" href="https://github.com/graveyarr/sono/releases/latest"><span><small>Скачать для</small>Windows</span></a>
+      <a class="btn ghost" data-os="android" href="https://github.com/graveyarr/sono/releases/latest"><span><small>Скачать для</small>Android</span></a>
+    </div>
+  </section>
+
+  <footer>
+    <span>Sono — открытый код, лицензия MIT. Не связан с YouTube, SoundCloud, Spotify и Яндексом.</span>
+    <span><a href="https://github.com/graveyarr/sono">GitHub</a> · <a href="https://github.com/graveyarr/sono-themes">Мастерская тем</a> · <a href="https://github.com/graveyarr/sono/releases">Все версии</a></span>
+  </footer>
+</div>
+
+<script>
+  // Свежий выпуск: прямые ссылки на файлы, версия и размер. Не вышло (нет сети, лимит API) — кнопки
+  // так и ведут на страницу выпуска.
+  (async () => {
+    try {
+      const res = await fetch("https://api.github.com/repos/graveyarr/sono/releases/latest", { headers: { Accept: "application/vnd.github+json" } });
+      if (!res.ok) return;
+      const rel = await res.json();
+      const find = (re) => (rel.assets || []).find((a) => re.test(a.name));
+      const files = { windows: find(/^SonoSetup-.*\.exe$/i), android: find(/^SonoAndroid-.*\.apk$/i) };
+      for (const link of document.querySelectorAll("[data-os]")) {
+        const file = files[link.dataset.os];
+        if (file) { link.href = file.browser_download_url; link.title = `${file.name} · ${Math.round(file.size / 1048576)} МБ`; }
+      }
+      const version = String(rel.tag_name || "").replace(/^v/, "");
+      const meta = document.querySelector("[data-meta]");
+      if (meta && version) {
+        const mb = (f) => (f ? ` · ${Math.round(f.size / 1048576)} МБ` : "");
+        meta.innerHTML = `Версия ${version} · Windows 10/11${mb(files.windows)} · Android 8+${mb(files.android)} · <a href="https://github.com/graveyarr/sono/releases">все версии</a>`;
+      }
+    } catch { /* без сети — остаются ссылки на страницу выпуска */ }
+  })();
+
+  // С телефона Android главная кнопка — Android
+  if (/Android/i.test(navigator.userAgent)) {
+    for (const box of document.querySelectorAll("[data-downloads]")) {
+      const win = box.querySelector("[data-os=windows]"), and = box.querySelector("[data-os=android]");
+      win.classList.replace("primary", "ghost");
+      and.classList.replace("ghost", "primary");
+      box.prepend(and);
+    }
+  }
+
+  // Записи экрана играют, только когда видны (и не играют при «Уменьшить движение»)
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const seen = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting && !still) e.target.play().catch(() => {});
+      else e.target.pause();
+    }
+  }, { threshold: 0.4 });
+  document.querySelectorAll("video[data-auto]").forEach((v) => seen.observe(v));
+</script>
+</body>
+</html>
