@@ -5,7 +5,7 @@
 
 import { CHANGELOG } from "./changelog.js";
 import { isMobile, openExternal } from "./device.js";
-import { icons } from "./icons.js";
+import { icons, sourceIcons } from "./icons.js";
 import { getSetting, setSetting } from "./library.js";
 import { showStories } from "./stories.js";
 import { el, openModal } from "./ui.js";
@@ -49,7 +49,7 @@ export function showWhatsNew(entries = CHANGELOG.slice(0, 1)) {
       if (sub === false) continue;
       const row = el("div", "wn-item");
       const icon = el("span", "wn-icon");
-      icon.innerHTML = icons[item.icon] ?? icons.check;
+      icon.innerHTML = icons[item.icon] ?? sourceIcons[item.icon] ?? icons.check;   // youtube/soundcloud — значки сайтов
       const text = el("div", "wn-text");
       text.append(el("div", "wn-title", item.title), el("div", "wn-sub", sub));
       row.append(icon, text);

@@ -149,11 +149,130 @@ const ART = {
     return art;
   },
 
+  // ---------- Новый вид (1.0) ----------
+
+  // Окно Sono: фон — размытая обложка, которая перетекает в цвета следующей песни; стеклянные панели и капсула
+  live(tracks) {
+    const art = el("div", "st-art");
+    const win = el("div", "st-win");
+    for (const [i, t] of [tracks[0], tracks[1] ?? tracks[0]].entries()) {
+      win.append(cover(t, i ? "st-win-bg next" : "st-win-bg", [290, 200][i]));
+    }
+    const side = el("div", "st-glass st-win-side");
+    side.append(el("b", "st-win-logo", "sono."), bar(), bar("short"), bar());
+    const main = el("div", "st-win-main");
+    const card = el("div", "st-glass st-win-card");
+    const words = el("div", "st-words");
+    const { title, artist } = name(tracks[0], { title: "Сейчас играет", artist: "Исполнитель" });
+    words.append(el("div", "st-t", title), el("div", "st-a", artist));
+    card.append(cover(tracks[0], "st-cover", 290), words);
+    main.append(card, bar(), bar("short"));
+    const cap = el("div", "st-glass st-cap");
+    cap.append(cover(tracks[0], "st-cover st-round", 290), bar(), icon(icons.play, "st-play"));
+    win.append(side, main, cap);
+    art.append(win);
+    return art;
+  },
+
+  // Панель «Вид»: тема, цвета (выбранный «перескакивает»), фон — живой, своя картинка, однотонный
+  look(tracks) {
+    const art = el("div", "st-art st-mock");
+    const panel = el("div", "st-glass st-look");
+    const seg = el("div", "st-seg");
+    seg.append(el("span", "on", "Тёмная"), el("span", "", "Светлая"));
+    const dots = el("div", "st-dots");
+    [330, 275, 215, 190, 160, 95, 50, 20].forEach((h, i) => {
+      const d = el("i", "st-dot-c");
+      d.style.setProperty("--st-c", h);
+      d.style.setProperty("--i", i);
+      dots.append(d);
+    });
+    const tiles = el("div", "st-tiles");
+    const live = el("div", "st-tile live");
+    const own = cover(tracks[2] ?? tracks[0], "st-tile own", 330);
+    own.append(icon(icons.check, "st-tile-ok"));
+    tiles.append(live, own, el("div", "st-tile plain"));
+    panel.append(el("div", "st-label", "Тема"), seg, el("div", "st-label", "Цвет"), dots, el("div", "st-label", "Фон"), tiles);
+    art.append(panel);
+    return art;
+  },
+
+  // Поиск: поле и выпадающий список — «Недавно искали» и «По вашему вкусу»
+  search(tracks) {
+    const art = el("div", "st-art st-mock");
+    const field = el("div", "st-field");
+    field.append(icon(icons.search), el("span", "st-ph", "Что включим?"), el("kbd", "st-kbd", "Ctrl K"));
+    const drop = el("div", "st-glass st-drop");
+    drop.append(el("div", "st-label", "Недавно искали"));
+    for (let i = 0; i < 3; i++) {
+      const t = tracks[i + 3] ?? tracks[i];
+      const row = el("div", "st-hist");
+      row.style.setProperty("--i", i);
+      const { title } = name(t, { title: "Недавний запрос" });
+      row.append(cover(t, "st-cover small", 200 + i * 30), el("span", "st-t", title), icon(icons.clock, "st-ico st-dim"));
+      drop.append(row);
+    }
+    drop.append(el("div", "st-label", "По вашему вкусу"));
+    const chips = el("div", "st-chips");
+    for (let i = 0; i < 3; i++) {
+      const chip = el("span", "st-chip");
+      chip.append(cover(tracks[i] ?? null, "st-cover st-round", 260 + i * 40), bar());
+      chips.append(chip);
+    }
+    drop.append(chips);
+    art.append(field, drop);
+    return art;
+  },
+
+  // Мини-плеер: «Капсула» и «Квадрат» парят над окном
+  mini(tracks) {
+    const art = el("div", "st-art");
+    const stage = el("div", "st-minis");
+    stage.append(el("div", "st-ghost"));
+    const t = tracks[1] ?? tracks[0];
+    const { title, artist } = name(t, { title: "Название трека", artist: "Исполнитель" });
+    const capsule = el("div", "st-glass st-mini-cap");
+    const words = el("div", "st-words");
+    words.append(el("div", "st-t", title), el("div", "st-a", artist));
+    capsule.append(cover(t, "st-cover st-round", 175), words, icon(icons.pause, "st-play"));
+    const square = el("div", "st-glass st-mini-sq");
+    square.append(cover(t, "st-cover big", 175), bar(), bar("short"));
+    stage.append(capsule, square);
+    art.append(stage);
+    return art;
+  },
+
+  // Текст по слогам: прошлая строчка, текущая заливается слово за словом, следующая
+  lyrics(tracks) {
+    const art = el("div", "st-art");
+    const box = el("div", "st-karaoke");
+    const t = tracks[0];
+    const head = el("div", "st-row");
+    const { title, artist } = name(t, { title: "Название трека", artist: "Исполнитель" });
+    const words = el("div", "st-words");
+    words.append(el("div", "st-t", title), el("div", "st-a", artist));
+    head.append(cover(t, "st-cover", 25), words);
+    box.append(head);
+    // полоски-«слова» разной длины: без настоящих стихов, только ритм строчки
+    for (const [cls, widths] of [["past", [14, 22, 10, 18]], ["now", [18, 12, 24, 14, 16]], ["next", [20, 12, 26]]]) {
+      const line = el("div", `st-kline ${cls}`);
+      widths.forEach((w, i) => {
+        const wd = el("i", "st-kw");
+        wd.style.width = `${w}%`;
+        wd.style.setProperty("--i", i);
+        line.append(wd);
+      });
+      box.append(line);
+    }
+    art.append(box);
+    return art;
+  },
+
   phone(tracks) {
     const art = el("div", "st-art");
     const phone = el("div", "st-phone");
     const t = tracks[0];
-    phone.append(cover(t, "st-cover big", 160), bar(), bar("short"));
+    phone.append(cover(t, "st-phone-bg", 150), cover(t, "st-cover big", 160), bar(), bar("short"));
     const controls = el("div", "st-controls");
     controls.append(icon(icons.play, "st-play"));
     phone.append(controls);
