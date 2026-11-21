@@ -575,7 +575,10 @@ function sync() {
     root.querySelector("[data-ownpv]")?.style.setProperty("--own", pvSrc ? `url("${pvSrc}")` : "none");
     root.querySelectorAll("[data-lib] button").forEach((b) => b.classList.toggle("on", b.dataset.id === st.own));
     const tn = root.querySelector("[data-themenote]");
-    tn.textContent = other ? `Сейчас включена тема «${other.name}». Нажмите «Тёмная» или «Светлая», чтобы вернуться к обычной.` : "";
+    // Тема для прежнего вида выбрана, но не включается (themes.js) — не писать «включена»
+    tn.textContent = !other ? ""
+      : other.old ? `Тема «${other.name}» сделана для прежнего вида — пока обычный вид. Автор обновит её позже.`
+      : `Сейчас включена тема «${other.name}». Нажмите «Тёмная» или «Светлая», чтобы вернуться к обычной.`;
     tn.hidden = !other;
     root.querySelector("[data-colornote]").textContent = st.color === "cover"
       ? (st.bg === "own" && st.ownColor && st.ownAcc ? "Сейчас цвет берётся из вашей картинки." : "Под обложку — цвет меняется с каждой песней.")

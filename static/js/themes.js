@@ -200,6 +200,18 @@ export async function openThemesFolder() {
   return res.json().catch(() => ({}));
 }
 
+/** Сообщение — когда поверх ничего не открыто. Сразу после обновления открываются «Что нового» и сторис:
+    они выше сообщений, и сообщение гасло под ними незамеченным. shown() — когда его наконец показали */
+function toastWhenFree(text, opts, shown) {
+  const t0 = Date.now();
+  const tick = () => {
+    if (document.querySelector(".dialog-backdrop") && Date.now() - t0 < 30 * 60 * 1000) { setTimeout(tick, 700); return; }
+    toast(text, opts);
+    shown?.();
+  };
+  setTimeout(tick, 2500);   // «Что нового» открывается чуть позже тем — подождать его
+}
+
 export async function initThemes() {
   if (!currentThemeId("theme") && !currentThemeId("now")) return;
   await loadThemes();
@@ -218,8 +230,8 @@ export async function initThemes() {
     // Включена тема для прежнего вида: сейчас — обычный вид, выбор не трогаем (обновится — включится сама).
     // Сказать об этом — один раз для каждой темы, а не при каждом запуске
     if (theme?.old && getSetting("oldThemeNoticed", null) !== theme.id) {
-      setSetting("oldThemeNoticed", theme.id);
-      toast(`«${theme.name}» сделан${part === "theme" ? "а" : ""} для прежнего вида Sono — автор обновит ${part === "theme" ? "её" : "его"} позже. Пока — обычный вид`, { icon: "info", duration: 12000 });
+      toastWhenFree(`«${theme.name}» сделан${part === "theme" ? "а" : ""} для прежнего вида Sono — автор обновит ${part === "theme" ? "её" : "его"} позже. Пока — обычный вид`,
+        { icon: "info", duration: 12000 }, () => setSetting("oldThemeNoticed", theme.id));
     }
   }
 }
