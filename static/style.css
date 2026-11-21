@@ -6045,6 +6045,10 @@ body.mobile .bg-art i {
           mask-image: radial-gradient(closest-side, #000 55%, transparent);
 }
 body.mobile.has-track:not(.playing) .bg-art.on { opacity: 0.7; }
+/* Прежний слой фона (до смены трека) погас — прячем совсем: его пятна в полтора экрана продолжали плыть
+   и занимали видеопамять, текст и списки на телефоне листались рывками */
+body.mobile .bg-art:not(.on) { visibility: hidden; transition: opacity 1.6s var(--ease), visibility 0s 1.6s; }
+body.mobile .bg-art:not(.on), body.mobile .bg-art:not(.on) i { animation-play-state: paused; }
 body.mobile .bg-shade { background: linear-gradient(180deg, rgb(var(--shade-rgb) / 0.25), rgb(var(--shade-rgb) / 0.62)); }
 
 /* Вкладки — стекло во всю ширину внизу; подсветка под значком переезжает (mobile.js ставит --tab-i) */

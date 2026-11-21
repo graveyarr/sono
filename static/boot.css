@@ -1,0 +1,63 @@
+/* Заставка при запуске программы (вариант А «Живая обложка», выбрал автор 22 ноября; макет — design/splash).
+   Один файл на двоих: окно-заставка desktop.py (читает его до загрузки сервера) и страница (index.html → #boot),
+   которая продолжает её с того же кадра: --boot-t — минус сколько заставка уже шла, все задержки сдвигаются на него.
+   Цвета (--boot-c1…fg) — от обложки последнего трека (player.js → настройка «splash», desktop.py _splash_look).
+   Уводит заставку boot.js: логотип улетает на место «sono.» в медиатеке, программа проявляется. */
+.boot {
+  position: fixed; inset: 0; z-index: 9999; overflow: hidden; pointer-events: none;
+  background: var(--boot-bg, #0a0a0a);
+  --boot-d: var(--boot-t, 0s);
+}
+.boot-b {
+  position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0;
+  animation: boot-in 1.1s cubic-bezier(.2, .7, .2, 1) var(--boot-d) forwards, boot-drift 7s ease-in-out var(--boot-d) infinite alternate;
+}
+.boot-b1 { width: 48vw; height: 48vw; left: 10vw; top: 6vh; background: var(--boot-c1, #9b3fd0); }
+.boot-b2 { width: 40vw; height: 40vw; left: 48vw; top: 34vh; background: var(--boot-c2, #e0559f);
+  animation-delay: calc(.12s + var(--boot-d)), var(--boot-d); }
+.boot-b3 { width: 44vw; height: 44vw; left: 30vw; top: -16vh; background: var(--boot-c3, #5a3ccf);
+  animation-delay: calc(.24s + var(--boot-d)), var(--boot-d); }
+.boot-logo {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); transform-origin: 0 50%;
+  display: flex; align-items: baseline;
+  font: 800 64px/1 "Segoe UI Variable Display", "Segoe UI", sans-serif; letter-spacing: -2.6px;
+  color: var(--boot-fg, #fff);
+}
+.boot-logo i { font-style: normal; display: inline-block; opacity: 0;
+  animation: boot-rise .6s cubic-bezier(.2, .8, .2, 1) var(--boot-d) forwards; }
+.boot-logo i:nth-child(2) { animation-delay: calc(.07s + var(--boot-d)); }
+.boot-logo i:nth-child(3) { animation-delay: calc(.14s + var(--boot-d)); }
+.boot-logo i:nth-child(4) { animation-delay: calc(.21s + var(--boot-d)); }
+.boot-logo .boot-dot { color: var(--boot-ac, #c58bff);
+  animation: boot-pop .5s cubic-bezier(.3, 1.6, .5, 1) calc(.5s + var(--boot-d)) forwards,
+    boot-beat 1s ease-out calc(1.1s + var(--boot-d)) infinite; }
+.boot-bar {
+  position: absolute; left: 50%; top: calc(50% + 52px); width: 150px; height: 3px; margin-left: -75px;
+  border-radius: 3px; overflow: hidden; opacity: 0;
+  background: color-mix(in srgb, var(--boot-fg, #fff) 12%, transparent);
+  animation: boot-fade .3s calc(.65s + var(--boot-d)) forwards;
+}
+.boot-bar::after {
+  content: ""; position: absolute; inset: 0; transform: scaleX(0); transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--boot-c2, #e0559f), var(--boot-ac, #c58bff));
+  animation: boot-fill 1.4s cubic-bezier(.4, 0, .2, 1) calc(.7s + var(--boot-d)) forwards;
+}
+.boot.light .boot-b { filter: blur(80px); }
+/* «Без анимаций» — всё сразу на месте, ничего не движется */
+.boot.calm *, .boot.calm *::after { animation: none !important; opacity: 1; }
+.boot.calm .boot-b { opacity: .75; }
+.boot.calm .boot-bar::after { transform: none; }
+/* Уход (boot.js): заставка целиком тает, а логотип — вынесен поверх страницы — летит на место «sono.» в медиатеке */
+.boot.out { opacity: 0; transition: opacity .6s ease .1s; }
+.boot-logo.boot-fly { position: fixed; z-index: 10000; pointer-events: none;
+  transition: transform .8s cubic-bezier(.6, 0, .2, 1), opacity .18s ease .72s; }   /* тает, уже прилетев */
+.boot-logo.boot-fly i, .boot-logo.boot-fly .boot-dot { animation: none; opacity: 1; }
+.boot-logo.boot-fly.gone { opacity: 0; }
+
+@keyframes boot-in { from { opacity: 0; transform: scale(.3); } to { opacity: .75; transform: none; } }
+@keyframes boot-drift { to { translate: 4vw -4vh; } }
+@keyframes boot-rise { from { opacity: 0; transform: translateY(22px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes boot-pop { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: none; } }
+@keyframes boot-beat { 0%, 100% { transform: none; } 25% { transform: scale(1.45); text-shadow: 0 0 22px var(--boot-ac, #c58bff); } }
+@keyframes boot-fade { to { opacity: 1; } }
+@keyframes boot-fill { to { transform: none; } }

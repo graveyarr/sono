@@ -109,8 +109,8 @@ export function ensureAudioGraph() {
     n.bass = Object.assign(ctx.createBiquadFilter(), { type: "lowshelf" });
     n.bass.frequency.value = 110;
     n.dry = ctx.createGain();
-    n.reverb = ctx.createConvolver();
-    n.reverb.buffer = impulse();
+    n.reverb = ctx.createConvolver();   // отклик «зала» — только когда реверб включат (applyFx): шум на 2,6 с
+                                        // считался при первом касании и подвешивал телефон на ~40 мс
     n.wet = ctx.createGain();
     n.mix = ctx.createGain();
     // Выравнивание громкости — мягкий компрессор: медленная атака (ударные проходят как есть),
@@ -207,6 +207,7 @@ function applyFx() {
     // а не просто глушим: раньше она считалась всегда и на слабых компьютерах звук трещал
     const reverbOn = fx.reverb > 0;
     if (reverbOn !== n.reverbOn) {
+      if (reverbOn && !n.reverb.buffer) n.reverb.buffer = impulse();
       if (reverbOn) n.bass.connect(n.reverb);
       else n.bass.disconnect(n.reverb);
       n.reverbOn = reverbOn;

@@ -172,6 +172,9 @@ export function showView(key, { back = false } = {}) {
 /** Показать экран view (changed — его только что открыли) */
 function applyView(changed) {
   const isList = !FIXED_VIEWS.includes(view);
+  // Телефон: наверх — до перестройки страницы. В конце scrollTop заставлял браузер сразу пересчитать
+  // всю новую страницу посреди касания (~45 мс), а сейчас раскладка ещё прежняя и готовая
+  if (changed && isMobile) scroller.scrollTop = 0;
   viewHome.hidden = view !== "home";
   viewNow.hidden = view !== "now";
   viewSettings.hidden = view !== "settings";
@@ -181,7 +184,9 @@ function applyView(changed) {
   viewSearch.hidden = view !== "search";
   viewList.hidden = !isList;
   if (view === "home") renderHome(changed);
-  if (view === "now") renderUpNext();
+  // Телефон: лист «Далее» не виден, пока его не открыли, — строим его после первого кадра «Сейчас играет»
+  // (было ~40 мс прямо в касании, экран открывался с рывком)
+  if (view === "now") { if (isMobile) setTimeout(() => { if (view === "now") renderUpNext(); }, 250); else renderUpNext(); }
   if (view === "settings" && changed) (liveUi() || isMobile ? renderSettingsLive : renderSettings)();   // 4 раздела (setlive.js; телефон — с шага 11г)
   // На ПК («Живая обложка») Flow, «Статистика» и «Новинки» — новые экраны (flowlive.js, statslive.js, nrlive.js)
   // Flow — новый экран и на телефоне (шаг 11г)
@@ -192,18 +197,23 @@ function applyView(changed) {
   if (isMetaView(view)) { if (changed) renderMeta(); }
   else if (isList) renderList(changed);
   document.body.classList.toggle("on-flow", view === "flow");
-  if (changed) {
-    const shown = { home: viewHome, now: viewNow, settings: viewSettings, flow: viewFlow, stats: viewStats, workshop: viewWorkshop, search: viewSearch }[view] ?? viewList;
-    shown.classList.remove("entering");
-    if (!liveUi()) {   // на ПК вход рисует переход (enterView)
-      void shown.offsetWidth;
-      shown.classList.add("entering");
-    }
-    scroller.scrollTop = 0;
-  }
+  // Классы экрана — до перезапуска анимации входа: offsetWidth ниже заставляет браузер пересчитать стили
+  // и раскладку всей страницы, и если классы поменять после, всё пересчитывалось второй раз
+  // (на телефоне 122 + 61 мс при каждом переходе)
   document.body.classList.toggle("on-now", view === "now");
   document.body.classList.toggle("on-search", view === "search");   // поле поиска шире и с кольцом (как в макете)
   renderSidebar();
+  if (changed) {
+    const shown = { home: viewHome, now: viewNow, settings: viewSettings, flow: viewFlow, stats: viewStats, workshop: viewWorkshop, search: viewSearch }[view] ?? viewList;
+    if (liveUi()) shown.classList.remove("entering");   // на ПК вход рисует переход (enterView)
+    else {
+      // Телефон: перезапуск анимации входа без лишнего пересчёта страницы — класс снимается в конце анимации
+      // (animationend ниже), и offsetWidth нужен, только если прошлый вход ещё не доиграл
+      if (shown.classList.contains("entering")) { shown.classList.remove("entering"); void shown.offsetWidth; }
+      if (!document.body.classList.contains("no-anim")) shown.classList.add("entering");
+    }
+    if (!isMobile) scroller.scrollTop = 0;
+  }
   document.dispatchEvent(new CustomEvent("sono:view", { detail: view }));   // полоска заголовка обновит «Назад»
 }
 
@@ -1870,6 +1880,8 @@ function setSidebarHidden(hidden) {
 }
 
 export function initViews() {
+  // Анимация входа доиграла — класс долой: следующий вход начнётся без принудительного пересчёта (applyView)
+  document.addEventListener("animationend", (e) => { if (e.animationName === "view-in") e.target.classList.remove("entering"); });
   setSidebarHidden(!!getSetting("sidebarHidden", false));
   lastUploadPick = getSetting("uploadPick", null);
   // Проверка медиатеки нашла неоткрывающиеся загрузки — у песни с двумя загрузками строка выберет рабочую

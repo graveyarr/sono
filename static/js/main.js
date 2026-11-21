@@ -1,6 +1,7 @@
 // Точка входа: загружаем медиатеку, подключаем все части и горячие клавиши.
 
 import { openAddToPlaylist, toggleDislike, toggleLike } from "./actions.js";
+import { finishBoot } from "./boot.js";
 import { openTrack } from "./nav.js";
 import { initDownloads, onDownloadsChange, takeNoSpaceNotice } from "./downloads.js";
 import { initCapsule, initCapsuleMore } from "./capsule.js";
@@ -75,6 +76,7 @@ initIncoming();     // трек, присланный из браузера кн
 // Новый человек (медиатека пуста, приветствия ещё не было) — ему все подсказки; обновившемуся — только про новое
 // (Медиатека не загрузилась — пустая только с виду: человек не новый)
 initTips(libraryLoaded() && !getSetting("onboarded", false) && !lib.history.length && !lib.liked.length && !lib.playlists.length);
+finishBoot();   // всё на месте — заставка программы (если она есть) улетает
 if (libraryError) {
   // Пустую медиатеку нельзя сохранять — она затрёт настоящую. Говорим прямо и предлагаем повторить
   const { box, close } = openModal({ className: "library-notice" });

@@ -120,7 +120,14 @@ export function initSeekViz() {
   if (!input) return;
   new ResizeObserver(() => { if (canvas.isConnected) resize(); }).observe(input);
   // Тему поменяли / открыли «Сейчас играет» — проверяем, нужна ли живая полоса
-  new MutationObserver(refresh).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  // Классы body меняются по нескольку за раз (переход между экранами) — проверяем один раз в кадре, а не сразу:
+  // wanted() читает стиль и заставлял пересчитать стили всей страницы посреди касания (на телефоне ~60 мс)
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; refresh(); });
+  }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   document.addEventListener("visibilitychange", refresh);
   document.addEventListener("sono:motion", refresh);
   document.head.addEventListener("load", refresh, true);   // загрузился theme.css новой темы

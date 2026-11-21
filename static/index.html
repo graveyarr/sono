@@ -5,8 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sono</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="boot.css">
 </head>
 <body>
+  <!-- Заставка программы продолжается здесь с того же кадра (desktop.py → «?splash=мс&c=цвета&m=режим»):
+       рисуем её сразу, до модулей, — шва между окном-заставкой и страницей не видно. Уводит её boot.js -->
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search), ms = q.get("splash");
+      if (ms === null) return;
+      history.replaceState(null, "", location.pathname);   // адрес — без параметров (перезагрузка — без заставки)
+      var c = (q.get("c") || "").split(","), m = q.get("m") || "", ok = /^[0-9a-f]{6}$/i;
+      var names = ["c1", "c2", "c3", "ac", "bg", "fg"], css = "";
+      for (var i = 0; i < names.length; i++) if (ok.test(c[i] || "")) css += "--boot-" + names[i] + ":#" + c[i] + ";";
+      var t = Math.max(0, +ms || 0) / 1000;   // сколько заставка уже шла — анимации продолжаются с этого места
+      var box = document.createElement("div");
+      box.id = "boot";
+      box.className = "boot cont" + (m.indexOf("l") >= 0 ? " light" : "") + (m.indexOf("c") >= 0 ? " calm" : "");
+      box.style.cssText = css + "--boot-t:-" + t.toFixed(2) + "s";
+      box.dataset.shown = String(Math.round(t * 1000));
+      box.innerHTML = '<i class="boot-b boot-b1"></i><i class="boot-b boot-b2"></i><i class="boot-b boot-b3"></i>'
+        + '<div class="boot-logo"><i>s</i><i>o</i><i>n</i><i>o</i><i class="boot-dot">.</i></div><div class="boot-bar"></div>';
+      document.body.appendChild(box);
+    })();
+  </script>
   <!-- Своя полоска заголовка окна вместо системной (titlebar.js; видна только в программе, не в браузере) -->
   <header class="titlebar" id="titlebar" hidden>
     <div class="tb-edge tb-top" data-edge="top"></div>

@@ -595,6 +595,7 @@ function applyCoverColors(img) {
   // оттенка обложки (бежевая → тёплый); у совсем серой оттенка нет — тогда фиолетовый Sono
   document.querySelector(".backdrop")?.classList.toggle("dull", s < 38);
   root.setProperty("--glow-color", s < 12 ? "hsl(262 70% 62%)" : `hsl(${h.toFixed(0)} 72% 62%)`);
+  rememberSplash(...(fixedAccent ? hexHsl(fixedAccent) : [h, s]));
   if (fixedAccent) return applyFixedAccent();
   if (coverMode === "off") return;
   if (coverMode !== "accent") root.setProperty("--tint", tint);
@@ -611,6 +612,15 @@ const hexHsl = (hex) => {
   const h = !d ? 0 : max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
   return [h * 60, s * 100, l * 100];
 };
+/** Заставка при запуске программы (desktop.py) — в цветах последнего трека: запоминаем оттенок и насыщенность.
+    Пишем, только если цвет заметно другой, — медиатека не сохраняется на каждый трек зря */
+function rememberSplash(h, s) {
+  if (isMobile) return;
+  const next = [Math.round(h / 5) * 5 % 360, Math.round(s / 5) * 5];
+  const was = getSetting("splash", null);
+  if (!Array.isArray(was) || was[0] !== next[0] || was[1] !== next[1]) setSetting("splash", next);
+}
+
 function applyFixedAccent() {
   const root = document.documentElement.style;
   const [h, s] = hexHsl(fixedAccent);

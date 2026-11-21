@@ -92,7 +92,10 @@ function refreshGlow() {
   } else if (coverWrap.classList.contains("clip-on")) {
     drawGlow(clipVideo, true);   // «Без анимаций»: подсветка по одному кадру клипа, без обновлений
   } else if (coverImg.complete && coverImg.naturalWidth) {
-    drawGlow(coverImg, false);
+    // Большую обложку браузер раскодирует в фоне (decode), а не прямо в касании: на телефоне drawImage
+    // ещё не раскодированной картинки подвешивал открытие «Сейчас играет» до ~250 мс
+    const src = coverImg.src;
+    coverImg.decode().catch(() => {}).then(() => { if (coverImg.src === src) drawGlow(coverImg, false); });
   }
 }
 

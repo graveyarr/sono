@@ -173,11 +173,20 @@ export function tasteOf(track) {
   return best;
 }
 
+// Экран Flow спрашивает вкус несколько раз подряд (hasTaste, tasteArtists) — считаем один раз на полсекунды:
+// на телефоне каждый подсчёт по всей медиатеке — ~30 мс. Только для чтения (seeds здесь не меняют)
+let seedsCache = null, seedsAt = 0;
+const tasteSeeds = () => {
+  const now = performance.now();
+  if (!seedsCache || now - seedsAt > 500) { seedsCache = taste().seeds; seedsAt = now; }
+  return seedsCache;
+};
+
 /** Исполнители, из которых сейчас складывается вкус (для экрана Flow): [{ name, id, weight }] */
-export const tasteArtists = (n = 10) => taste().seeds.slice(0, n);
+export const tasteArtists = (n = 10) => tasteSeeds().slice(0, n);
 
 /** Есть ли у человека хоть какой-то вкус (иначе Flow предложит выбрать исполнителей) */
-export const hasTaste = () => taste().seeds.length > 0;
+export const hasTaste = () => tasteSeeds().length > 0;
 
 /** Что Flow выучил сам (пропуски и дослушивания): сколько исполнителей звучит чаще и реже */
 export function learnedSummary() {
@@ -186,6 +195,7 @@ export function learnedSummary() {
 }
 
 export function resetLearning() {
+  seedsCache = null;
   setSetting("flowTaste", {});
   setSetting("flowTracks", {});
 }
@@ -196,7 +206,7 @@ export function seedTaste(picked) {
   const now = Date.now();
   for (const { name } of picked) map[norm(name)] = { name, weight: 4, t: now };
   setSetting("flowTaste", map);
-  tasteCache = null;
+  tasteCache = null; seedsCache = null;
 }
 
 /** Играет ли сейчас Flow (любой: общий, по исполнителю, по плейлисту, по треку) */
@@ -227,7 +237,7 @@ function learn(track, listened) {
   const t = { source: track.source, id: track.id, metaId: track.metaId, title: track.title, origTitle: track.origTitle,
               artists: track.artists, channel: track.channel, duration: track.duration };
   bumpLearned("flowTracks", songKey(track), { track: t }, delta * 2, 200);
-  tasteCache = null;
+  tasteCache = null; seedsCache = null;
   if (!session) return;
   // Этот сеанс: пропуски подряд → Flow меняет курс сразу, не дожидаясь следующей порции
   session.recent = [name, ...session.recent].slice(0, 8);
