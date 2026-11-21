@@ -6794,10 +6794,13 @@ body.mobile .cfg-m-back {
 body.mobile .cfg-m-back svg { width: 24px; height: 24px; }
 body.mobile .cfg-body .live-kick { display: none; }
 body.mobile .cfg-body .live-h1 { font-size: 30px; letter-spacing: -1px; }
-body.mobile .cfg-cols { display: block; }
+body.mobile .cfg-cols { display: flex; flex-direction: column; gap: 12px; }   /* колонки — «contents», карточки идут подряд с промежутком */
 body.mobile .cfg-col { gap: 12px; }
 body.mobile .cfg-col + .cfg-col { margin-top: 12px; }
 body.mobile .cfg-card { padding: 14px 16px 6px; }
+/* старое правило телефона «.glass без углов и рамки» — для рамок экрана; карточки настроек — круглые, как в «Виде» */
+body.mobile .cfg-card.glass { border-radius: 24px; border: 1px solid var(--edge); }
+body.mobile .cfg-more-tiles { grid-template-columns: minmax(0, 1fr); }   /* «Редактора тем» плиткой на телефоне нет — «Мастерская» во всю ширину */
 body.mobile .cfg-card > h3 { font-size: 16px; }
 body.mobile .cfg-row, body.mobile .cfg .set-switch { flex-wrap: wrap; gap: 10px 12px; }
 body.mobile .cfg-row > .cfg-row-text { flex: 1 1 200px; }
